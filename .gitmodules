@@ -1,0 +1,9 @@
+[submodule "software/edge/third_party/rtabmap"]
+	path = software/edge/third_party/rtabmap
+	url = https://github.com/introlab/rtabmap
+[submodule "software/edge/third_party/lio-sam"]
+	path = software/edge/third_party/lio-sam
+	url = https://github.com/TixiaoShan/LIO-SAM
+[submodule "software/edge/third_party/kimera-vio"]
+	path = software/edge/third_party/kimera-vio
+	url = https://github.com/MIT-SPARK/Kimera-VIO

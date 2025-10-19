@@ -1,0 +1,6 @@
+site_name: Aeris
+site_description: Documentation for the Aeris edge autonomy platform
+theme:
+  name: material
+nav:
+  - Home: index.md

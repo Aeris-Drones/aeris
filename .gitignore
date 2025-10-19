@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# ROS 2 colcon build artifacts
+build/
+install/
+log/
+
+# CMake build directories
+cmake-build*/
+CMakeCache.txt
+CMakeFiles/
+
+# Editor temporaries
+*.swp
+.idea/
+.vscode/
