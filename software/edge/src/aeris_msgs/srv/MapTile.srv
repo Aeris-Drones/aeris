@@ -1,0 +1,3 @@
+string tile_id
+---
+aeris_msgs/MapTile tile

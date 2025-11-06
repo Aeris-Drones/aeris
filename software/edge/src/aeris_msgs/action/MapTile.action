@@ -1,0 +1,5 @@
+string tile_id
+---
+aeris_msgs/MapTile tile
+---
+float32 progress_percent

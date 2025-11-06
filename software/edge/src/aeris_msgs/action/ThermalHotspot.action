@@ -1,0 +1,5 @@
+builtin_interfaces/Time target_time
+---
+aeris_msgs/ThermalHotspot hotspot
+---
+float32 progress_percent
