@@ -1,0 +1,37 @@
+version: 1
+ladder:
+  - name: base_360p
+    resolution: 640x360
+    target_bitrate_kbps: 900
+    max_bitrate_kbps: 1200
+    gop: 60
+    fps: 30
+  - name: perf_540p
+    resolution: 960x540
+    target_bitrate_kbps: 1800
+    max_bitrate_kbps: 2400
+    gop: 60
+    fps: 30
+  - name: detail_720p
+    resolution: 1280x720
+    target_bitrate_kbps: 3200
+    max_bitrate_kbps: 4200
+    gop: 60
+    fps: 30
+  - name: survey_1080p
+    resolution: 1920x1080
+    target_bitrate_kbps: 5200
+    max_bitrate_kbps: 6500
+    gop: 60
+    fps: 30
+  - name: lowlight_720p
+    resolution: 1280x720
+    target_bitrate_kbps: 4200
+    max_bitrate_kbps: 5200
+    gop: 30
+    fps: 30
+
+constraints:
+  max_total_bitrate_kbps: 8000
+  min_latency_ms: 75
+  max_latency_ms: 250
