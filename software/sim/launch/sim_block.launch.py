@@ -15,25 +15,45 @@ def generate_launch_description() -> LaunchDescription:
         default_value=str(this_dir.parent / "worlds" / "aeris_block.world"),
         description="Path to the Gazebo world file",
     )
+    use_sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time",
+        default_value="false",
+        description="Set to true if downstream nodes should use Gazebo clock",
+    )
 
     world_path = LaunchConfiguration("world")
 
     gazebo = ExecuteProcess(
-        cmd=["ign", "gazebo", world_path],
+        cmd=["ign", "gazebo", "-s", "-r", world_path],
+        output="screen",
+        additional_env={"QT_QPA_PLATFORM": "offscreen"},
+    )
+
+    bridge = ExecuteProcess(
+        cmd=[
+            "ros2",
+            "run",
+            "ros_gz_bridge",
+            "parameter_bridge",
+            "/camera/image@sensor_msgs/msg/Image@ignition.msgs.Image",
+        ],
         output="screen",
     )
 
-    bridge_stub = LogInfo(
+    logging = LogInfo(
         msg=(
-            "ros_gz_bridge TODO: add camera/IMU/topic remaps after Phase 1 "
-            "sensors are finalized"
+            "Launched Ignition Gazebo Fortress via 'ign gazebo'. "
+            "Bridge mapping /camera/image between Gazebo Transport and ROS 2. "
+            "Use --ros-args -p use_sim_time:=true on ROS nodes if sim clock is required."
         )
     )
 
     return LaunchDescription(
         [
             world_arg,
+            use_sim_time_arg,
             gazebo,
-            bridge_stub,
+            bridge,
+            logging,
         ]
     )

@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>aeris_evidence</name>
+  <version>0.1.0</version>
+  <description>Evidence bundling CLI for bench sessions.</description>
+  <maintainer email="dev@aeris.local">Aeris Developers</maintainer>
+  <license>proprietary</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>python3-nacl</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
