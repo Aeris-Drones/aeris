@@ -5,7 +5,10 @@ All mission‑critical mapping, perception, mission logic run on the companion c
 GCS remains thin; swarm must work fully offline.  
 Time sync by GNSS‑disciplined PTP; degraded mode via mesh fallback. Fusion gating at ~2 ms skew.
 
-Hardware standardized: Jetson Orin NX (Scout, down-clocked), Jetson AGX Orin (Ranger). *Optional Hailo-8 if mission needs change.*
+Hardware standardized: Jetson Orin NX (Scout, down-clocked), Jetson AGX Orin (Ranger). *Optional Hailo-8 if mission needs change.* Jetson Orin Nano bench rigs act as the Phase 0 proving ground, which locks in three constraints that now gate every demo:
+- **No NVENC block on Nano:** all video encode is software-only, so the primary deliverable is MBTiles plus low-fps preview streams capped by `software/edge/config/srt/abr_ladder.yaml`.
+- **CSI lane budget:** the dev kit exposes CAM1 as either x4 or dual x2 lanes and CAM0 as a single x2 lane, which means we can run one high-speed global-shutter on CAM1 or a stereo pair as 2×x2, but we cannot oversubscribe with dual x4 imagers; BOM choices must observe those limits.
+- **PTP discipline:** every bench or sim harness must launch `ptp4l`/`phc2sys` with `software/edge/config/ptp/ptp4l_gm.cfg`, `software/edge/config/ptp/ptp4l_slave.cfg`, and `software/edge/config/ptp/phc2sys.cfg` so fusion sees ≤ 2 µs skew before it enables gating.
 
 Safety isolation:  
 FMU (PX4 on RTOS, BSD-3-Clause) remains the final authority; Aeris OS issues advisory setpoints. FMU can refuse/modify for safety. Companion↔FMU link via MAVSDK.
@@ -21,7 +24,7 @@ Pods:
 1‑Wire/EEPROM ID, soft-start (<50ms), attach→ready < 15 s, capability registry.
 
 Time sync:  
-linuxptp, GNSS grandmaster, fusion gating by skew.
+linuxptp, GNSS grandmaster, fusion gating by skew. Bench + sim harnesses must run `ptp4l`/`phc2sys` using `software/edge/config/ptp/ptp4l_gm.cfg`, `software/edge/config/ptp/ptp4l_slave.cfg`, and `software/edge/config/ptp/phc2sys.cfg` to hold ≤ 2 µs offset before fusing data.
 
 Security/compliance:  
 Evidence signed by Ed25519 + P-256 (fTPM + secure element), privacy export defaults (face/license plate redaction), SPDX headers and SBOM scan on every CI run.
@@ -282,5 +285,47 @@ Preserves tight real‑time interface coherency across Orchestrator/Map/Percepti
 
 Monorepo scales if you apply trunk‑based dev and strong CI.  
 Hybrid gives easy future splits—now with updated GPL isolation, research‑backed mesh choices, and new onboarding/scripts.
+
+***
+
+**13) Conrad Innovation Run-up Plan (8 weeks)**
+
+**Current footing (validated):**  
+ROS 2 workspace builds/runs (`aeris_msgs`, `aeris_map`, `aeris_orchestrator`) inside the Humble Docker image; DDS/sysctl/PTP/SRT configs plus `dds_flood_tester.py` verified at ~600 Hz throughput while MapTile traffic continues. Specs already lock KPIs: TTFM < 3 min, first tile < 90 s, tile latency ≤ 2 s (95 pct), thermal ≥ 5 fps, gas 0.5–1 Hz, evidence export < 60 s, mesh reliability ≥ 99 % (≤ 2 hops).
+
+**Prototype we show at Conrad:**  
+1. **Gazebo Sim multi‑UAS mission** (search grid → plume track) with ROS 2 bridge, RTAB‑Map generating live MBTiles, and simulated thermal/gas/acoustic cues rendered in the viewer.  
+2. **Jetson Orin Nano bench rig** running the same Aeris services with the global‑shutter camera, pushing MapTiles/ThermalHotspots in real time; overlays show first tile timing, tile latency, thermal FPS, gas Hz, mesh delivery rate.  
+3. **Thin GCS viewer** (Leaflet/Mapbox) consuming MBTiles and overlays, plus evidence export clip (manifest hash + signature). This matches Conrad’s 3–5 min Innovation Video + Innovation Brief + public site requirements.
+
+**Hardware constraints to honor now:**  
+- Jetson Orin Nano exposes no NVENC block, so encoding is libx264/AV1 in software; the bench deliverable is MBTiles plus low‑fps preview streams shaped by `software/edge/config/srt/abr_ladder.yaml`, not high‑bitrate video.  
+- The dev kit CSI topology (CAM1 = x4 or 2×x2, CAM0 = x2) forces the camera BOM to choose either one x4 global‑shutter or two x2 sensors; anything heavier will throttle lanes and break sync.  
+- Bench + sim harnesses must launch linuxptp (`ptp4l`, `phc2sys`) with `software/edge/config/ptp/ptp4l_gm.cfg`, `software/edge/config/ptp/ptp4l_slave.cfg`, and `software/edge/config/ptp/phc2sys.cfg` so fusion and evidence gating see ≤ 2 µs skew.
+
+**Phase 0 (Days 1–3) – Constraints locked**  
+*Deliverables:* ARCH/REQ addendum noting NVENC absence, CSI budgeting, and “tiles‑first” video stance; bench script launching camera + ptp4l/phc2sys + CPU pinning template.  
+*Acceptance:* Camera streaming on Nano; `/map/tiles` & `/perception/*` heartbeats visible; PTP offset < 2 µs on bench LAN.
+
+**Phase 1 (Weeks 1–2) – Simulation world + mapping baseline**  
+*Goals:* Gazebo Sim world (street block, plume source, thermal beacons) with PX4/ArduPilot SITL, `ros_gz_bridge`, and RTAB‑Map writing MBTiles + publishing MapTile messages.  
+*Deliverables:* World assets, launch files, CLI for “first tile” timestamp, CI job running headless sim.  
+*Acceptance:* First tile < 90 s (sim time), tile latency ≤ 2 s (95 pct) edge→viewer, TTFM < 3 min for single scout.
+
+**Phase 2 (Weeks 3–4) – Perception + mesh realism**  
+*Goals:* Implement `aeris_perception` (thermal ≥ 5 fps, acoustic GCC‑PHAT, gas Kernel DM+V/W at 0.5–1 Hz) and `aeris_mesh_agent` with priority queues + store‑and‑forward; simulate mesh impairments. Add Leaflet/Mapbox viewer HUD.  
+*Acceptance:* Thermal node sustains ≥ 5 fps, gas polygons ≥ 0.5 Hz, mesh control/telemetry success ≥ 99 % for ≤ 2 hops under impairment scenarios. Viewer renders tiles + overlays live.
+
+**Phase 3 (Weeks 5–6) – Bench integration + evidence**  
+*Goals:* Run Aeris stack on Orin Nano with real camera, load the sysctl/DDS/PTP profiles, and exercise evidence bundling (SHA‑256 + Ed25519/P‑256).  
+*Deliverables:* Bench launch scripts (CPU pinning, services), evidence CLI exporting 15‑min sessions, dual-take video clips (sim + bench).  
+*Acceptance:* Bench run meets first tile/tile latency KPIs despite software video encode; evidence bundle exports < 60 s and passes verifier.
+
+**Phase 4 (Weeks 7–8) – Judge package**  
+*Goals:* Measure/report KPIs, finalize Innovation Video/Brief/website, and polish HUD overlays.  
+*Deliverables:* KPI overlay generator (first tile, tile latency 95‑pct, thermal fps, gas Hz, mesh reliability), 1‑page system diagram + KPI sheet, public site hosting viewer clips.  
+*Acceptance:* 3–5 min video covering sim + bench, Innovation Brief answers all prompts, public site live; KPI overlay shows targets met on final runs.
+
+**Immediate worklist (Week 0):** incorporate constraints into specs, create bench checklists, scaffold Gazebo world + RTAB‑Map MBTiles path, and add GitHub issues aligning each phase with owners/milestones. Workshops should mirror existing RACI cadence; each phase ends with a measurable demo plus log entry in `LOG.md`.
 
 ***
