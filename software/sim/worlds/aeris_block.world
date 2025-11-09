@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<!-- Minimal Gazebo world scaffolding for Aeris Phase 1 -->
+<sdf version="1.7">
+  <world name="aeris_block">
+    <!-- TODO: Replace with scripted street block geometry, plume emitters, and heat sources. -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+    <include>
+      <uri>model://sun</uri>
+    </include>
+    <!-- TODO: Insert houses, vehicles, and a gas leak volume for plume modeling. -->
+    <!-- TODO: Add thermal beacon models once the perception pipeline is ready. -->
+  </world>
+</sdf>

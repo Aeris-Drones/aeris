@@ -151,12 +151,12 @@ The software on each Aeris vehicle is divided into two distinct compute tiers.
 
 ### 5.1 In-Vehicle Transport
 
-**Protocol:** **ROS 2 \+ DDS** (CycloneDDS or Fast DDS) for high-bandwidth local topics. The DDS implementation will be explicitly tuned for Wi-Fi reliability using static discovery, tuned fragmentation, and enlarged socket buffers.
+**Protocol:** **ROS 2 \+ DDS** (CycloneDDS or Fast DDS) for high-bandwidth local topics. The DDS implementation will be explicitly tuned for Wi-Fi reliability using static discovery, tuned fragmentation, and enlarged socket buffers. Reference profiles live in `software/edge/config/dds/cyclonedds.xml` and `software/edge/config/dds/fastdds.xml`, with companion kernel tuning in `software/edge/config/dds/sysctl_overlay.conf`. Transport stress can be reproduced with `software/edge/tools/dds_flood_tester.py`.
 
 ### 5.2 Cross-Vehicle & GCS Transport
 
 * **Control & Telemetry:** **gRPC streaming over HTTP/2** (with QUIC/HTTP/3 as a future target). Provides a reliable, low-latency, and strictly-defined API.  
-* **Live Video:** **SRT over UDP**, with its bitrate controlled by the Mesh Agent's ABR logic.  
+* **Live Video:** **SRT over UDP**, with its bitrate controlled by the Mesh Agent's ABR logic; default rung definitions are tracked in `software/edge/config/srt/abr_ladder.yaml`.  
 * **Map Tiles & Evidence:** **Opportunistic HTTP/3 (QUIC)**, leveraging the Mesh Agent's store-and-forward capability. Tiles are formatted as **MBTiles 1.3**.
 
 ---
@@ -165,7 +165,7 @@ The software on each Aeris vehicle is divided into two distinct compute tiers.
 
 ### 6.1 Time Synchronization
 
-* **Strategy:** Hierarchical **IEEE-1588 PTP**. The Ranger acts as a **GNSS-disciplined Grandmaster**. Scouts are slaves over the AerisMesh.  
+* **Strategy:** Hierarchical **IEEE-1588 PTP**. The Ranger acts as a **GNSS-disciplined Grandmaster**. Scouts are slaves over the AerisMesh. Concrete configs are versioned as `software/edge/config/ptp/ptp4l_gm.cfg`, `software/edge/config/ptp/ptp4l_slave.cfg`, and `software/edge/config/ptp/phc2sys.cfg`, and the bench bootstrap script (`software/edge/tools/bench_bootstrap.sh`) applies them verbatim.  
 * **Fusion Gate:** The Map Service will only fuse cross-sensor data with timestamps within a **\< 2 ms** threshold.
 
 ### 6.2 Security
