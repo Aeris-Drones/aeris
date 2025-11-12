@@ -6,7 +6,7 @@ This guide walks through preparing the Jetson Orin Nano bench rig, verifying tim
 
 - Jetson Orin Nano lacks NVENC, so preview video must remain software-encoded; focus on `/map/tiles` MBTiles output plus low-FPS previews.
 - CSI lane budget: CAM1 exposes 4 lanes (or dual x2), CAM0 exposes 2 lanes—pick image sensors accordingly.
-- Bench and simulation harnesses must keep clock skew ≤ 2 µs by running `ptp4l`/`phc2sys` with the configs under `software/edge/config/ptp/`.
+- Bench and simulation harnesses must keep clock skew ≤ 2 µs by running `ptp4l`/`phc2sys` with the configs under `software/edge/config/ptp/`.
 
 ## Bench bootstrap
 
@@ -34,7 +34,7 @@ This guide walks through preparing the Jetson Orin Nano bench rig, verifying tim
 3. Launch the desired nodes:
    - Mapping baseline: `ros2 run aeris_map map_tile_publisher` and `ros2 run aeris_orchestrator heartbeat`.
    - Perception/mesh demo (optional): `ros2 launch software/edge/launch/perception_demo.launch.py`.
-4. Measure time-to-first-tile (acceptance keeps it < 90 s):
+4. Measure time-to-first-tile (acceptance keeps it < 90 s):
    ```bash
    python3 software/edge/tools/first_tile_timer.py --timeout-sec 120 & sleep 0.3
    ros2 run aeris_map map_tile_publisher
@@ -43,20 +43,34 @@ This guide walks through preparing the Jetson Orin Nano bench rig, verifying tim
 ## Evidence bundle workflow
 
 1. Identify directories with logs/config snapshots (e.g., `/var/log/ptp4l/`, `/workspace/aeris/logs/`).
-2. Create the bundle (default window is 15 min / 900 s):
+
+2. **Running evidence bundler:**
+
+   **Preferred** (after `colcon build --packages-select aeris_evidence` and re-sourcing `install/setup.bash`):
    ```bash
-   evidence_bundle --input-dir /var/log/ptp4l --input-dir /workspace/aeris/logs \
+   ros2 run aeris_evidence evidence_bundle -- --input-dir /var/log/ptp4l \
+     --input-dir /workspace/aeris/logs --out /tmp/aeris_evidence.tgz --window-sec 900
+   ```
+
+   **Fallback** (symlink-install or not built):
+   ```bash
+   PYTHONPATH=software/edge/src/aeris_evidence python3 -m aeris_evidence.evidence_bundle \
+     --input-dir /var/log/ptp4l --input-dir /workspace/aeris/logs \
      --out /tmp/aeris_evidence.tgz --window-sec 900
    ```
-3. Optional Ed25519 signing:
+
+3. **Optional Ed25519 signing:**
    ```bash
-   evidence_bundle --input-dir /var/log/ptp4l --out /tmp/aeris_evidence.tgz \
-     --signing-key /secure/keys/aeris_ed25519.key
+   ros2 run aeris_evidence evidence_bundle -- --input-dir /var/log/ptp4l \
+     --out /tmp/aeris_evidence.tgz --signing-key /secure/keys/aeris_ed25519.key
    ```
    - Keys follow the PyNaCl Ed25519 format (32-byte seed); the manifest is signed per the PyNaCl digital-signature workflow and saved as `manifest.sig`.
+   - Signing is optional; install PyNaCl to test Ed25519 signing, otherwise the CLI degrades gracefully.
+
 4. Bundle contents:
-   - `manifest.json` lists each file’s original path, tar `arcname`, byte size, and SHA-256 digest (mirrors the file/digest pairing recommended by The Update Framework spec). Hashes are computed with Python’s `hashlib.sha256`.
+   - `manifest.json` lists each file's original path, tar `arcname`, byte size, and SHA-256 digest (mirrors the file/digest pairing recommended by The Update Framework spec). Hashes are computed with Python's `hashlib.sha256`.
    - The `.tgz` also contains every matching file from the provided directories. Use `--manifest-only` to emit just the manifest (plus optional signature) for quick checks.
+
 5. Output confirms file count and byte total. If no files match the sliding window, the CLI exits non-zero so you can widen `--window-sec`.
 
 ## Operational tips
@@ -68,8 +82,8 @@ This guide walks through preparing the Jetson Orin Nano bench rig, verifying tim
 ## Acceptance checklist
 
 - `bench_bootstrap.sh` runs without errors on the Jetson, applying sysctl tweaks and launching linuxptp daemons.
-- `ptp_status.py` reports a plausible offset (≤ 2 µs target) from the phc2sys log or one-shot query.
-- `first_tile_timer.py` observes the first `/map/tiles` message in < 90 s while `map_tile_publisher` runs on the bench rig.
+- `ptp_status.py` reports a plausible offset (≤ 2 µs target) from the phc2sys log or one-shot query.
+- `first_tile_timer.py` observes the first `/map/tiles` message in < 90 s while `map_tile_publisher` runs on the bench rig.
 - `evidence_bundle` creates `/tmp/aeris_evidence.tgz` with `manifest.json` (plus `manifest.sig` when a key is provided) enumerating SHA-256 hashes for every captured file.
 
 ## References
