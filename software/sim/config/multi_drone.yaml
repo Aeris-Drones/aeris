@@ -1,0 +1,31 @@
+{
+  "vehicles": [
+    {
+      "name": "scout1",
+      "model": "scout",
+      "pose": "-40 0 8 0 0 0",
+      "mavlink_udp_port": 14540,
+      "px4_instance": 1,
+      "px4_sys_autostart": 4001,
+      "px4_sim_model": "gz_scout"
+    },
+    {
+      "name": "scout2",
+      "model": "scout",
+      "pose": "0 50 10 0 0 1.57",
+      "mavlink_udp_port": 14541,
+      "px4_instance": 2,
+      "px4_sys_autostart": 4001,
+      "px4_sim_model": "gz_scout"
+    },
+    {
+      "name": "ranger1",
+      "model": "ranger",
+      "pose": "50 -5 12 0 0 -1.57",
+      "mavlink_udp_port": 14542,
+      "px4_instance": 3,
+      "px4_sys_autostart": 4010,
+      "px4_sim_model": "gz_ranger"
+    }
+  ]
+}

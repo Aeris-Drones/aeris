@@ -39,6 +39,6 @@ ros2 topic list | grep -q "/clock" && echo "Bridge active: /clock being publishe
 
 echo "Use a separate terminal to spawn the test model:"
 echo "  ros2 service call /world/basic_world/create ros_gz_interfaces/srv/SpawnEntity '{name: test_box, xml: \"$(cat software/sim/models/test_box/model.sdf | sed 's/"/\\\"/g')\"}'"
-echo "Then drive it (if plugin added) via ROS 2 topics."
+echo "Then drive it via ROS 2: bridge /model/test_box/cmd_vel and publish geometry_msgs/msg/Twist as documented in docs/specs/sim_setup.md."
 
 wait ${GZ_PID}

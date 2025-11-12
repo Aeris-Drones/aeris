@@ -27,6 +27,7 @@ This document captures layout, lighting, and asset details for the Aeris demo di
 ```bash
 WORLD_PATH=software/sim/worlds/disaster_scene.sdf ./software/sim/tools/run_basic_sim.sh
 ```
+To add the PX4 fleet, run `./software/sim/tools/run_multi_drone_sitl.py --config software/sim/config/multi_drone.yaml --dry-run` (use `--vehicles scout1` for the single-vehicle check). Re-run with `--execute` after PX4 install or orchestrate with `ros2 launch software/sim/launch/multi_drone_sim.launch.py`.
 
 Spawn helper output shows bridge status. Use `gazebo` GUI to move camera for cinematic views.
 

@@ -1,27 +1,28 @@
 <?xml version="1.0"?>
 <sdf version="1.7">
   <model name="test_box">
-    <pose>0 0 0.5 0 0 0</pose>
+    <pose>0 0 0.4 0 0 0</pose>
+
     <link name="base_link">
       <inertial>
-        <mass>1.0</mass>
+        <mass>2.0</mass>
         <inertia>
-          <ixx>0.1</ixx>
-          <iyy>0.1</iyy>
-          <izz>0.1</izz>
+          <ixx>0.2</ixx>
+          <iyy>0.2</iyy>
+          <izz>0.2</izz>
         </inertia>
       </inertial>
       <collision name="collision">
         <geometry>
           <box>
-            <size>0.5 0.5 0.5</size>
+            <size>0.6 0.4 0.4</size>
           </box>
         </geometry>
       </collision>
       <visual name="visual">
         <geometry>
           <box>
-            <size>0.5 0.5 0.5</size>
+            <size>0.6 0.4 0.4</size>
           </box>
         </geometry>
         <material>
@@ -30,5 +31,88 @@
         </material>
       </visual>
     </link>
+
+    <link name="left_wheel">
+      <pose>0 0.25 0.2 0 1.5708 0</pose>
+      <collision name="collision">
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius>
+            <length>0.05</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius>
+            <length>0.05</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+        </material>
+      </visual>
+    </link>
+
+    <link name="right_wheel">
+      <pose>0 -0.25 0.2 0 1.5708 0</pose>
+      <collision name="collision">
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius>
+            <length>0.05</length>
+          </cylinder>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <cylinder>
+            <radius>0.1</radius>
+            <length>0.05</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+        </material>
+      </visual>
+    </link>
+
+    <joint name="left_wheel_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>left_wheel</child>
+      <pose>0 0.25 0.2 0 0 0</pose>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1e16</lower>
+          <upper>1e16</upper>
+        </limit>
+      </axis>
+    </joint>
+
+    <joint name="right_wheel_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>right_wheel</child>
+      <pose>0 -0.25 0.2 0 0 0</pose>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1e16</lower>
+          <upper>1e16</upper>
+        </limit>
+      </axis>
+    </joint>
+
+    <plugin name="diff_drive" filename="libignition-gazebo-diff-drive-system.so">
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>0.5</wheel_separation>
+      <wheel_radius>0.1</wheel_radius>
+      <topic>/model/test_box/cmd_vel</topic>
+      <odom_topic>/model/test_box/odom</odom_topic>
+      <max_lin_vel>2.0</max_lin_vel>
+      <max_ang_vel>1.0</max_ang_vel>
+    </plugin>
   </model>
 </sdf>

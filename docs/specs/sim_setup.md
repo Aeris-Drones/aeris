@@ -38,6 +38,39 @@ WORLD_PATH=software/sim/worlds/disaster_scene.sdf ./software/sim/tools/run_basic
 ```
 See `docs/specs/disaster_scene.md` for lighting/layout details.
 
+### Test Model Control Check
+1. Bridge the command/odom topics (after the helper script launches Gazebo):
+   ```bash
+   ros2 run ros_gz_bridge parameter_bridge \
+     /model/test_box/cmd_vel@geometry_msgs/msg/Twist@ignition.msgs.Twist \
+     /model/test_box/odom@nav_msgs/msg/Odometry@ignition.msgs.Odometry
+   ```
+2. Command the model from ROS 2:
+   ```bash
+   ros2 topic pub /model/test_box/cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.5}, angular: {z: 0.2}}'
+   ```
+3. Observe the robot driving in Gazebo and odom streaming back through the bridge.
+
+### Multi-Drone SITL
+1. Launch the disaster scene as above.
+2. Validate ports/poses:
+   ```bash
+   ./software/sim/tools/run_multi_drone_sitl.py --config software/sim/config/multi_drone.yaml --dry-run
+   ```
+3. After installing PX4 SITL, spawn vehicles:
+   ```bash
+   ./software/sim/tools/run_multi_drone_sitl.py --config software/sim/config/multi_drone.yaml --execute
+   ```
+4. Optional: use `ros2 launch software/sim/launch/multi_drone_sim.launch.py` to orchestrate Gazebo + SITL in one go.
+5. Inspect `/vehicle/<name>/...` topics via `ros2 topic list` once bridges are active.
+
+### Single-Vehicle PX4 SITL Smoke Test
+Epic 1 expects the PX4 toolchain to be verified before multi-vehicle work:
+```bash
+./software/sim/tools/run_multi_drone_sitl.py --config software/sim/config/multi_drone.yaml --vehicles scout1 --execute
+```
+This launches only the Scout1 instance (port 14540). Use `ros2 topic echo /vehicle/scout1/px4/vehicle_status` (after starting ros_gz_bridge and PX4-required bridges) to confirm heartbeats.
+
 ## Troubleshooting
 - Confirm environment variables are sourced: `source /opt/ros/humble/setup.bash`
 - Check bridge compatibility: versions of gz-sim and ros-gz-bridge
