@@ -38,7 +38,7 @@ def test_launch_files_exist():
 def test_supporting_docs_and_scripts_exist():
     assert os.path.isfile('docs/specs/sim_setup.md')
     assert os.path.isfile('docs/specs/disaster_scene.md')
-    assert os.path.isfile('docs/specs/multi_drone_sitl.md')
+    assert os.path.isfile('docs/specs/stories/multi_drone_sitl.md')
     assert os.path.isfile('software/sim/tools/run_basic_sim.sh')
     assert os.path.isfile('software/sim/models/test_box/model.sdf')
 

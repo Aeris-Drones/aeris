@@ -293,6 +293,11 @@
         </visual>
       </link>
     </model>
+
+    <!-- Cinematic camera rig with programmable controller -->
+    <include>
+      <uri>model://cinematic_camera</uri>
+      <pose>0 -40 80 0.2 0.1 0</pose>
+    </include>
   </world>
 </sdf>
-

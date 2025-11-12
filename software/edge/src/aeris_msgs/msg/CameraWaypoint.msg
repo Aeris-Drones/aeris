@@ -1,0 +1,4 @@
+builtin_interfaces/Duration time_from_start
+geometry_msgs/Pose pose
+float32 field_of_view_deg
+float32 focal_distance_m

@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>aeris_camera_controller</name>
+  <version>0.1.0</version>
+  <description>Gazebo camera controller plugin with ROS 2 service interface for cinematic views.</description>
+  <maintainer email="dev@aeris.local">Aeris Developers</maintainer>
+  <license>proprietary</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>aeris_msgs</depend>
+  <depend>ignition-gazebo6</depend>
+  <depend>ignition-math6</depend>
+  <depend>ignition-transport11</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

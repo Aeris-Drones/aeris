@@ -1,0 +1,9 @@
+string command_type  # preset | path
+string preset_name   # wide | tracking | pov | orbit
+string target_vehicle
+CameraWaypoint[] path
+float32 transition_duration
+bool tracking_mode
+---
+bool accepted
+string message

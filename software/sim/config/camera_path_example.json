@@ -1,0 +1,53 @@
+{
+  "metadata": {
+    "version": 1,
+    "description": "Cinematic camera path"
+  },
+  "waypoints": [
+    {
+      "time_from_start": 0.0,
+      "position": {
+        "x": -60.0,
+        "y": 0.0,
+        "z": 70.0
+      },
+      "orientation_rpy": {
+        "roll": 0.0,
+        "pitch": -0.5,
+        "yaw": 0.0
+      },
+      "fov_deg": 55.0,
+      "focal_distance_m": 60.0
+    },
+    {
+      "time_from_start": 4.0,
+      "position": {
+        "x": -10.0,
+        "y": 20.0,
+        "z": 45.0
+      },
+      "orientation_rpy": {
+        "roll": 0.0,
+        "pitch": -0.3,
+        "yaw": 1.2
+      },
+      "fov_deg": 45.0,
+      "focal_distance_m": 40.0
+    },
+    {
+      "time_from_start": 7.5,
+      "position": {
+        "x": 30.0,
+        "y": -15.0,
+        "z": 35.0
+      },
+      "orientation_rpy": {
+        "roll": 0.0,
+        "pitch": -0.2,
+        "yaw": -1.0
+      },
+      "fov_deg": 35.0,
+      "focal_distance_m": 30.0
+    }
+  ]
+}

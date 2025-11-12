@@ -1,0 +1,30 @@
+{
+  "output_dir": "log/recordings",
+  "bag_name_prefix": "aeris_mission",
+  "max_size_mb": 500,
+  "rosbag": {
+    "storage_id": "mcap",
+    "compression_mode": "file",
+    "compression_format": "zstd",
+    "topics": [
+      "/clock",
+      "/tf",
+      "/tf_static",
+      "/map/tiles",
+      "/mission/state",
+      "/mission/events",
+      "/perception/detections",
+      "/perception/events",
+      "/simulation/camera/path_commands",
+      "/vehicle/scout1/px4/vehicle_local_position",
+      "/vehicle/scout1/px4/vehicle_status",
+      "/vehicle/scout1/trajectory_setpoint",
+      "/vehicle/scout2/px4/vehicle_local_position",
+      "/vehicle/scout2/px4/vehicle_status",
+      "/vehicle/scout2/trajectory_setpoint",
+      "/vehicle/ranger1/px4/vehicle_local_position",
+      "/vehicle/ranger1/px4/vehicle_status",
+      "/vehicle/ranger1/trajectory_setpoint"
+    ]
+  }
+}
