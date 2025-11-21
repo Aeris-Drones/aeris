@@ -31,39 +31,54 @@ const DEFAULT_OPTIONS: Required<ROSConnectionOptions> = {
 };
 
 export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnectionResult {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
+  // Destructure options with defaults to avoid object instability
+  const url = options.url || DEFAULT_OPTIONS.url;
+  const autoConnect = options.autoConnect ?? DEFAULT_OPTIONS.autoConnect;
+  const maxRetries = options.maxRetries ?? DEFAULT_OPTIONS.maxRetries;
+  const initialRetryDelay = options.initialRetryDelay ?? DEFAULT_OPTIONS.initialRetryDelay;
+  const maxRetryDelay = options.maxRetryDelay ?? DEFAULT_OPTIONS.maxRetryDelay;
 
   const [state, setState] = useState<ConnectionState>('disconnected');
   const [error, setError] = useState<string | null>(null);
+  const [rosInstance, setRosInstance] = useState<ROSLIB.Ros | null>(null);
   const rosRef = useRef<ROSLIB.Ros | null>(null);
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isConnectingRef = useRef(false);
+  const stateRef = useRef(state);
+  
+  // Ref to allow recursion in connect
+  const connectRef = useRef<() => void>(() => {});
+
+  // Keep stateRef in sync
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   // Calculate exponential backoff delay
   const getRetryDelay = useCallback(() => {
     const delay = Math.min(
-      opts.initialRetryDelay * Math.pow(2, retryCountRef.current),
-      opts.maxRetryDelay
+      initialRetryDelay * Math.pow(2, retryCountRef.current),
+      maxRetryDelay
     );
     return delay;
-  }, [opts.initialRetryDelay, opts.maxRetryDelay]);
+  }, [initialRetryDelay, maxRetryDelay]);
 
   // Connect to ROS bridge
   const connect = useCallback(() => {
-    // Prevent multiple simultaneous connection attempts
-    if (isConnectingRef.current || state === 'connected') {
+    // Prevent multiple simultaneous connection attempts using refs for stability
+    if (isConnectingRef.current || stateRef.current === 'connected') {
       return;
     }
 
     isConnectingRef.current = true;
     setState('connecting');
     setError(null);
-    console.log(`[ROS] Connecting to ${opts.url}...`);
+    console.log(`[ROS] Connecting to ${url}...`);
 
     // Create new ROS connection
     const ros = new ROSLIB.Ros({
-      url: opts.url,
+      url: url,
     });
 
     ros.on('connection', () => {
@@ -82,16 +97,17 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
       isConnectingRef.current = false;
 
       // Schedule retry if we haven't exceeded max retries
-      if (retryCountRef.current < opts.maxRetries) {
+      if (retryCountRef.current < maxRetries) {
         const delay = getRetryDelay();
-        console.log(`[ROS] Retrying in ${delay}ms (attempt ${retryCountRef.current + 1}/${opts.maxRetries})`);
+        console.log(`[ROS] Retrying in ${delay}ms (attempt ${retryCountRef.current + 1}/${maxRetries})`);
 
         retryTimeoutRef.current = setTimeout(() => {
           retryCountRef.current++;
-          connect();
+          // Use ref for recursive call
+          connectRef.current();
         }, delay);
       } else {
-        console.error(`[ROS] Max retries (${opts.maxRetries}) exceeded. Giving up.`);
+        console.error(`[ROS] Max retries (${maxRetries}) exceeded. Giving up.`);
       }
     });
 
@@ -101,19 +117,26 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
       isConnectingRef.current = false;
 
       // Auto-reconnect on unexpected disconnection
-      if (retryCountRef.current < opts.maxRetries) {
+      if (retryCountRef.current < maxRetries) {
         const delay = getRetryDelay();
         console.log(`[ROS] Auto-reconnecting in ${delay}ms...`);
 
         retryTimeoutRef.current = setTimeout(() => {
           retryCountRef.current++;
-          connect();
+          // Use ref for recursive call
+          connectRef.current();
         }, delay);
       }
     });
 
     rosRef.current = ros;
-  }, [opts.url, opts.maxRetries, state, getRetryDelay]);
+    setRosInstance(ros);
+  }, [url, maxRetries, getRetryDelay]); // Dependencies are now stable primitives
+
+  // Update connectRef whenever connect changes
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   // Disconnect from ROS bridge
   const disconnect = useCallback(() => {
@@ -131,6 +154,7 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
       rosRef.current = null;
     }
 
+    setRosInstance(null);
     setState('disconnected');
     setError(null);
     retryCountRef.current = 0;
@@ -139,18 +163,26 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
 
   // Auto-connect on mount if enabled
   useEffect(() => {
-    if (opts.autoConnect) {
-      connect();
+    let timer: NodeJS.Timeout;
+    
+    if (autoConnect) {
+      // Defer connection to next tick to avoid synchronous state update warning
+      timer = setTimeout(() => {
+        connect();
+      }, 0);
     }
 
     // Cleanup on unmount
     return () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
       disconnect();
     };
-  }, []); // Empty dependency array - only run on mount/unmount
+  }, [connect, disconnect, autoConnect]);
 
   return {
-    ros: rosRef.current,
+    ros: rosInstance,
     state,
     error,
     connect,

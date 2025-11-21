@@ -1,12 +1,17 @@
-'use client';
+import { GCSGridLayout } from "@/components/layout/GCSLayout";
+import { StatusBar } from "@/components/layout/StatusBar";
+import { TelemetryPanel } from "@/components/layout/TelemetryPanel";
+import { Scene3D } from "@/components/Scene3D";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-black text-white">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Aeris GCS</h1>
-        <p className="text-gray-400">UI rebuild in progress</p>
-      </div>
-    </div>
+    <ErrorBoundary>
+      <GCSGridLayout 
+        statusBar={<StatusBar />}
+        map={<Scene3D />}
+        telemetry={<TelemetryPanel />}
+      />
+    </ErrorBoundary>
   );
 }
