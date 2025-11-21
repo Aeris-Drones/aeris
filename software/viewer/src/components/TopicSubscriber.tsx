@@ -7,7 +7,6 @@ import { useROSConnection } from '@/hooks/useROSConnection';
 export function TopicSubscriber() {
   const { ros, isConnected } = useROSConnection();
   const [messageCount, setMessageCount] = useState(0);
-  const [lastMessage, setLastMessage] = useState<string>('');
 
   useEffect(() => {
     if (!isConnected || !ros) return;
@@ -20,10 +19,8 @@ export function TopicSubscriber() {
       messageType: 'rosgraph_msgs/Clock',
     });
 
-    const handleMessage = (message: any) => {
+    const handleMessage = (message: unknown) => {
       setMessageCount((prev) => prev + 1);
-      // Just store a simplified string for display
-      setLastMessage(JSON.stringify(message));
       
       // Log every 60th message to avoid spamming console
       if (Math.random() < 0.01) {
