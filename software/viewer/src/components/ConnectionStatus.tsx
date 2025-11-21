@@ -4,7 +4,8 @@ import { Badge } from "@/components/ui/badge"
 import { useROSConnection } from "@/hooks/useROSConnection"
 
 export function ConnectionStatus() {
-  const { isConnected, isConnecting, error } = useROSConnection();
+  const { isConnected, state, error } = useROSConnection();
+  const isConnecting = state === 'connecting';
 
   if (error) {
       return <Badge variant="destructive" className="animate-pulse">Connection Error</Badge>;
