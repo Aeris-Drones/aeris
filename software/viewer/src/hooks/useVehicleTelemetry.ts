@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import ROSLIB from 'roslib';
 import { useROSConnection } from './useROSConnection';
 import { VehicleManager, VehicleState } from '../lib/vehicle/VehicleManager';
-import { VehicleTelemetryMessage } from '../lib/ros/telemetry';
+import { VehicleTelemetryMessage, parseVehicleTelemetry } from '../lib/ros/telemetry';
 import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 
 export function useVehicleTelemetry() {
@@ -12,6 +12,15 @@ export function useVehicleTelemetry() {
 
   // Initialize manager once using useState initializer
   const [manager] = useState(() => new VehicleManager());
+  // Use refs to access latest origin/setOrigin without triggering effect re-runs
+  const originRef = useRef(origin);
+  const setOriginRef = useRef(setOrigin);
+
+  // Keep refs in sync with latest values
+  useEffect(() => {
+    originRef.current = origin;
+    setOriginRef.current = setOrigin;
+  }, [origin, setOrigin]);
 
   useEffect(() => {
     if (!ros || !isConnected) return;
@@ -23,11 +32,11 @@ export function useVehicleTelemetry() {
     });
 
     const handleMessage = (message: ROSLIB.Message) => {
-      const telemetry = message as unknown as VehicleTelemetryMessage;
-      const newOrigin = manager.processTelemetry(telemetry, origin);
+      const telemetry = parseVehicleTelemetry(message);
+      const newOrigin = manager.processTelemetry(telemetry, originRef.current);
 
       if (newOrigin) {
-        setOrigin(newOrigin);
+        setOriginRef.current(newOrigin);
       }
 
       // Trigger React update
@@ -40,7 +49,7 @@ export function useVehicleTelemetry() {
     return () => {
       topic.unsubscribe();
     };
-  }, [ros, isConnected, origin, setOrigin, manager]);
+  }, [ros, isConnected, manager]);
 
   // Optional: Prune stale vehicles periodically
   useEffect(() => {

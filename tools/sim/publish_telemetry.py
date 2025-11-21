@@ -85,23 +85,30 @@ def run_publisher():
                 # Circular path
                 angle = v['phase'] + elapsed * v['speed']
 
-                # Local offsets
-                x = v['radius'] * math.cos(angle) # East
-                z = v['radius'] * math.sin(angle) # North (math), but we usually map differently.
-                # Let's just move them in a circle.
-
-                # Convert to Geodetic
-                lat = BASE_LAT + meters_to_lat(z)
-                lon = BASE_LON + meters_to_lon(x, BASE_LAT)
-
+                # ENU coordinate frame (REP 103): X=East, Y=North, Z=Up
+                x = v['radius'] * math.cos(angle)  # East
+                y = v['radius'] * math.sin(angle)  # North
+                
                 # Altitude sine wave
                 alt = v['altitude_base'] + v['altitude_var'] * math.sin(elapsed * 0.5)
 
-                # Orientation (Yaw matches movement tangent)
+                # Convert to Geodetic (latitude = North, longitude = East)
+                lat = BASE_LAT + meters_to_lat(y)
+                lon = BASE_LON + meters_to_lon(x, BASE_LAT)
+
+                # Orientation (Yaw matches movement tangent in ENU frame)
                 # Tangent of circle: angle + 90 deg (pi/2)
                 yaw = angle + math.pi / 2
                 # Normalize yaw -pi to pi
                 yaw = (yaw + math.pi) % (2 * math.pi) - math.pi
+                
+                # Compute velocity derivatives (ENU frame)
+                # d/dt of x = -radius * speed * sin(angle)
+                # d/dt of y = radius * speed * cos(angle)
+                # d/dt of z (altitude) = altitude_var * 0.5 * cos(elapsed * 0.5)
+                vx = -v['radius'] * v['speed'] * math.sin(angle)
+                vy = v['radius'] * v['speed'] * math.cos(angle)
+                vz = v['altitude_var'] * 0.5 * math.cos(elapsed * 0.5)
 
                 # Construct message
                 # Timestamp
@@ -126,9 +133,9 @@ def run_publisher():
                         "yaw": yaw
                     },
                     "velocity": {
-                        "x": -v['radius'] * v['speed'] * math.sin(angle),
-                        "y": 0.0, # Vertical velocity ignored for now
-                        "z": v['radius'] * v['speed'] * math.cos(angle)
+                        "x": vx,  # East velocity
+                        "y": vy,  # North velocity
+                        "z": vz   # Up velocity
                     }
                 }
 

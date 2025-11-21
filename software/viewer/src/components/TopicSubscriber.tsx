@@ -22,7 +22,7 @@ export function TopicSubscriber() {
     const handleMessage = (message: unknown) => {
       setMessageCount((prev) => prev + 1);
       
-      // Log every 60th message to avoid spamming console
+      // Log ~1% of messages randomly to avoid spamming console
       if (Math.random() < 0.01) {
         console.log('Received /clock:', message);
       }

@@ -18,8 +18,8 @@ export function Vehicle3D({ vehicle }: Vehicle3DProps) {
       // Simple lerp for position
       groupRef.current.position.lerp(position, 0.1);
 
-      // Spherical lerp for rotation (or direct copy if no interpolation needed)
-      groupRef.current.quaternion.copy(orientation);
+      // Spherical lerp for rotation
+      groupRef.current.quaternion.slerp(orientation, 0.1);
     }
   });
 

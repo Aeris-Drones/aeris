@@ -75,16 +75,13 @@ export class VehicleManager {
       buffer.positions.shift();
     }
 
-    // Determine Color
+    // Determine Color based on vehicle type
     let color = new Color('#9CA3AF'); // Unknown
-    const vType = message.vehicle_type.toLowerCase();
-    let typeEnum = VehicleType.UNKNOWN;
-    if (vType.includes('scout')) {
+    const typeEnum = message.vehicle_type;
+    if (typeEnum === VehicleType.SCOUT) {
         color = new Color('#3B82F6');
-        typeEnum = VehicleType.SCOUT;
-    } else if (vType.includes('ranger')) {
+    } else if (typeEnum === VehicleType.RANGER) {
         color = new Color('#F97316');
-        typeEnum = VehicleType.RANGER;
     }
 
     // Update Vehicle State
@@ -115,7 +112,8 @@ export class VehicleManager {
     return Array.from(this.vehicles.values());
   }
 
-  public getInterpolatedPosition(vehicleId: string): { position: Vector3, heading: number } | null {
+  // TODO: implement temporal interpolation using telemetry timestamps if needed
+  public getCurrentPosition(vehicleId: string): { position: Vector3, heading: number } | null {
       const vehicle = this.vehicles.get(vehicleId);
       if (!vehicle) return null;
 

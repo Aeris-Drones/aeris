@@ -13,6 +13,15 @@ export function useMapTiles() {
 
   // Use a ref for the manager to persist across renders
   const managerRef = useRef<MapTileManager>(new MapTileManager(500));
+  // Use refs to access latest origin/setOrigin without triggering effect re-runs
+  const originRef = useRef(origin);
+  const setOriginRef = useRef(setOrigin);
+
+  // Keep refs in sync with latest values
+  useEffect(() => {
+    originRef.current = origin;
+    setOriginRef.current = setOrigin;
+  }, [origin, setOrigin]);
 
   useEffect(() => {
     if (!ros || !isConnected) return;
@@ -26,10 +35,10 @@ export function useMapTiles() {
     });
 
     const handleMessage = (message: ROSLIB.Message) => {
-      const result = manager.ingest(message as unknown as MapTileMessage, origin);
+      const result = manager.ingest(message as unknown as MapTileMessage, originRef.current);
       if (result) {
         if (result.newOrigin) {
-          setOrigin(result.newOrigin);
+          setOriginRef.current(result.newOrigin);
         }
         setTiles([...manager.getTiles()]);
         setStats(manager.getStats());
@@ -44,7 +53,7 @@ export function useMapTiles() {
       manager.clear();
       console.log('[useMapTiles] Unsubscribed');
     };
-  }, [ros, isConnected, origin, setOrigin]);
+  }, [ros, isConnected]);
 
   return { tiles, stats };
 }
