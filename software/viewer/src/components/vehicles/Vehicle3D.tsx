@@ -16,12 +16,9 @@ export function Vehicle3D({ vehicle }: Vehicle3DProps) {
   useFrame(() => {
     if (groupRef.current) {
       // Simple lerp for position
-      groupRef.current.position.lerp(position, 0.1); // Adjust factor for smoothness/lag
+      groupRef.current.position.lerp(position, 0.1);
 
-      // Spherical lerp for rotation
-      // groupRef.current.quaternion.slerp(orientation, 0.1);
-      // Note: vehicle.orientation is currently calculated directly from telemetry.
-      // If telemetry is jittery, this will be jittery.
+      // Spherical lerp for rotation (or direct copy if no interpolation needed)
       groupRef.current.quaternion.copy(orientation);
     }
   });
@@ -45,15 +42,6 @@ export function Vehicle3D({ vehicle }: Vehicle3DProps) {
       </mesh>
 
       {/* Heading Indicator (Cone) */}
-      {/* Pointing along -Z (North) or +X (East)?
-          If Heading 0 = North (-Z), then the drone forward is -Z.
-          Let's assume drone 'forward' is its local -Z axis if standard Three.js object.
-          Wait, usually forward is +Z or -Z.
-          Let's put the cone on the "Front".
-          If we assumed Yaw matches rotation around Y, and vehicle body is aligned.
-          Let's assume forward is +X for now (standard math), but usually vehicles forward is X in ROS, -Z in OpenGL.
-          Let's try -Z (North in our map).
-      */}
       <mesh position={[0, 0, -1.5]} rotation={[Math.PI / 2, 0, 0]}>
         <coneGeometry args={[0.5, 1, 8]} />
         <meshStandardMaterial color="#FFFF00" />

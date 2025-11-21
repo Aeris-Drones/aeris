@@ -13,9 +13,6 @@ import { TileData } from '../lib/map/MapTileManager';
 import { VehicleState } from '../lib/vehicle/VehicleManager';
 
 export function Scene3D() {
-  // We call hooks here to get data for the HUD overlay
-  // But we also need to pass the data into the Canvas.
-  // Canvas context is separate, but props work fine.
   const { tiles, stats } = useMapTiles();
   const { vehicles } = useVehicleTelemetry();
 
@@ -28,7 +25,6 @@ export function Scene3D() {
       >
         <color attach="background" args={['#1a1a1a']} />
         
-        {/* Pass data down to rendering component */}
         <SceneRendering tiles={tiles} vehicles={vehicles} />
 
         <Stats className="custom-stats-position" /> 
@@ -72,7 +68,6 @@ export function Scene3D() {
 }
 
 // Separate component to consume Canvas context (lights, etc)
-// and receive data as props
 function SceneRendering({ tiles, vehicles }: { tiles: TileData[], vehicles: VehicleState[] }) {
   return (
     <>
