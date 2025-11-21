@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid, Stats, Environment } from '@react-three/drei';
+import { OrbitControls, Grid, Stats } from '@react-three/drei';
 import { useMapTiles } from '../hooks/useMapTiles';
 import { Tile3D } from './tiles/Tile3D';
 

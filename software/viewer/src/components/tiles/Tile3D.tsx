@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
 interface Tile3DProps {
@@ -10,11 +10,10 @@ interface Tile3DProps {
 
 export function Tile3D({ position, size, url, name }: Tile3DProps) {
   // We handle texture loading manually to avoid Suspense bubbling which might flicker the whole scene
-  // or we use standard useLoader but isolate it.
   // Given the requirement for progressive loading, individual tiles should pop in.
-  // We'll use a simple texture state.
 
   const [texture, setTexture] = React.useState<THREE.Texture | null>(null);
+  const textureRef = useRef<THREE.Texture | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -25,7 +24,10 @@ export function Tile3D({ position, size, url, name }: Tile3DProps) {
       (tex) => {
         if (isMounted) {
           tex.colorSpace = THREE.SRGBColorSpace;
+          textureRef.current = tex;
           setTexture(tex);
+        } else {
+          tex.dispose();
         }
       },
       undefined,
@@ -36,11 +38,12 @@ export function Tile3D({ position, size, url, name }: Tile3DProps) {
 
     return () => {
       isMounted = false;
-      if (texture) {
-        texture.dispose();
+      if (textureRef.current) {
+        textureRef.current.dispose();
+        textureRef.current = null;
       }
     };
-  }, [url]);
+  }, [url, name]);
 
   // Reuse geometry and material for performance?
   // R3F handles instancing automatically if we use <instances>, but here we have unique textures per tile.

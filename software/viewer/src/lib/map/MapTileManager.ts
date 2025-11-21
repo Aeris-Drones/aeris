@@ -7,6 +7,7 @@ export interface TileData {
   size: number; // Width/Height in meters (assuming square)
   coordinates: TileCoordinates;
   timestamp: number;
+  byteSize: number; // Size for stats tracking
 }
 
 export interface MapStats {
@@ -84,6 +85,7 @@ export class MapTileManager {
       size: dimensions.width,
       coordinates: coords,
       timestamp: Date.now(),
+      byteSize: message.byte_size,
     };
 
     // 6. Store and Evict
@@ -105,12 +107,8 @@ export class MapTileManager {
     const tile = this.cache.get(key);
     if (tile) {
       URL.revokeObjectURL(tile.url);
+      this.totalBytes -= tile.byteSize;
       this.cache.delete(key);
-      // Note: We don't strictly track byte size decrement accurately per tile
-      // because we don't store the byte size in TileData (only total).
-      // For stats, we might drift, but for now it's acceptable or we should store size in TileData.
-      // Let's assume average size or just accept the drift for the MVP stats.
-      // Better: Store size in TileData.
     }
   }
 
@@ -121,7 +119,7 @@ export class MapTileManager {
   public getStats(): MapStats {
     return {
       count: this.cache.size,
-      totalBytes: this.totalBytes, // This is cumulative ingress, not current resident size
+      totalBytes: this.totalBytes,
     };
   }
 

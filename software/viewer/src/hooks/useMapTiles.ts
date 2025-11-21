@@ -10,13 +10,12 @@ export function useMapTiles() {
   const [stats, setStats] = useState<MapStats>({ count: 0, totalBytes: 0 });
 
   // Use a ref for the manager to persist across renders
-  const managerRef = useRef<MapTileManager | null>(null);
-  if (!managerRef.current) {
-    managerRef.current = new MapTileManager(500);
-  }
+  const managerRef = useRef<MapTileManager>(new MapTileManager(500));
 
   useEffect(() => {
     if (!ros || !isConnected) return;
+
+    const manager = managerRef.current;
 
     const topic = new ROSLIB.Topic({
       ros: ros,
@@ -24,15 +23,11 @@ export function useMapTiles() {
       messageType: 'aeris_msgs/MapTile',
     });
 
-    const handleMessage = (message: MapTileMessage) => {
-      if (managerRef.current) {
-        managerRef.current.ingest(message);
-        // Throttle updates or just update?
-        // For 60 FPS with progressive updates, React state updates might be expensive if too frequent.
-        // But typical tile arrival rate is not 60Hz. Probably bursty.
-        // We'll update state directly for now.
-        setTiles([...managerRef.current.getTiles()]);
-        setStats(managerRef.current.getStats());
+    const handleMessage = (message: ROSLIB.Message) => {
+      const result = manager.ingest(message as unknown as MapTileMessage);
+      if (result) {
+        setTiles([...manager.getTiles()]);
+        setStats(manager.getStats());
       }
     };
 
@@ -41,14 +36,7 @@ export function useMapTiles() {
 
     return () => {
       topic.unsubscribe();
-      // We don't clear the manager on unmount/remount strictly unless we want to reset the map.
-      // But if the component unmounts, we usually want to cleanup resources (revoke URLs).
-      // If we want to persist while navigating, we'd move manager to a Context.
-      // For this story, we'll assume simple usage within Scene3D which persists.
-      // If we navigate away, cleanup:
-      if (managerRef.current) {
-        managerRef.current.clear();
-      }
+      manager.clear();
       console.log('[useMapTiles] Unsubscribed');
     };
   }, [ros, isConnected]);
