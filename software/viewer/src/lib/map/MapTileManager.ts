@@ -15,6 +15,11 @@ export interface MapStats {
   totalBytes: number;
 }
 
+export interface IngestResult {
+  tile: TileData;
+  newOrigin?: GeoCoordinates;
+}
+
 export class MapTileManager {
   private cache: Map<string, TileData>;
   private maxTiles: number;
@@ -28,7 +33,7 @@ export class MapTileManager {
     this.totalBytes = 0;
   }
 
-  public ingest(message: MapTileMessage): TileData | null {
+  public ingest(message: MapTileMessage, externalOrigin: GeoCoordinates | null): IngestResult | null {
     // 1. Parse ID
     let coords: TileCoordinates;
     try {
@@ -52,29 +57,33 @@ export class MapTileManager {
     }
 
     // 3. Create Texture URL
-    // message.data is base64. We need to convert to Blob.
     const byteCharacters = atob(message.data);
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
       byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
     const byteArray = new Uint8Array(byteNumbers);
-    // Guess type from format or default to png/jpeg.
-    // Message format says "mbtiles-1.3" or "image/png".
-    // Usually standard MBTiles use png or jpg. We can try to detect magic numbers or just default to blob.
-    // The browser is usually smart enough with images, or we can set type 'image/png'.
     const blob = new Blob([byteArray], { type: 'image/png' });
     const url = URL.createObjectURL(blob);
 
     // 4. Determine Position
     const center = getTileCenter(coords);
+    let newOrigin: GeoCoordinates | undefined = undefined;
 
-    if (!this.origin) {
+    // Use external origin if provided, otherwise use internal origin, or set internal if both null
+    let activeOrigin = externalOrigin || this.origin;
+
+    if (!activeOrigin) {
+      activeOrigin = center;
       this.origin = center;
+      newOrigin = center;
       console.log(`[MapTileManager] Set origin to ${center.lat}, ${center.lon} from tile ${key}`);
+    } else if (!this.origin) {
+        // If external origin was provided but internal wasn't set yet, sync them
+        this.origin = activeOrigin;
     }
 
-    const localPos = geoToLocal(center, this.origin);
+    const localPos = geoToLocal(center, activeOrigin);
     const dimensions = getTileDimensions(coords.z, center.lat);
 
     // 5. Create TileData
@@ -100,7 +109,7 @@ export class MapTileManager {
       }
     }
 
-    return tile;
+    return { tile, newOrigin };
   }
 
   private removeTile(key: string) {
