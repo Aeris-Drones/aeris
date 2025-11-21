@@ -3,12 +3,20 @@
 import React, { useRef, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Stats, Environment } from '@react-three/drei';
+import { useMapTiles } from '../hooks/useMapTiles';
+import { Tile3D } from './tiles/Tile3D';
 
 export function Scene3D() {
+  const { tiles, stats } = useMapTiles();
+
+  // Calculate center of current tiles to adjust camera target or just let user pan?
+  // Usually we keep camera relative to origin or follow a drone.
+  // For now, just rendering the tiles.
+
   return (
     <div className="w-full h-full relative bg-zinc-900">
       <Canvas
-        camera={{ position: [10, 10, 10], fov: 50 }}
+        camera={{ position: [0, 500, 500], fov: 50 }}
         shadows
         gl={{ antialias: true }}
       >
@@ -20,40 +28,50 @@ export function Scene3D() {
           intensity={1} 
           castShadow 
         />
-        <hemisphereLight groundColor="#000000" intensity={0.5} />
+
+        {/* Render Tiles */}
+        <group>
+          {tiles.map((tile) => (
+            <Tile3D
+              key={tile.id}
+              position={tile.position}
+              size={tile.size}
+              url={tile.url}
+              name={tile.id}
+            />
+          ))}
+        </group>
 
         <Grid
-          position={[0, -0.01, 0]}
-          args={[100, 100]}
-          cellSize={1}
-          sectionSize={5}
-          fadeDistance={50}
+          position={[0, -0.1, 0]} // Slightly below tiles (y=0)
+          args={[2000, 2000]}
+          cellSize={100}
+          sectionSize={500}
+          fadeDistance={5000}
           sectionColor="#444444"
           cellColor="#222222"
+          infiniteGrid
         />
 
-        <mesh position={[0, 0, 0]}>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial color="#6366f1" />
-        </mesh>
-
         <OrbitControls makeDefault />
-        {/* 
-            Stats uses fixed positioning by default. 
-            We can target the DOM element it creates or just place it knowing it's for dev.
-            However, standard Stats doesn't easily accept positioning props without creating a custom parent.
-            A common workaround is to use a parent wrapper or CSS.
-            Actually, @react-three/drei Stats component takes `parent` prop or simply appends to body.
-            It sets style="position: fixed; top: 0px; left: 0px; cursor: pointer; opacity: 0.9; z-index: 10000;"
-            
-            Let's leave it for now if it's just for dev, OR try to override via a style tag/effect?
-            Alternatively, we can wrap it in a generic HTML component if allowed, or just let it be.
-            But to fix the overlap as per review:
-        */}
         <Stats className="custom-stats-position" /> 
       </Canvas>
       
-      {/* Overriding the fixed position of Stats via global style for this component or utility */}
+      {/* HUD Overlay */}
+      <div className="absolute top-4 right-4 bg-black/70 text-white p-4 rounded-md backdrop-blur-sm pointer-events-none font-mono text-sm border border-white/10">
+        <h3 className="font-bold text-emerald-400 mb-2">Map Status</h3>
+        <div className="flex flex-col gap-1">
+          <div className="flex justify-between gap-4">
+            <span className="text-white/60">Tiles Loaded:</span>
+            <span>{stats.count}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-white/60">Total Data:</span>
+            <span>{(stats.totalBytes / 1024 / 1024).toFixed(2)} MB</span>
+          </div>
+        </div>
+      </div>
+
       <style jsx global>{`
         .custom-stats-position {
           top: auto !important;
@@ -61,16 +79,10 @@ export function Scene3D() {
           bottom: 0px !important;
           right: 0px !important;
         }
-        /* The actual stats.js dom element often doesn't take the class from the wrapper directly depending on implementation.
-           drei's Stats creates a div. Let's assume standard stats.js behavior. 
-           If className isn't passed through to the stats container, we might need another approach.
-           Let's try placing it in a div via Html if needed, or just live with it if we can't easily change it.
-           Actually, there is no 'className' prop on Stats in some versions.
-        */
       `}</style>
        
       <div className="absolute bottom-4 left-4 text-xs text-white/50 pointer-events-none">
-        Scene3D initialized
+        Aeris GCS Viewer v0.1
       </div>
     </div>
   );
