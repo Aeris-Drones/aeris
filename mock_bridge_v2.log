@@ -1,0 +1,4 @@
+INFO:websockets.server:server listening on 0.0.0.0:9090
+INFO:MockBridge:Mock ROS Bridge running on ws://0.0.0.0:9090
+INFO:websockets.server:connection open
+INFO:MockBridge:Client connected: ('127.0.0.1', 57202)
