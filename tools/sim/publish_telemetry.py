@@ -15,8 +15,10 @@ except ImportError:
 # Configuration
 HOST = 'localhost'
 PORT = 9090
-TOPIC = '/vehicle/telemetry'
-MSG_TYPE = 'aeris_msgs/Telemetry'
+VEHICLE_TOPIC = '/vehicle/telemetry'
+VEHICLE_MSG_TYPE = 'aeris_msgs/Telemetry'
+MISSION_TOPIC = '/mission/state'
+MISSION_MSG_TYPE = 'std_msgs/String'
 
 # Vehicle definitions
 VEHICLES = [
@@ -40,17 +42,13 @@ VEHICLES = [
     }
 ]
 
+# Mission States
+MISSION_STATES = ["IDLE", "SEARCHING", "TRACKING", "COMPLETE"]
+MISSION_STATE_CYCLE_TIME = 10.0 # seconds per state
+
 # Base location (San Francisco roughly, matching some map tiles if available, or just arbitrary)
-# MapTileManager logic sets origin to first tile.
-# If we send vehicle first, it sets origin to vehicle start.
-# Let's use a fixed lat/lon.
 BASE_LAT = 37.7749
 BASE_LON = -122.4194
-
-# 1 degree lat ~ 111km. 1 deg lon ~ 111km * cos(lat) ~ 88km.
-# We want meters movement.
-# lat_change = meters / 111111
-# lon_change = meters / (111111 * cos(lat))
 
 def meters_to_lat(meters):
     return meters / 111111.0
@@ -70,17 +68,32 @@ def run_publisher():
 
     print(f"Connected to ROS Bridge at {HOST}:{PORT}")
 
-    publisher = roslibpy.Topic(client, TOPIC, MSG_TYPE)
-    # Advertise is crucial
-    publisher.advertise()
+    vehicle_publisher = roslibpy.Topic(client, VEHICLE_TOPIC, VEHICLE_MSG_TYPE)
+    vehicle_publisher.advertise()
+
+    mission_publisher = roslibpy.Topic(client, MISSION_TOPIC, MISSION_MSG_TYPE)
+    mission_publisher.advertise()
 
     start_time = time.time()
+    last_mission_update = 0.0
+    current_state_idx = 0
 
     try:
         while client.is_connected:
             now = time.time()
             elapsed = now - start_time
 
+            # --- Mission State Publishing ---
+            if now - last_mission_update > MISSION_STATE_CYCLE_TIME:
+                current_state = MISSION_STATES[current_state_idx]
+                mission_msg = {"data": current_state}
+                mission_publisher.publish(roslibpy.Message(mission_msg))
+                print(f"Published Mission State: {current_state}")
+
+                current_state_idx = (current_state_idx + 1) % len(MISSION_STATES)
+                last_mission_update = now
+
+            # --- Vehicle Telemetry Publishing ---
             for v in VEHICLES:
                 # Circular path
                 angle = v['phase'] + elapsed * v['speed']
@@ -139,7 +152,7 @@ def run_publisher():
                     }
                 }
 
-                publisher.publish(roslibpy.Message(msg))
+                vehicle_publisher.publish(roslibpy.Message(msg))
 
             # 10 Hz = 0.1s sleep
             time.sleep(0.1)
@@ -147,7 +160,8 @@ def run_publisher():
     except KeyboardInterrupt:
         print("Stopping publisher...")
     finally:
-        publisher.unadvertise()
+        vehicle_publisher.unadvertise()
+        mission_publisher.unadvertise()
         client.terminate()
 
 if __name__ == '__main__':

@@ -6,7 +6,8 @@ import { geoToLocal, GeoCoordinates } from '../ros/mapTile';
 export interface VehicleState {
   id: string;
   type: VehicleType;
-  position: Vector3;
+  position: Vector3; // Local position (Three.js coordinates)
+  rawPosition: GeoCoordinates; // Keep raw lat/lon for map/UI usage
   orientation: Quaternion;
   heading: number; // yaw in radians
   trajectory: Vector3[]; // History of positions
@@ -41,26 +42,22 @@ export class VehicleManager {
       effectiveOrigin
     );
 
-    // Convert to Three.js coordinates (x, y=altitude, z)
-    // geoToLocal returns {x, z} where z is North (negative). Altitude is Y.
+    // Convert to Three.js: x=East, y=altitude, z=North (negative)
     const position = new Vector3(localPos.x, message.position.altitude, localPos.z);
 
-    // Orientation: Convert ROS (Roll, Pitch, Yaw) to Three.js Quaternion
-    // Assuming Yaw matches rotation around Y axis for visual heading
+    // Convert ROS (Roll, Pitch, Yaw) to Three.js Quaternion
     const quaternion = new Quaternion();
     quaternion.setFromEuler(new THREE.Euler(message.orientation.pitch, -message.orientation.yaw, message.orientation.roll, 'YXZ'));
 
-    const now = Date.now(); // Wall clock time for animation smoothing
+    const now = Date.now();
     const vehicleId = message.vehicle_id;
 
-    // Store raw telemetry for interpolation
     this.lastTelemetry.set(vehicleId, {
       msg: message,
       localPos: position.clone(),
       time: now
     });
 
-    // Update buffers
     if (!this.trajectoryBuffers.has(vehicleId)) {
       this.trajectoryBuffers.set(vehicleId, { positions: [], timestamps: [] });
     }
@@ -68,14 +65,12 @@ export class VehicleManager {
     buffer.positions.push(position.clone());
     buffer.timestamps.push(now);
 
-    // Prune old points
     while (buffer.timestamps.length > 0 && now - buffer.timestamps[0] > this.maxTrajectoryTime) {
       buffer.timestamps.shift();
       buffer.positions.shift();
     }
 
-    // Determine Color based on vehicle type
-    let color = new Color('#9CA3AF'); // Unknown
+    let color = new Color('#9CA3AF');
     const typeEnum = message.vehicle_type;
     if (typeEnum === VehicleType.SCOUT) {
         color = new Color('#3B82F6');
@@ -83,11 +78,11 @@ export class VehicleManager {
         color = new Color('#F97316');
     }
 
-    // Update Vehicle State
     this.vehicles.set(vehicleId, {
       id: vehicleId,
       type: typeEnum,
       position: position,
+      rawPosition: { lat: message.position.latitude, lon: message.position.longitude },
       orientation: quaternion,
       heading: message.orientation.yaw,
       trajectory: [...buffer.positions],
@@ -99,7 +94,6 @@ export class VehicleManager {
   }
 
   public getVehicles(): VehicleState[] {
-    // Filter out very old vehicles (cleanup)
     const now = Date.now();
     for (const [id, vehicle] of this.vehicles.entries()) {
         if (now - vehicle.lastUpdate > this.cleanupThreshold) {

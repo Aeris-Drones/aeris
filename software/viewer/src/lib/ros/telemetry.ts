@@ -28,6 +28,7 @@ export interface VehicleTelemetryMessage {
 /**
  * Converts a raw ROS message (with string vehicle_type) to a typed VehicleTelemetryMessage
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseVehicleTelemetry(raw: any): VehicleTelemetryMessage {
   if (!raw) {
     throw new Error('Invalid telemetry data: raw input is null or undefined');

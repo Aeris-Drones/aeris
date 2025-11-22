@@ -6,13 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { MissionStateDisplay } from "@/components/ui/MissionStateDisplay";
 import { Wifi, Battery, Navigation } from 'lucide-react';
 
 interface StatusBarProps {
   className?: string;
 }
 
-// Mock logic for status levels as per requirements
 function getGpsStatus(satellites: number): 'success' | 'warning' | 'danger' {
   if (satellites >= 7) return 'success';
   if (satellites >= 4) return 'warning';
@@ -48,17 +48,17 @@ export function StatusBar({ className }: StatusBarProps) {
         <div className="font-bold text-lg tracking-tight">AERIS <span className="text-muted-foreground font-normal text-sm">GCS</span></div>
         <Separator orientation="vertical" className="h-6" />
         <ConnectionStatus />
+        <Separator orientation="vertical" className="h-6" />
+        <MissionStateDisplay />
       </div>
 
       <div className="flex items-center space-x-6">
-        {/* Flight Mode */}
         <Badge variant="secondary" className="px-3 py-1 text-xs uppercase tracking-wider">
             {flightMode}
         </Badge>
 
         <Separator orientation="vertical" className="h-6" />
 
-        {/* GPS */}
         <div className="flex items-center space-x-2 text-sm">
             <Navigation className={cn("w-4 h-4", {
                 "text-success": gpsStatus === 'success',
@@ -68,7 +68,6 @@ export function StatusBar({ className }: StatusBarProps) {
             <span className="font-mono">{satellites} SAT</span>
         </div>
 
-        {/* Link */}
         <div className="flex items-center space-x-2 text-sm">
             <Wifi className={cn("w-4 h-4", {
                 "text-success": linkStatus === 'success',
@@ -89,7 +88,6 @@ export function StatusBar({ className }: StatusBarProps) {
             </div>
         </div>
 
-        {/* Battery */}
         <div className="flex items-center space-x-2 text-sm min-w-[100px]">
             <Battery className={cn("w-4 h-4", {
                 "text-success": batteryStatus === 'success',

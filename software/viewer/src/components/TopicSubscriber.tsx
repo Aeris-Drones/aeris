@@ -11,8 +11,6 @@ export function TopicSubscriber() {
   useEffect(() => {
     if (!isConnected || !ros) return;
 
-    // Subscribe to /clock or a test topic
-    // Using /clock might be high frequency, so maybe throttle logging
     const topic = new ROSLIB.Topic({
       ros: ros,
       name: '/clock',

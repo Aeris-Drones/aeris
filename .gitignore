@@ -5,6 +5,12 @@
 __pycache__/
 *.pyc
 
+# Log files
+*.log
+
+# Verification screenshots
+verification*.png
+
 # ROS 2 colcon build artifacts
 build/
 install/
