@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { VehicleState } from '../../lib/vehicle/VehicleManager';
 import { Group } from 'three';
@@ -12,6 +12,13 @@ export function Vehicle3D({ vehicle }: Vehicle3DProps) {
   const groupRef = useRef<Group>(null);
   const { color, position, orientation, type, id } = vehicle;
 
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.position.copy(position);
+      groupRef.current.quaternion.copy(orientation);
+    }
+  }, [id]);
+
   // Smooth interpolation in render loop
   useFrame(() => {
     if (groupRef.current) {
@@ -24,7 +31,7 @@ export function Vehicle3D({ vehicle }: Vehicle3DProps) {
   });
 
   return (
-    <group ref={groupRef} position={position} quaternion={orientation}>
+    <group ref={groupRef}>
       {/* Main Body */}
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[2, 0.5, 2]} />
