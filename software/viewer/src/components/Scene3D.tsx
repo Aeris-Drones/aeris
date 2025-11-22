@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useRef, forwardRef, useImperativeHandle } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid, Stats } from '@react-three/drei';
+import { CameraControls, Grid, Stats } from '@react-three/drei';
 import { useMapTiles } from '../hooks/useMapTiles';
 import { useVehicleTelemetry } from '../hooks/useVehicleTelemetry';
 import { Tile3D } from './tiles/Tile3D';
@@ -11,10 +11,45 @@ import { Trajectory3D } from './vehicles/Trajectory3D';
 import { AltitudeIndicator } from './vehicles/AltitudeIndicator';
 import { TileData } from '../lib/map/MapTileManager';
 import { VehicleState } from '../lib/vehicle/VehicleManager';
+import { useLayerVisibility } from '../context/LayerVisibilityContext';
 
-export function Scene3D() {
+export interface Scene3DHandle {
+    setCameraView: (view: 'wide' | 'tracking' | 'overhead') => void;
+}
+
+export const Scene3D = forwardRef<Scene3DHandle, unknown>((props, ref) => {
   const { tiles, stats } = useMapTiles();
   const { vehicles } = useVehicleTelemetry();
+  const cameraControlsRef = useRef<CameraControls>(null);
+  const { map } = useLayerVisibility();
+
+  // Expose camera methods to parent via ref
+  useImperativeHandle(ref, () => ({
+      setCameraView: (view: 'wide' | 'tracking' | 'overhead') => {
+          const controls = cameraControlsRef.current;
+          if (!controls) return;
+
+          switch (view) {
+              case 'wide':
+                  // Establish view: high angle, offset
+                  controls.setLookAt(0, 500, 500, 0, 0, 0, true);
+                  break;
+              case 'overhead':
+                  // Map centric: Top down
+                  controls.setLookAt(0, 1000, 0, 0, 0, 0, true);
+                  break;
+              case 'tracking':
+                  // Handled by SceneRendering logic, but we can initialize it here
+                  // Ideally, tracking needs a target. We'll pick the first vehicle in the loop below.
+                  if (vehicles.length > 0) {
+                      const v = vehicles[0];
+                      // Offset behind/above
+                      controls.setLookAt(v.position.x - 50, v.position.y + 50, v.position.z + 50, v.position.x, v.position.y, v.position.z, true);
+                  }
+                  break;
+          }
+      }
+  }));
 
   return (
     <div className="w-full h-full relative bg-zinc-900">
@@ -25,13 +60,21 @@ export function Scene3D() {
       >
         <color attach="background" args={['#1a1a1a']} />
         
-        <SceneRendering tiles={tiles} vehicles={vehicles} />
+        <SceneRendering
+            tiles={tiles}
+            vehicles={vehicles}
+            cameraControlsRef={cameraControlsRef}
+            showMap={map}
+        />
 
         <Stats className="custom-stats-position" /> 
       </Canvas>
       
-      {/* HUD Overlay */}
-      <div className="absolute top-4 right-4 bg-black/70 text-white p-4 rounded-md backdrop-blur-sm pointer-events-none font-mono text-sm border border-white/10">
+      {/* HUD Overlay - Now handled by parent or kept here?
+          Plan says integrate into Layout, but keeping stats here is fine for debug.
+          We will remove the old stats overlay if it conflicts with new designs, but keeping it for now.
+      */}
+      <div className="absolute top-4 right-4 bg-black/70 text-white p-4 rounded-md backdrop-blur-sm pointer-events-none font-mono text-sm border border-white/10 z-10">
         <h3 className="font-bold text-emerald-400 mb-2">Map Status</h3>
         <div className="flex flex-col gap-1">
           <div className="flex justify-between gap-4">
@@ -60,15 +103,23 @@ export function Scene3D() {
         }
       `}</style>
        
-      <div className="absolute bottom-4 left-4 text-xs text-white/50 pointer-events-none">
+      <div className="absolute bottom-4 left-4 text-xs text-white/50 pointer-events-none z-10">
         Aeris GCS Viewer v0.1
       </div>
     </div>
   );
+});
+
+Scene3D.displayName = 'Scene3D';
+
+interface SceneRenderingProps {
+    tiles: TileData[];
+    vehicles: VehicleState[];
+    cameraControlsRef: React.RefObject<CameraControls | null>;
+    showMap: boolean;
 }
 
-// Separate component to consume Canvas context (lights, etc)
-function SceneRendering({ tiles, vehicles }: { tiles: TileData[], vehicles: VehicleState[] }) {
+function SceneRendering({ tiles, vehicles, cameraControlsRef, showMap }: SceneRenderingProps) {
   return (
     <>
        <ambientLight intensity={0.5} />
@@ -78,17 +129,19 @@ function SceneRendering({ tiles, vehicles }: { tiles: TileData[], vehicles: Vehi
           castShadow
         />
 
-        <group>
-          {tiles.map((tile) => (
-            <Tile3D
-              key={tile.id}
-              position={tile.position}
-              size={tile.size}
-              url={tile.url}
-              name={tile.id}
-            />
-          ))}
-        </group>
+        {showMap && (
+            <group>
+            {tiles.map((tile) => (
+                <Tile3D
+                key={tile.id}
+                position={tile.position}
+                size={tile.size}
+                url={tile.url}
+                name={tile.id}
+                />
+            ))}
+            </group>
+        )}
 
         <group>
         {vehicles.map((vehicle) => (
@@ -111,7 +164,7 @@ function SceneRendering({ tiles, vehicles }: { tiles: TileData[], vehicles: Vehi
           infiniteGrid
         />
 
-        <OrbitControls makeDefault />
+        <CameraControls ref={cameraControlsRef} makeDefault />
     </>
   )
 }

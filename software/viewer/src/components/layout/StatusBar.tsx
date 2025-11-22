@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { MissionStateDisplay } from "@/components/ui/MissionStateDisplay";
 import { Wifi, Battery, Navigation } from 'lucide-react';
 
 interface StatusBarProps {
@@ -48,6 +49,8 @@ export function StatusBar({ className }: StatusBarProps) {
         <div className="font-bold text-lg tracking-tight">AERIS <span className="text-muted-foreground font-normal text-sm">GCS</span></div>
         <Separator orientation="vertical" className="h-6" />
         <ConnectionStatus />
+        <Separator orientation="vertical" className="h-6" />
+        <MissionStateDisplay />
       </div>
 
       <div className="flex items-center space-x-6">

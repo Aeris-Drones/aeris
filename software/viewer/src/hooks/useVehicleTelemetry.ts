@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import ROSLIB from 'roslib';
 import { useROSConnection } from './useROSConnection';
 import { VehicleManager, VehicleState } from '../lib/vehicle/VehicleManager';
-import { VehicleTelemetryMessage, parseVehicleTelemetry } from '../lib/ros/telemetry';
+import { parseVehicleTelemetry } from '../lib/ros/telemetry';
 import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 
 export function useVehicleTelemetry() {

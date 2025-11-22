@@ -6,7 +6,8 @@ import { geoToLocal, GeoCoordinates } from '../ros/mapTile';
 export interface VehicleState {
   id: string;
   type: VehicleType;
-  position: Vector3;
+  position: Vector3; // Local position (Three.js coordinates)
+  rawPosition: GeoCoordinates; // Keep raw lat/lon for map/UI usage
   orientation: Quaternion;
   heading: number; // yaw in radians
   trajectory: Vector3[]; // History of positions
@@ -88,6 +89,7 @@ export class VehicleManager {
       id: vehicleId,
       type: typeEnum,
       position: position,
+      rawPosition: { lat: message.position.latitude, lon: message.position.longitude },
       orientation: quaternion,
       heading: message.orientation.yaw,
       trajectory: [...buffer.positions],

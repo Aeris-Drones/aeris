@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Line } from '@react-three/drei';
 import { VehicleState } from '../../lib/vehicle/VehicleManager';
+import { useLayerVisibility } from '../../context/LayerVisibilityContext';
 
 interface Trajectory3DProps {
   vehicle: VehicleState;
@@ -8,6 +9,7 @@ interface Trajectory3DProps {
 
 export function Trajectory3D({ vehicle }: Trajectory3DProps) {
   const { trajectory, color } = vehicle;
+  const { trajectories: showTrajectories } = useLayerVisibility();
 
   const points = useMemo(() => {
       if (trajectory.length < 2) return [];
@@ -26,7 +28,7 @@ export function Trajectory3D({ vehicle }: Trajectory3DProps) {
       return colors;
   }, [points, color]);
 
-  if (points.length < 2) return null;
+  if (!showTrajectories || points.length < 2) return null;
 
   return (
     <Line

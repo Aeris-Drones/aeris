@@ -17,7 +17,7 @@ export function Vehicle3D({ vehicle }: Vehicle3DProps) {
       groupRef.current.position.copy(position);
       groupRef.current.quaternion.copy(orientation);
     }
-  }, [id]);
+  }, [id, position, orientation]);
 
   // Smooth interpolation in render loop
   useFrame(() => {

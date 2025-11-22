@@ -1,17 +1,8 @@
-
-> viewer@0.1.0 dev
-> next dev
-
-   ▲ Next.js 16.0.3 (Turbopack)
-   - Local:         http://localhost:3000
-   - Network:       http://192.168.0.2:3000
-
- ✓ Starting...
-Attention: Next.js now collects completely anonymous telemetry regarding usage.
-This information is used to shape Next.js' roadmap and prioritize features.
-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-https://nextjs.org/telemetry
-
- ✓ Ready in 1095ms
- ○ Compiling / ...
- GET / 200 in 8.5s (compile: 7.4s, render: 1113ms)
+npm error code ENOENT
+npm error syscall open
+npm error path /app/package.json
+npm error errno -2
+npm error enoent Could not read package.json: Error: ENOENT: no such file or directory, open '/app/package.json'
+npm error enoent This is related to npm not being able to find a file.
+npm error enoent
+npm error A complete log of this run can be found in: /home/jules/.npm/_logs/2025-11-22T05_57_34_610Z-debug-0.log
