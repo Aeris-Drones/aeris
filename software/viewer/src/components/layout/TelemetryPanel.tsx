@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { TopicSubscriber } from "@/components/TopicSubscriber";
 
 export function TelemetryPanel() {
-  // Mock metrics
+  // Mock metrics - will be replaced by real ROS data later
   const altitude = 45.2;
   const speed = 12.5;
   const heading = 270;

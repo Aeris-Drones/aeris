@@ -74,13 +74,8 @@ export function getTileCenter(coords: TileCoordinates): GeoCoordinates {
   };
 }
 
-// Convert Lat/Lon to Local Meters relative to an origin
-// Using simple equirectangular projection approximation for local distances
-// x = (lon - originLon) * cos(originLat) * R
-// z = (lat - originLat) * R
-// Note: In Three.js, Y is Up. We map Map North -> -Z or +Z?
-// Usually: +X is East, -Z is North (Right-handed system).
-// Let's use: +X = East, -Z = North.
+// Convert Lat/Lon to local meters using equirectangular projection
+// +X = East, -Z = North (Three.js right-handed system)
 export function geoToLocal(
   geo: GeoCoordinates,
   origin: GeoCoordinates
@@ -102,13 +97,8 @@ export function getTileDimensions(z: number, lat: number): TileDimensions {
   const latRad = (lat * Math.PI) / 180;
   const resolution = (EARTH_CIRCUMFERENCE * Math.cos(latRad)) / Math.pow(2, z);
 
-  // For Web Mercator tiles, they are square in projected space, but in "meters on ground"
-  // the width and height might differ slightly if we measure degrees.
-  // However, the prompt provided formula is for "tileSizeMeters".
-  // We will use this resolution for the tile size.
-
   return {
     width: resolution,
-    height: resolution // Assuming square for the PlaneGeometry
+    height: resolution
   };
 }

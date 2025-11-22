@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import ROSLIB from 'roslib';
 import { useROSConnection } from './useROSConnection';
 import { VehicleManager, VehicleState } from '../lib/vehicle/VehicleManager';
-import { VehicleTelemetryMessage, parseVehicleTelemetry } from '../lib/ros/telemetry';
+import { parseVehicleTelemetry } from '../lib/ros/telemetry';
 import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 
 export function useVehicleTelemetry() {
@@ -10,13 +10,10 @@ export function useVehicleTelemetry() {
   const { origin, setOrigin } = useCoordinateOrigin();
   const [vehicles, setVehicles] = useState<VehicleState[]>([]);
 
-  // Initialize manager once using useState initializer
   const [manager] = useState(() => new VehicleManager());
-  // Use refs to access latest origin/setOrigin without triggering effect re-runs
   const originRef = useRef(origin);
   const setOriginRef = useRef(setOrigin);
 
-  // Keep refs in sync with latest values
   useEffect(() => {
     originRef.current = origin;
     setOriginRef.current = setOrigin;
@@ -39,7 +36,6 @@ export function useVehicleTelemetry() {
         setOriginRef.current(newOrigin);
       }
 
-      // Trigger React update
       setVehicles([...manager.getVehicles()]);
     };
 
@@ -51,7 +47,6 @@ export function useVehicleTelemetry() {
     };
   }, [ros, isConnected, manager]);
 
-  // Optional: Prune stale vehicles periodically
   useEffect(() => {
       const interval = setInterval(() => {
           const currentVehicles = manager.getVehicles();

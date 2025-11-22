@@ -10,7 +10,6 @@ interface AltitudeIndicatorProps {
 export function AltitudeIndicator({ vehicle }: AltitudeIndicatorProps) {
   const { position } = vehicle;
 
-  // Line from vehicle position (x,y,z) to ground (x,0,z)
   const points = [
     position,
     new THREE.Vector3(position.x, 0, position.z)
