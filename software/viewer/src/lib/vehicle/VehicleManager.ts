@@ -19,7 +19,6 @@ export class VehicleManager {
   private trajectoryBuffers: Map<string, { positions: Vector3[]; timestamps: number[] }>;
   private lastTelemetry: Map<string, { msg: VehicleTelemetryMessage; localPos: Vector3; time: number }>;
   private maxTrajectoryTime: number = 30000; // 30 seconds
-  private staleThreshold: number = 2000; // 2 seconds
   private cleanupThreshold: number = 10000; // 10 seconds (fade out time)
 
   constructor() {
