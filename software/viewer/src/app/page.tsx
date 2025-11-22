@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { GCSGridLayout } from "@/components/layout/GCSLayout";
 import { StatusBar } from "@/components/layout/StatusBar";
 import { TelemetryPanel } from "@/components/layout/TelemetryPanel";
@@ -11,37 +11,48 @@ import { LayerVisibilityProvider } from "@/context/LayerVisibilityContext";
 import { ControlPanel } from "@/components/ui/ControlPanel";
 import { MiniMap } from "@/components/ui/MiniMap";
 
-// Create a wrapper component to use hooks that need Providers
 function HomeContent() {
   const sceneRef = useRef<Scene3DHandle>(null);
+  const [cameraPosition, setCameraPosition] = useState<{ x: number; y: number; z: number } | undefined>();
+  const [cameraTarget, setCameraTarget] = useState<{ x: number; y: number; z: number } | undefined>();
+  const [showControlPanel, setShowControlPanel] = useState(true);
 
   const handleCameraPreset = (preset: 'wide' | 'tracking' | 'overhead') => {
     sceneRef.current?.setCameraView(preset);
   };
 
+  const handleTeleport = (x: number, z: number) => {
+    sceneRef.current?.teleportTo(x, z);
+  };
+
+  // Poll camera state for mini-map updates
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const state = sceneRef.current?.getCameraState();
+      if (state) {
+        setCameraPosition({ x: state.position.x, y: state.position.y, z: state.position.z });
+        setCameraTarget({ x: state.target.x, y: state.target.y, z: state.target.z });
+      }
+    }, 100); // 10 Hz update
+
+    return () => clearInterval(interval);
+  }, []);
+
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-        // Ignore if typing in an input
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
         switch (e.key.toLowerCase()) {
-            case ' ': // Space: Pause (Not yet implemented in time/simulation, but spec says Space=Pause)
-               // For now, we'll just log it or maybe toggle a pause state if we had one.
-               // The prompt says "Space (Pause/Resume)". Since we don't have a global pause context yet, we will just log.
-               console.log("Toggle Pause");
+            case ' ':
+               e.preventDefault();
+               // TODO: Implement pause/resume functionality
                break;
-            case 'r': // Reset Camera (Wide)
+            case 'r':
                handleCameraPreset('wide');
                break;
-            case 'h': // Toggle UI (Control Panel visibility maybe? or all UI?)
-               // For now let's toggle the Control Panel visibility via a local state if we wanted,
-               // but the spec implies hiding all UI. Let's just log for MVP or maybe implement a simple toggle if requested.
-               // "H (Toggle UI)". I'll interpret this as toggling the ControlPanel visibility.
-               const panel = document.getElementById('control-panel');
-               if (panel) {
-                   panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-               }
+            case 'h':
+               setShowControlPanel(prev => !prev);
                break;
             case '1':
                handleCameraPreset('wide');
@@ -65,14 +76,18 @@ function HomeContent() {
       map={
         <div className="relative w-full h-full">
             <Scene3D ref={sceneRef} />
-            <ControlPanel
-                id="control-panel"
-                className="absolute top-4 left-4 z-20"
-                onCameraPreset={handleCameraPreset}
-            />
+            {showControlPanel && (
+              <ControlPanel
+                  className="absolute top-4 left-4 z-20"
+                  onCameraPreset={handleCameraPreset}
+              />
+            )}
             <MiniMap
                 className="absolute bottom-4 right-4 z-20"
                 size={200}
+                cameraPosition={cameraPosition}
+                cameraTarget={cameraTarget}
+                onTeleport={handleTeleport}
             />
         </div>
       }

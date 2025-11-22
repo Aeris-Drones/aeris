@@ -11,13 +11,10 @@ export function useMapTiles() {
   const [tiles, setTiles] = useState<TileData[]>([]);
   const [stats, setStats] = useState<MapStats>({ count: 0, totalBytes: 0 });
 
-  // Use a ref for the manager to persist across renders
   const managerRef = useRef<MapTileManager>(new MapTileManager(500));
-  // Use refs to access latest origin/setOrigin without triggering effect re-runs
   const originRef = useRef(origin);
   const setOriginRef = useRef(setOrigin);
 
-  // Keep refs in sync with latest values
   useEffect(() => {
     originRef.current = origin;
     setOriginRef.current = setOrigin;

@@ -34,7 +34,6 @@ export class MapTileManager {
   }
 
   public ingest(message: MapTileMessage, externalOrigin: GeoCoordinates | null): IngestResult | null {
-    // 1. Parse ID
     let coords: TileCoordinates;
     try {
       coords = parseTileId(message.tile_id);
@@ -43,10 +42,8 @@ export class MapTileManager {
       return null;
     }
 
-    // 2. Handle Data & Cache Key
     const key = message.tile_id;
 
-    // If update, remove old (LRU refresh happens on set)
     if (this.cache.has(key)) {
       this.removeTile(key);
     }
@@ -56,7 +53,6 @@ export class MapTileManager {
       return null;
     }
 
-    // 3. Create Texture URL
     const byteCharacters = atob(message.data);
     const byteNumbers = new Array(byteCharacters.length);
     for (let i = 0; i < byteCharacters.length; i++) {
@@ -66,11 +62,9 @@ export class MapTileManager {
     const blob = new Blob([byteArray], { type: 'image/png' });
     const url = URL.createObjectURL(blob);
 
-    // 4. Determine Position
     const center = getTileCenter(coords);
     let newOrigin: GeoCoordinates | undefined = undefined;
 
-    // Use external origin if provided, otherwise use internal origin, or set internal if both null
     let activeOrigin = externalOrigin || this.origin;
 
     if (!activeOrigin) {
@@ -79,30 +73,26 @@ export class MapTileManager {
       newOrigin = center;
       console.log(`[MapTileManager] Set origin to ${center.lat}, ${center.lon} from tile ${key}`);
     } else if (!this.origin) {
-        // If external origin was provided but internal wasn't set yet, sync them
         this.origin = activeOrigin;
     }
 
     const localPos = geoToLocal(center, activeOrigin);
     const dimensions = getTileDimensions(coords.z, center.lat);
 
-    // 5. Create TileData
     const tile: TileData = {
       id: key,
       url: url,
-      position: [localPos.x, 0, localPos.z], // y=0 for flat map
+      position: [localPos.x, 0, localPos.z],
       size: dimensions.width,
       coordinates: coords,
       timestamp: Date.now(),
       byteSize: message.byte_size,
     };
 
-    // 6. Store and Evict
     this.cache.set(key, tile);
     this.totalBytes += message.byte_size;
 
     if (this.cache.size > this.maxTiles) {
-      // Map iterator yields insertion order. First is oldest.
       const oldestKey = this.cache.keys().next().value;
       if (oldestKey) {
         this.removeTile(oldestKey);

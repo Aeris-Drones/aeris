@@ -31,7 +31,6 @@ const DEFAULT_OPTIONS: Required<ROSConnectionOptions> = {
 };
 
 export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnectionResult {
-  // Destructure options with defaults to avoid object instability
   const url = options.url || DEFAULT_OPTIONS.url;
   const autoConnect = options.autoConnect ?? DEFAULT_OPTIONS.autoConnect;
   const maxRetries = options.maxRetries ?? DEFAULT_OPTIONS.maxRetries;
@@ -46,16 +45,12 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isConnectingRef = useRef(false);
   const stateRef = useRef(state);
-  
-  // Ref to allow recursion in connect
   const connectRef = useRef<() => void>(() => {});
 
-  // Keep stateRef in sync
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
 
-  // Calculate exponential backoff delay
   const getRetryDelay = useCallback(() => {
     const delay = Math.min(
       initialRetryDelay * Math.pow(2, retryCountRef.current),
@@ -64,9 +59,7 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
     return delay;
   }, [initialRetryDelay, maxRetryDelay]);
 
-  // Connect to ROS bridge
   const connect = useCallback(() => {
-    // Prevent multiple simultaneous connection attempts using refs for stability
     if (isConnectingRef.current || stateRef.current === 'connected') {
       return;
     }
@@ -76,7 +69,6 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
     setError(null);
     console.log(`[ROS] Connecting to ${url}...`);
 
-    // Create new ROS connection
     const ros = new ROSLIB.Ros({
       url: url,
     });
@@ -96,14 +88,12 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
       setState('error');
       isConnectingRef.current = false;
 
-      // Schedule retry if we haven't exceeded max retries
       if (retryCountRef.current < maxRetries) {
         const delay = getRetryDelay();
         console.log(`[ROS] Retrying in ${delay}ms (attempt ${retryCountRef.current + 1}/${maxRetries})`);
 
         retryTimeoutRef.current = setTimeout(() => {
           retryCountRef.current++;
-          // Use ref for recursive call
           connectRef.current();
         }, delay);
       } else {
@@ -116,14 +106,12 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
       setState('disconnected');
       isConnectingRef.current = false;
 
-      // Auto-reconnect on unexpected disconnection
       if (retryCountRef.current < maxRetries) {
         const delay = getRetryDelay();
         console.log(`[ROS] Auto-reconnecting in ${delay}ms...`);
 
         retryTimeoutRef.current = setTimeout(() => {
           retryCountRef.current++;
-          // Use ref for recursive call
           connectRef.current();
         }, delay);
       }
@@ -131,24 +119,20 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
 
     rosRef.current = ros;
     setRosInstance(ros);
-  }, [url, maxRetries, getRetryDelay]); // Dependencies are now stable primitives
+  }, [url, maxRetries, getRetryDelay]);
 
-  // Update connectRef whenever connect changes
   useEffect(() => {
     connectRef.current = connect;
   }, [connect]);
 
-  // Disconnect from ROS bridge
   const disconnect = useCallback(() => {
     console.log('[ROS] Disconnecting...');
 
-    // Clear any pending retry timeouts
     if (retryTimeoutRef.current) {
       clearTimeout(retryTimeoutRef.current);
       retryTimeoutRef.current = null;
     }
 
-    // Close ROS connection
     if (rosRef.current) {
       rosRef.current.close();
       rosRef.current = null;
@@ -161,18 +145,15 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
     isConnectingRef.current = false;
   }, []);
 
-  // Auto-connect on mount if enabled
   useEffect(() => {
     let timer: NodeJS.Timeout;
     
     if (autoConnect) {
-      // Defer connection to next tick to avoid synchronous state update warning
       timer = setTimeout(() => {
         connect();
       }, 0);
     }
 
-    // Cleanup on unmount
     return () => {
       if (timer) {
         clearTimeout(timer);

@@ -9,9 +9,6 @@ interface Tile3DProps {
 }
 
 export function Tile3D({ position, size, url, name }: Tile3DProps) {
-  // We handle texture loading manually to avoid Suspense bubbling which might flicker the whole scene
-  // Given the requirement for progressive loading, individual tiles should pop in.
-
   const [texture, setTexture] = React.useState<THREE.Texture | null>(null);
   const textureRef = useRef<THREE.Texture | null>(null);
 
@@ -44,13 +41,6 @@ export function Tile3D({ position, size, url, name }: Tile3DProps) {
       }
     };
   }, [url, name]);
-
-  // Reuse geometry and material for performance?
-  // R3F handles instancing automatically if we use <instances>, but here we have unique textures per tile.
-  // So we must use individual meshes.
-  // Geometry can be shared if size is constant, but size varies by latitude slightly.
-  // However, it varies very little across a local map.
-  // We'll just create new geometry per tile for correctness.
 
   if (!texture) return null;
 

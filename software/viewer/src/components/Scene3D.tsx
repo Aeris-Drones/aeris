@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, forwardRef, useImperativeHandle } from 'react';
+import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { CameraControls, Grid, Stats } from '@react-three/drei';
 import { useMapTiles } from '../hooks/useMapTiles';
@@ -15,6 +16,8 @@ import { useLayerVisibility } from '../context/LayerVisibilityContext';
 
 export interface Scene3DHandle {
     setCameraView: (view: 'wide' | 'tracking' | 'overhead') => void;
+    teleportTo: (x: number, z: number) => void;
+    getCameraState: () => { position: THREE.Vector3; target: THREE.Vector3 } | null;
 }
 
 export const Scene3D = forwardRef<Scene3DHandle, unknown>((props, ref) => {
@@ -23,7 +26,6 @@ export const Scene3D = forwardRef<Scene3DHandle, unknown>((props, ref) => {
   const cameraControlsRef = useRef<CameraControls>(null);
   const { map } = useLayerVisibility();
 
-  // Expose camera methods to parent via ref
   useImperativeHandle(ref, () => ({
       setCameraView: (view: 'wide' | 'tracking' | 'overhead') => {
           const controls = cameraControlsRef.current;
@@ -31,23 +33,32 @@ export const Scene3D = forwardRef<Scene3DHandle, unknown>((props, ref) => {
 
           switch (view) {
               case 'wide':
-                  // Establish view: high angle, offset
                   controls.setLookAt(0, 500, 500, 0, 0, 0, true);
                   break;
               case 'overhead':
-                  // Map centric: Top down
                   controls.setLookAt(0, 1000, 0, 0, 0, 0, true);
                   break;
               case 'tracking':
-                  // Handled by SceneRendering logic, but we can initialize it here
-                  // Ideally, tracking needs a target. We'll pick the first vehicle in the loop below.
                   if (vehicles.length > 0) {
                       const v = vehicles[0];
-                      // Offset behind/above
                       controls.setLookAt(v.position.x - 50, v.position.y + 50, v.position.z + 50, v.position.x, v.position.y, v.position.z, true);
                   }
                   break;
           }
+      },
+      teleportTo: (x: number, z: number) => {
+          const controls = cameraControlsRef.current;
+          if (!controls) return;
+          controls.setLookAt(x, 300, z + 200, x, 0, z, true);
+      },
+      getCameraState: () => {
+          const controls = cameraControlsRef.current;
+          if (!controls) return null;
+          const position = new THREE.Vector3();
+          const target = new THREE.Vector3();
+          controls.getPosition(position);
+          controls.getTarget(target);
+          return { position, target };
       }
   }));
 
@@ -70,10 +81,7 @@ export const Scene3D = forwardRef<Scene3DHandle, unknown>((props, ref) => {
         <Stats className="custom-stats-position" /> 
       </Canvas>
       
-      {/* HUD Overlay - Now handled by parent or kept here?
-          Plan says integrate into Layout, but keeping stats here is fine for debug.
-          We will remove the old stats overlay if it conflicts with new designs, but keeping it for now.
-      */}
+      {/* HUD Overlay - stats display */}
       <div className="absolute top-4 right-4 bg-black/70 text-white p-4 rounded-md backdrop-blur-sm pointer-events-none font-mono text-sm border border-white/10 z-10">
         <h3 className="font-bold text-emerald-400 mb-2">Map Status</h3>
         <div className="flex flex-col gap-1">

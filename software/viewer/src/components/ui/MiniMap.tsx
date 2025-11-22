@@ -1,19 +1,31 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { useVehicleTelemetry } from '../../hooks/useVehicleTelemetry';
 import { useCoordinateOrigin } from '../../context/CoordinateOriginContext';
 import { latLonToMeters } from '../../lib/map/coordinates';
 
+interface CameraState {
+  x: number;
+  y: number;
+  z: number;
+}
+
 interface MiniMapProps {
   className?: string;
   size?: number;
+  cameraPosition?: CameraState;
+  cameraTarget?: CameraState;
+  onTeleport?: (x: number, z: number) => void;
 }
 
-export function MiniMap({ className, size = 200 }: MiniMapProps) {
+export function MiniMap({ className, size = 200, cameraPosition, cameraTarget, onTeleport }: MiniMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { vehicles } = useVehicleTelemetry();
   const { origin } = useCoordinateOrigin();
+
+  const mapRadiusMeters = 1000; // 1km radius
+  const scale = size / (mapRadiusMeters * 2); // pixels per meter
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -22,14 +34,11 @@ export function MiniMap({ className, size = 200 }: MiniMapProps) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear canvas
     ctx.clearRect(0, 0, size, size);
 
-    // Background
     ctx.fillStyle = '#111111';
     ctx.fillRect(0, 0, size, size);
 
-    // Draw grid (optional context)
     ctx.strokeStyle = '#333333';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -39,47 +48,82 @@ export function MiniMap({ className, size = 200 }: MiniMapProps) {
     ctx.lineTo(size, size/2);
     ctx.stroke();
 
-    // Determine scale. Let's assume the MiniMap covers a fixed area, e.g., 2km x 2km centered on origin.
-    const mapRadiusMeters = 1000; // 1km radius
-    const scale = size / (mapRadiusMeters * 2); // pixels per meter
+    if (cameraPosition) {
+      const camX = (size / 2) + (cameraPosition.x * scale);
+      const camY = (size / 2) - (cameraPosition.z * scale);
+
+      if (cameraTarget) {
+        const targetX = (size / 2) + (cameraTarget.x * scale);
+        const targetY = (size / 2) - (cameraTarget.z * scale);
+
+        const dx = targetX - camX;
+        const dy = targetY - camY;
+        const angle = Math.atan2(dy, dx);
+
+        ctx.save();
+        ctx.translate(camX, camY);
+        ctx.rotate(angle);
+
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(30, -15);
+        ctx.lineTo(30, 15);
+        ctx.closePath();
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
+      ctx.beginPath();
+      ctx.arc(camX, camY, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
 
     vehicles.forEach(vehicle => {
-        // Use rawPosition (lat/lon) if available, otherwise derive from local position
-        let pos;
-        if (vehicle.rawPosition) {
-            pos = latLonToMeters(vehicle.rawPosition.lat, vehicle.rawPosition.lon, origin);
-        } else {
-            // Fallback if rawPosition is missing (should be added to VehicleState interface)
-            // Assuming local position X, Z corresponds to the meters from origin
-            // But let's ensure VehicleState has rawPosition. I just added it.
-             pos = latLonToMeters(0, 0, origin); // Dummy fallback to avoid crash
-        }
+      if (!vehicle.rawPosition) return;
 
-        // Convert to canvas coordinates (center is 0,0 in meters, so size/2, size/2 in pixels)
-        // Note: Canvas Y is down, Scene Y is up (usually), but here we treat top-down map:
-        // X -> East (Right), Z -> North (Up in map terms, usually -Z in 3D or just Y depending on projection).
-        // latLonToMeters gives x (East), y (North).
-        // Canvas X = center + x * scale
-        // Canvas Y = center - y * scale (flip Y because canvas Y is down)
+      const pos = latLonToMeters(vehicle.rawPosition.lat, vehicle.rawPosition.lon, origin);
 
-        const cx = (size / 2) + (pos.x * scale);
-        const cy = (size / 2) - (pos.y * scale);
+      const cx = (size / 2) + (pos.x * scale);
+      const cy = (size / 2) - (pos.y * scale);
 
-        // Draw vehicle dot
-        ctx.beginPath();
-        ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2);
 
-        // Color based on vehicle type/role (using vehicle.color which is an object {r,g,b})
-        // Convert RGB object to CSS string
-        const r = Math.round(vehicle.color.r * 255);
-        const g = Math.round(vehicle.color.g * 255);
-        const b = Math.round(vehicle.color.b * 255);
+      const r = Math.round(vehicle.color.r * 255);
+      const g = Math.round(vehicle.color.g * 255);
+      const b = Math.round(vehicle.color.b * 255);
 
-        ctx.fillStyle = `rgb(${r},${g},${b})`;
-        ctx.fill();
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fill();
     });
 
-  }, [vehicles, origin, size]);
+  }, [vehicles, origin, size, cameraPosition, cameraTarget, scale]);
+
+  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!onTeleport) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    const worldX = (clickX - size / 2) / scale;
+    const worldZ = -(clickY - size / 2) / scale;
+
+    onTeleport(worldX, worldZ);
+  }, [onTeleport, size, scale]);
 
   return (
     <div className={className}>
@@ -87,7 +131,9 @@ export function MiniMap({ className, size = 200 }: MiniMapProps) {
         ref={canvasRef}
         width={size}
         height={size}
-        className="rounded-full border-2 border-zinc-700 shadow-lg bg-black"
+        className="rounded-full border-2 border-zinc-700 shadow-lg bg-black cursor-crosshair"
+        onClick={handleClick}
+        title="Click to teleport camera"
       />
       <div className="text-center text-[10px] text-zinc-500 mt-1 font-mono">MINI-MAP (2km)</div>
     </div>
