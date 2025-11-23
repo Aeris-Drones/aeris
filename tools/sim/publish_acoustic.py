@@ -10,30 +10,24 @@ except ImportError:
     print("Error: roslibpy not installed. Please install it.")
     sys.exit(1)
 
-# Configuration
 HOST = 'localhost'
 PORT = 9090
 TELEM_TOPIC = '/vehicle/telemetry'
 ACOUSTIC_TOPIC = '/perception/acoustic'
 ACOUSTIC_MSG_TYPE = 'aeris_msgs/AcousticBearing'
 
-# Sound Source Location (Lat/Lon)
-# 100 meters North-East of Base
+# Sound source: 100m North-East of base
 BASE_LAT = 37.7749
 BASE_LON = -122.4194
-
-# 1 degree lat approx 111111 meters
-# 1 degree lon approx 111111 * cos(lat)
-SOURCE_OFFSET_N = 100 # meters
-SOURCE_OFFSET_E = 100 # meters
+SOURCE_OFFSET_N = 100  # meters
+SOURCE_OFFSET_E = 100  # meters
 
 SOURCE_LAT = BASE_LAT + (SOURCE_OFFSET_N / 111111.0)
 SOURCE_LON = BASE_LON + (SOURCE_OFFSET_E / (111111.0 * math.cos(math.radians(BASE_LAT))))
 
 print(f"Sound Source at: {SOURCE_LAT}, {SOURCE_LON}")
 
-# State
-latest_vehicle_positions = {} # vehicle_id -> {lat, lon, alt}
+latest_vehicle_positions = {}
 lock = threading.Lock()
 
 def calculate_bearing(lat1, lon1, lat2, lon2):
@@ -55,7 +49,6 @@ def calculate_bearing(lat1, lon1, lat2, lon2):
     return (bearing_deg + 360) % 360
 
 def telemetry_callback(msg):
-    # Parse telemetry to update vehicle positions
     try:
         vid = msg['vehicle_id']
         pos = msg['position']
@@ -78,11 +71,9 @@ def run_publisher():
 
     print(f"Connected to ROS Bridge at {HOST}:{PORT}")
 
-    # Subscribe to telemetry
     telem_sub = roslibpy.Topic(client, TELEM_TOPIC, 'aeris_msgs/Telemetry')
     telem_sub.subscribe(telemetry_callback)
 
-    # Publisher for acoustic
     acoustic_pub = roslibpy.Topic(client, ACOUSTIC_TOPIC, ACOUSTIC_MSG_TYPE)
     acoustic_pub.advertise()
 
@@ -97,27 +88,19 @@ def run_publisher():
             nanosec = int((now - sec) * 1e9)
 
             for vid, pos in current_positions.items():
-                # Calculate true bearing
                 bearing = calculate_bearing(pos['lat'], pos['lon'], SOURCE_LAT, SOURCE_LON)
 
-                # Distance for SNR simulation
-                # Simple euclidean approx for short distances
                 d_lat = (SOURCE_LAT - pos['lat']) * 111111.0
                 d_lon = (SOURCE_LON - pos['lon']) * 111111.0 * math.cos(math.radians(BASE_LAT))
                 dist = math.sqrt(d_lat*d_lat + d_lon*d_lon)
 
-                # Simulate SNR: drops with distance
-                # Max 20dB at 0m, drops 6dB per doubling distance?
-                # Let's just do linear for simplicity in this range
+                # SNR: max 20dB at 0m, decreases with distance
                 snr = max(0, 20 - (dist / 10.0))
 
                 classification = "mechanical"
-                # Randomly switch to vocal occasionally or based on vehicle?
-                # Let's make scout_1 detect vocal
                 if vid == "scout_1":
                     classification = "vocal"
 
-                # Only publish if reasonably close (< 200m)
                 if dist < 200:
                     msg = {
                         "stamp": { "sec": sec, "nanosec": nanosec },
@@ -131,7 +114,7 @@ def run_publisher():
                     acoustic_pub.publish(roslibpy.Message(msg))
                     print(f"Published bearing {bearing:.1f} for {vid} (dist {dist:.1f}m)")
 
-            time.sleep(0.5) # 2 Hz
+            time.sleep(0.5)  # 2 Hz
 
     except KeyboardInterrupt:
         print("Stopping...")

@@ -1,17 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import ROSLIB from 'roslib';
 import { useROSConnection } from './useROSConnection';
-import { AcousticBearingMsg } from '../types/aeris_msgs';
 
-// Define the interface manually since we don't have the generated types file handy in this context
-// but normally it would be imported.
 interface AcousticBearing {
   vehicle_id: string;
   bearing_deg: number;
   confidence: number;
   snr_db: number;
   classification: string;
-  timestamp: number; // Received time
+  timestamp: number;
 }
 
 export function useAcousticPerception() {
@@ -19,8 +16,7 @@ export function useAcousticPerception() {
   const [detections, setDetections] = useState<Map<string, AcousticBearing>>(new Map());
   const detectionsRef = useRef<Map<string, AcousticBearing>>(new Map());
 
-  // TTL for detections in milliseconds
-  const DETECTION_TTL = 2000;
+  const DETECTION_TTL = 2000; // milliseconds
 
   useEffect(() => {
     if (!ros || !isConnected) return;
@@ -32,7 +28,6 @@ export function useAcousticPerception() {
     });
 
     const handleMessage = (message: any) => {
-      // Create a clean object
       const detection: AcousticBearing = {
         vehicle_id: message.vehicle_id,
         bearing_deg: message.bearing_deg,
@@ -43,7 +38,6 @@ export function useAcousticPerception() {
       };
 
       detectionsRef.current.set(detection.vehicle_id, detection);
-      // Force update
       setDetections(new Map(detectionsRef.current));
     };
 
@@ -54,7 +48,6 @@ export function useAcousticPerception() {
     };
   }, [ros, isConnected]);
 
-  // Pruning effect
   useEffect(() => {
     const interval = setInterval(() => {
         const now = Date.now();
