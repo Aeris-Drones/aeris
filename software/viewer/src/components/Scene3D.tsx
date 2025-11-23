@@ -11,6 +11,7 @@ import { Vehicle3D } from './vehicles/Vehicle3D';
 import { Trajectory3D } from './vehicles/Trajectory3D';
 import { AltitudeIndicator } from './vehicles/AltitudeIndicator';
 import { ThermalMarkers } from './overlays/ThermalMarkers';
+import { AcousticCones } from './overlays/AcousticCones';
 import { TileData } from '../lib/map/MapTileManager';
 import { VehicleState } from '../lib/vehicle/VehicleManager';
 import { useLayerVisibility } from '../context/LayerVisibilityContext';
@@ -163,6 +164,7 @@ function SceneRendering({ tiles, vehicles, cameraControlsRef, showMap }: SceneRe
       </group>
 
         <ThermalMarkers />
+        <AcousticCones vehicles={vehicles} />
 
         <Grid
           position={[0, -0.1, 0]}
