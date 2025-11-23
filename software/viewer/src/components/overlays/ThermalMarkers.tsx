@@ -48,46 +48,43 @@ const Hotspot3D = ({ data }: { data: ThermalHotspotData }) => {
     const textRef = useRef<any>(null); // Text component ref
     const texture = useMemo(() => createHotspotTexture(), []);
 
-    useFrame(() => {
-        if (!origin || !spriteRef.current) return;
-
-        // Update Position
+    // Calculate position once (only changes when origin or data changes)
+    const position = useMemo(() => {
+        if (!origin) return { x: 0, y: 0, z: 0 };
         const local = geoToLocal({ lat: data.latitude, lon: data.longitude }, origin);
-        const x = local.x;
-        const y = data.altitude;
-        const z = local.z;
+        return { x: local.x, y: data.altitude, z: local.z };
+    }, [origin, data.latitude, data.longitude, data.altitude]);
 
-        spriteRef.current.position.set(x, y, z);
+    // Calculate color once (only changes when temperature changes)
+    const color = useMemo(() => {
+        if (data.temp_c > 50) return new THREE.Color('#FF3333'); // Red
+        if (data.temp_c >= 35) return new THREE.Color('#FFA500'); // Orange
+        return new THREE.Color('#FFFF00'); // Yellow
+    }, [data.temp_c]);
+
+    const tempLabel = useMemo(() => `${data.temp_c.toFixed(1)}°C`, [data.temp_c]);
+
+    useFrame(() => {
+        if (!spriteRef.current) return;
+
+        // Update positions
+        spriteRef.current.position.set(position.x, position.y, position.z);
         if (textRef.current) {
-             // Position text slightly above the marker
-            textRef.current.position.set(x, y + 5, z);
-            textRef.current.text = `${data.temp_c.toFixed(1)}°C`;
-
-            // Update confidence/opacity of text if needed, or just color
-            // textRef.current.color = ...
+            textRef.current.position.set(position.x, position.y + 5, position.z);
+            textRef.current.text = tempLabel;
         }
-
-        // Color Logic
-        let color = new THREE.Color('#FFFF00'); // Yellow < 35
-        if (data.temp_c > 50) color = new THREE.Color('#FF3333'); // Red
-        else if (data.temp_c >= 35) color = new THREE.Color('#FFA500'); // Orange
 
         spriteRef.current.material.color = color;
 
-        // Fade out logic (last 1 second)
+        // Only opacity needs frame-by-frame update for fade effect
         const age = Date.now() - data.lastUpdate;
         const DECAY_MS = 5000;
         const FADE_START = 4000;
         let opacity = 1.0;
 
-        // Fade out at end of life
         if (age > FADE_START) {
             opacity = Math.max(0, 1.0 - ((age - FADE_START) / (DECAY_MS - FADE_START)));
         }
-
-        // Also use confidence for base opacity if desired, but usually confidence is just metadata
-        // Let's mix confidence into opacity slightly?
-        // For now, just fade out.
 
         spriteRef.current.material.opacity = opacity;
 

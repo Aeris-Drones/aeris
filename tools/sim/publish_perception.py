@@ -28,12 +28,10 @@ def meters_to_lon(meters, lat):
 
 def run_publisher():
     client = roslibpy.Ros(host=HOST, port=PORT)
+    client.run()
 
-    try:
-        client.run()
-    except Exception as e:
+    if not client.is_connected:
         print(f"Failed to connect to ROS Bridge at {HOST}:{PORT}")
-        print(e)
         return
 
     print(f"Connected to ROS Bridge at {HOST}:{PORT}")
@@ -64,10 +62,10 @@ def run_publisher():
             sec = int(now)
             nanosec = int((now - sec) * 1e9)
 
-            for h in hotspots:
+            for idx, h in enumerate(hotspots):
                 # Simulate slight movement or measurement noise
-                x = h["offset_x"] + math.sin(elapsed * 0.5 + int(h["id"][-1])) * 5
-                y = h["offset_y"] + math.cos(elapsed * 0.5 + int(h["id"][-1])) * 5
+                x = h["offset_x"] + math.sin(elapsed * 0.5 + idx) * 5
+                y = h["offset_y"] + math.cos(elapsed * 0.5 + idx) * 5
 
                 # Vary temperature slightly
                 current_temp = h["base_temp"] + math.sin(elapsed) * 5
