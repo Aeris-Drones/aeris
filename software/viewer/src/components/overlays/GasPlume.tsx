@@ -40,6 +40,7 @@ interface PlumeMeshData {
   material: THREE.MeshBasicMaterial;
   altitude: number;
   key: string;
+  layerRatio: number; // 0 = outer, 1 = inner (per-plume)
 }
 
 export function GasPlume() {
@@ -74,12 +75,14 @@ export function GasPlume() {
         });
 
         const altitude = poly.points[0]?.y ?? 0;
+        const layerRatio = total > 1 ? idx / (total - 1) : 0; // 0 = outer, 1 = inner
 
         data.push({
           geometry,
           material,
           altitude,
           key: `plume-${plumeIdx}-${idx}`,
+          layerRatio,
         });
       });
     });
@@ -103,10 +106,11 @@ export function GasPlume() {
 
     const pulse = 1 + Math.sin(state.clock.elapsedTime * PULSE_SPEED) * PULSE_AMPLITUDE;
 
-    groupRef.current.children.forEach((child, idx) => {
+    groupRef.current.children.forEach((child) => {
       if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) {
-        // Vary opacity slightly by layer (inner = more opaque)
-        const layerOpacity = BASE_OPACITY + (idx * 0.05);
+        // Use stored layer ratio for consistent opacity scaling per-plume
+        const layerRatio = (child.userData.layerRatio as number) ?? 0;
+        const layerOpacity = BASE_OPACITY + (layerRatio * 0.2);
         child.material.opacity = Math.min(layerOpacity * pulse, 0.8);
       }
     });
@@ -123,6 +127,7 @@ export function GasPlume() {
           geometry={item.geometry}
           material={item.material}
           position={[0, item.altitude, 0]}
+          userData={{ layerRatio: item.layerRatio }}
         />
       ))}
     </group>
