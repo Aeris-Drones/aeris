@@ -108,7 +108,8 @@ export function GasPlume() {
 
     groupRef.current.children.forEach((child) => {
       if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) {
-        // Use stored layer ratio for consistent opacity scaling per-plume
+        // Check material isn't disposed
+        if (child.material.disposed) return;
         const layerRatio = (child.userData.layerRatio as number) ?? 0;
         const layerOpacity = BASE_OPACITY + (layerRatio * 0.2);
         child.material.opacity = Math.min(layerOpacity * pulse, 0.8);
