@@ -11,6 +11,14 @@ interface AcousticBearing {
   timestamp: number;
 }
 
+interface AcousticBearingMsg {
+  vehicle_id: string;
+  bearing_deg: number;
+  confidence: number;
+  snr_db: number;
+  classification: string;
+}
+
 export function useAcousticPerception() {
   const { ros, isConnected } = useROSConnection();
   const [detections, setDetections] = useState<Map<string, AcousticBearing>>(new Map());
@@ -27,7 +35,7 @@ export function useAcousticPerception() {
       messageType: 'aeris_msgs/AcousticBearing',
     });
 
-    const handleMessage = (message: any) => {
+    const handleMessage = (message: AcousticBearingMsg) => {
       const detection: AcousticBearing = {
         vehicle_id: message.vehicle_id,
         bearing_deg: message.bearing_deg,

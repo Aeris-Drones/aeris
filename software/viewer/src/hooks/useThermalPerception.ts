@@ -13,6 +13,15 @@ export interface ThermalHotspotData {
   lastUpdate: number;
 }
 
+interface ThermalHotspotMsg {
+  id: string;
+  latitude: number;
+  longitude: number;
+  altitude: number;
+  temp_c: number;
+  confidence: number;
+}
+
 export function useThermalPerception() {
   const { ros, isConnected } = useROSConnection();
 
@@ -34,7 +43,7 @@ export function useThermalPerception() {
       messageType: 'aeris_msgs/ThermalHotspot',
     });
 
-    const handleMessage = (message: any) => {
+    const handleMessage = (message: ThermalHotspotMsg) => {
        const { id, latitude, longitude, altitude, temp_c, confidence } = message;
        const now = Date.now();
 

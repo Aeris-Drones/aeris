@@ -45,7 +45,7 @@ function createHotspotTexture() {
 const Hotspot3D = ({ data }: { data: ThermalHotspotData }) => {
     const { origin } = useCoordinateOrigin();
     const spriteRef = useRef<THREE.Sprite>(null);
-    const textRef = useRef<any>(null); // Text component ref
+    const textRef = useRef<(THREE.Object3D & { text?: string; fillOpacity?: number }) | null>(null);
     const texture = useMemo(() => createHotspotTexture(), []);
 
     // Calculate position once (only changes when origin or data changes)

@@ -14,8 +14,6 @@ export function AcousticCones({ vehicles }: AcousticConesProps) {
   const { acoustic } = useLayerVisibility();
   const groupRef = useRef<THREE.Group>(null);
 
-  if (!acoustic) return null;
-
   useFrame((state) => {
     if (groupRef.current) {
       const pulse = 1 + Math.sin(state.clock.elapsedTime * 4) * 0.05;
@@ -75,6 +73,8 @@ export function AcousticCones({ vehicles }: AcousticConesProps) {
 
     return items;
   }, [detections, vehicles]);
+
+  if (!acoustic) return null;
 
   return <group ref={groupRef}>{cones}</group>;
 }
