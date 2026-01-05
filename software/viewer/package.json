@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
-    "build": "next build --webpack",
+    "build": "node tools/next-build.mjs",
     "start": "next start",
     "lint": "eslint"
   },
@@ -19,13 +19,15 @@
     "@types/three": "^0.181.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "framer-motion": "^12.24.0",
     "lucide-react": "^0.553.0",
     "next": "16.0.3",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "roslib": "^1.4.1",
     "tailwind-merge": "^3.4.0",
-    "three": "^0.181.1"
+    "three": "^0.181.1",
+    "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { useGasPerception } from '../../hooks/useGasPerception';
 import { useLayerVisibility } from '../../context/LayerVisibilityContext';
 import { GasPlumeParticles } from './GasPlumeParticles';
+import { WindVectors } from './WindVectors';
+import { PlumeCenterline } from './PlumeCenterline';
 
 // Color ramp: Purple (low) -> Green (medium) -> Yellow (high)
 export const COLORS = {
@@ -45,7 +47,7 @@ interface PlumeMeshData {
 }
 
 export function GasPlume() {
-  const { plumes } = useGasPerception();
+  const { plumes, wind } = useGasPerception();
   const { gas } = useLayerVisibility();
   const groupRef = useRef<THREE.Group>(null);
   const debugPerf = process.env.NEXT_PUBLIC_GAS_PERF === '1';
@@ -121,8 +123,12 @@ export function GasPlume() {
   if (!gas) return null;
   if (plumes.length === 0) return null;
 
+  // Get centerline from first plume for overlay rendering
+  const centerline = plumes[0]?.centerline ?? [];
+
   return (
     <group ref={groupRef}>
+      {/* Layer 1: Plume polygon meshes (base layer) */}
       {meshData.map((item) => (
         <mesh
           key={item.key}
@@ -132,7 +138,35 @@ export function GasPlume() {
           userData={{ layerRatio: item.layerRatio }}
         />
       ))}
-      <GasPlumeParticles plumes={plumes} adaptiveScaling={adaptiveScaling} debugPerf={debugPerf} />
+
+      {/* Layer 2: Particle system */}
+      <GasPlumeParticles
+        plumes={plumes}
+        windDirection={wind.direction.clone().multiplyScalar(wind.speed)}
+        adaptiveScaling={adaptiveScaling}
+        debugPerf={debugPerf}
+      />
+
+      {/* Layer 3: Centerline glow tube (AC3, AC4) */}
+      {centerline.length >= 2 && (
+        <PlumeCenterline
+          centerline={centerline}
+          tubeRadius={0.8}
+          glowColor="#FFFF00"
+          pulseAnimation={true}
+        />
+      )}
+
+      {/* Layer 4: Wind vector arrows (AC1, AC2) */}
+      <WindVectors
+        plumes={plumes}
+        windDirection={wind.direction}
+        windSpeed={wind.speed}
+        gridSpacing={15}
+        opacity={0.45}
+        depthTest={false}
+        renderOrder={6}
+      />
     </group>
   );
 }
