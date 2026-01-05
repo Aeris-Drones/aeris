@@ -35,13 +35,14 @@ export function useAcousticPerception() {
       messageType: 'aeris_msgs/AcousticBearing',
     });
 
-    const handleMessage = (message: AcousticBearingMsg) => {
+    const handleMessage = (message: ROSLIB.Message) => {
+      const msg = message as AcousticBearingMsg;
       const detection: AcousticBearing = {
-        vehicle_id: message.vehicle_id,
-        bearing_deg: message.bearing_deg,
-        confidence: message.confidence,
-        snr_db: message.snr_db,
-        classification: message.classification,
+        vehicle_id: msg.vehicle_id,
+        bearing_deg: msg.bearing_deg,
+        confidence: msg.confidence,
+        snr_db: msg.snr_db,
+        classification: msg.classification,
         timestamp: Date.now(),
       };
 

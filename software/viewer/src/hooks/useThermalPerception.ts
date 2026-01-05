@@ -43,8 +43,8 @@ export function useThermalPerception() {
       messageType: 'aeris_msgs/ThermalHotspot',
     });
 
-    const handleMessage = (message: ThermalHotspotMsg) => {
-       const { id, latitude, longitude, altitude, temp_c, confidence } = message;
+    const handleMessage = (message: ROSLIB.Message) => {
+       const { id, latitude, longitude, altitude, temp_c, confidence } = message as ThermalHotspotMsg;
        const now = Date.now();
 
        let needsRender = false;

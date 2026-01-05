@@ -1,34 +1,11 @@
 import argparse
-import base64
 import math
 import time
-import io
-from PIL import Image, ImageDraw, ImageFont
 try:
     import roslibpy
 except ImportError:
     print("Error: roslibpy is not installed. Please run 'pip install roslibpy pillow'")
     exit(1)
-
-def create_dummy_tile_image(text, color=(100, 150, 200), size=256):
-    """Creates a dummy PNG image with text."""
-    img = Image.new('RGB', (size, size), color=color)
-    d = ImageDraw.Draw(img)
-
-    # Draw border
-    d.rectangle([0, 0, size-1, size-1], outline=(255, 255, 255), width=2)
-
-    # Draw Text (center)
-    # Simple calculation for centering since we might not have a ttf font handy
-    # We'll just use default font which is tiny, but better than nothing,
-    # or try to draw an X
-    d.line([0, 0, size, size], fill=(255, 255, 255), width=1)
-    d.line([0, size, size, 0], fill=(255, 255, 255), width=1)
-    d.text((10, 10), text, fill=(255, 255, 0))
-
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    return buf.getvalue()
 
 def get_tile_indices(lat, lon, zoom):
     n = 2.0 ** zoom
@@ -52,6 +29,7 @@ def main():
     client.run()
 
     publisher = roslibpy.Topic(client, '/map/tiles', 'aeris_msgs/MapTile')
+    publisher.advertise()
 
     print(f"Connected to {args.host}:{args.port}")
     print(f"Publishing to /map/tiles at {args.rate} Hz")
@@ -83,17 +61,12 @@ def main():
 
             print(f"Publishing tile: {tile_id}")
 
-            # Create image payload
-            img_data = create_dummy_tile_image(tile_id)
-            b64_data = base64.b64encode(img_data).decode('utf-8')
-
             msg = {
                 'tile_id': tile_id,
-                'format': 'image/png',
-                'layer_ids': ['satellite'],
+                'format': 'mbtiles-1.3',
+                'layer_ids': ['base'],
                 'hash_sha256': 'dummy',
-                'byte_size': len(img_data),
-                'data': b64_data
+                'byte_size': 0,
             }
 
             publisher.publish(roslibpy.Message(msg))
@@ -104,6 +77,7 @@ def main():
     except KeyboardInterrupt:
         print("Stopping...")
     finally:
+        publisher.unadvertise()
         client.terminate()
 
 if __name__ == '__main__':

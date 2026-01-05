@@ -25,17 +25,3 @@ CMakeFiles/
 *.swp
 .idea/
 .vscode/
-
-AGENTS.md
-docs/specs/cur_plan.md
-LOG.md
-.claude/
-.bmad/
-.bmad-ephemeral/
-.cursor/
-.github/chatmodes/
-.kilocodemodes
-ai_gent/
-docs/innovation/
-docs/viewer/
-docs/specs/stories

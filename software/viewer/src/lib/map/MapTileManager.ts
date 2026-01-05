@@ -48,19 +48,8 @@ export class MapTileManager {
       this.removeTile(key);
     }
 
-    if (!message.data) {
-      console.warn(`Tile ${key} has no data payload.`);
-      return null;
-    }
-
-    const byteCharacters = atob(message.data);
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: 'image/png' });
-    const url = URL.createObjectURL(blob);
+    const url = this.getTileUrl(message);
+    if (!url) return null;
 
     const center = getTileCenter(coords);
     let newOrigin: GeoCoordinates | undefined = undefined;
@@ -102,6 +91,71 @@ export class MapTileManager {
     return { tile, newOrigin };
   }
 
+  private getTileUrl(message: MapTileMessage): string | null {
+    if (message.data) {
+      const byteCharacters = atob(message.data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/png' });
+      return URL.createObjectURL(blob);
+    }
+
+    if (typeof document === 'undefined') {
+      return null;
+    }
+
+    const pngBytes = this.createPlaceholderTilePng(message.tile_id);
+    const blob = new Blob([pngBytes], { type: 'image/png' });
+    return URL.createObjectURL(blob);
+  }
+
+  private createPlaceholderTilePng(tileId: string): Uint8Array<ArrayBuffer> {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new Uint8Array(new ArrayBuffer(0));
+
+    ctx.fillStyle = '#1f2937';
+    ctx.fillRect(0, 0, 256, 256);
+
+    ctx.strokeStyle = '#6b7280';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, 254, 254);
+
+    ctx.strokeStyle = '#374151';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(256, 256);
+    ctx.moveTo(0, 256);
+    ctx.lineTo(256, 0);
+    ctx.stroke();
+
+    ctx.fillStyle = '#fbbf24';
+    ctx.font = '14px monospace';
+    ctx.fillText('MapTile', 10, 22);
+
+    ctx.fillStyle = '#e5e7eb';
+    ctx.font = '12px monospace';
+    const lines = wrapText(tileId, 28);
+    lines.slice(0, 4).forEach((line, index) => {
+      ctx.fillText(line, 10, 50 + index * 16);
+    });
+
+    const dataUrl = canvas.toDataURL('image/png');
+    const base64 = dataUrl.split(',')[1] ?? '';
+    const byteCharacters = atob(base64);
+    const bytes = new Uint8Array(new ArrayBuffer(byteCharacters.length));
+    for (let i = 0; i < byteCharacters.length; i++) {
+      bytes[i] = byteCharacters.charCodeAt(i);
+    }
+    return bytes;
+  }
+
   private removeTile(key: string) {
     const tile = this.cache.get(key);
     if (tile) {
@@ -130,4 +184,14 @@ export class MapTileManager {
     this.totalBytes = 0;
     this.origin = null;
   }
+}
+
+function wrapText(text: string, maxLen: number): string[] {
+  const chunks: string[] = [];
+  let start = 0;
+  while (start < text.length) {
+    chunks.push(text.slice(start, start + maxLen));
+    start += maxLen;
+  }
+  return chunks.length ? chunks : [''];
 }

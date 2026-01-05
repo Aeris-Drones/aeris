@@ -3,9 +3,10 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGasPerception } from '../../hooks/useGasPerception';
 import { useLayerVisibility } from '../../context/LayerVisibilityContext';
+import { GasPlumeParticles } from './GasPlumeParticles';
 
 // Color ramp: Purple (low) -> Green (medium) -> Yellow (high)
-const COLORS = {
+export const COLORS = {
   low: new THREE.Color(0x9333ea),    // Purple
   medium: new THREE.Color(0x22c55e), // Green
   high: new THREE.Color(0xf59e0b),   // Amber/Yellow
@@ -47,6 +48,8 @@ export function GasPlume() {
   const { plumes } = useGasPerception();
   const { gas } = useLayerVisibility();
   const groupRef = useRef<THREE.Group>(null);
+  const debugPerf = process.env.NEXT_PUBLIC_GAS_PERF === '1';
+  const adaptiveScaling = process.env.NEXT_PUBLIC_GAS_PARTICLE_ADAPTIVE === '1';
 
   // Build mesh data with memoization
   const meshData = useMemo(() => {
@@ -108,8 +111,6 @@ export function GasPlume() {
 
     groupRef.current.children.forEach((child) => {
       if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial) {
-        // Check material isn't disposed
-        if (child.material.disposed) return;
         const layerRatio = (child.userData.layerRatio as number) ?? 0;
         const layerOpacity = BASE_OPACITY + (layerRatio * 0.2);
         child.material.opacity = Math.min(layerOpacity * pulse, 0.8);
@@ -118,7 +119,7 @@ export function GasPlume() {
   });
 
   if (!gas) return null;
-  if (meshData.length === 0) return null;
+  if (plumes.length === 0) return null;
 
   return (
     <group ref={groupRef}>
@@ -131,6 +132,7 @@ export function GasPlume() {
           userData={{ layerRatio: item.layerRatio }}
         />
       ))}
+      <GasPlumeParticles plumes={plumes} adaptiveScaling={adaptiveScaling} debugPerf={debugPerf} />
     </group>
   );
 }
