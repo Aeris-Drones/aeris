@@ -53,7 +53,6 @@ export function withHaptic<P extends object>(
       haptic(style);
     };
 
-    // @ts-expect-error - Adding pointer event handler
     return <WrappedComponent {...props} onPointerDown={handlePointerDown} />;
   };
 }

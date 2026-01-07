@@ -1,0 +1,202 @@
+'use client';
+
+import { Button } from '@/components/ui/button';
+import { Flame, AudioLines, Wind, Crosshair, Check, X, MapPin } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+/**
+ * DetectionCard - Detection list item with full details
+ * 
+ * Per spec: Show confidence, time, vehicle, temperature/reading, sector, signature type
+ */
+
+export interface Detection {
+  id: string;
+  sensorType: 'thermal' | 'acoustic' | 'gas';
+  confidence: number;
+  timestamp: number;
+  status: 'new' | 'reviewing' | 'confirmed' | 'dismissed';
+  vehicleId: string;
+  vehicleName: string;
+  position: [number, number, number];
+  // Extended details
+  temperature?: number; // For thermal (°C)
+  decibels?: number; // For acoustic (dB)
+  concentration?: number; // For gas (ppm)
+  sector?: string; // e.g., "Sector C-4"
+  signatureType?: string; // e.g., "Human signature likely"
+}
+
+export interface DetectionCardProps {
+  detection: Detection;
+  isNew: boolean;
+  onConfirm: () => void;
+  onDismiss: () => void;
+  onLocate: () => void;
+}
+
+const sensorConfig = {
+  thermal: { Icon: Flame, color: 'text-orange-400', bg: 'bg-orange-500/10', label: 'Thermal' },
+  acoustic: { Icon: AudioLines, color: 'text-sky-400', bg: 'bg-sky-500/10', label: 'Acoustic' },
+  gas: { Icon: Wind, color: 'text-amber-400', bg: 'bg-amber-500/10', label: 'Gas' },
+};
+
+function formatTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'Just now';
+  if (min < 60) return `${min}m ago`;
+  return `${Math.floor(min / 60)}h ago`;
+}
+
+function getReading(detection: Detection): string {
+  switch (detection.sensorType) {
+    case 'thermal':
+      return detection.temperature ? `${detection.temperature}°C` : '--';
+    case 'acoustic':
+      return detection.decibels ? `${detection.decibels}dB` : '--';
+    case 'gas':
+      return detection.concentration ? `${detection.concentration}ppm` : '--';
+  }
+}
+
+function getDefaultSignature(detection: Detection): string {
+  const conf = detection.confidence;
+  switch (detection.sensorType) {
+    case 'thermal':
+      return conf > 0.85 ? 'Human signature likely' : conf > 0.6 ? 'Possible heat source' : 'Anomaly detected';
+    case 'acoustic':
+      return conf > 0.85 ? 'Voice detected' : conf > 0.6 ? 'Movement sounds' : 'Audio anomaly';
+    case 'gas':
+      return conf > 0.85 ? 'Hazardous levels' : conf > 0.6 ? 'Elevated concentration' : 'Trace detected';
+  }
+}
+
+export function DetectionCard({
+  detection,
+  isNew,
+  onConfirm,
+  onDismiss,
+  onLocate,
+}: DetectionCardProps) {
+  const sensor = sensorConfig[detection.sensorType];
+  const SensorIcon = sensor.Icon;
+  const isActionable = detection.status === 'new' || detection.status === 'reviewing';
+  const conf = Math.round(detection.confidence * 100);
+  const reading = getReading(detection);
+  const signature = detection.signatureType || getDefaultSignature(detection);
+  const sector = detection.sector || `Zone ${detection.position[0] > 0 ? 'E' : 'W'}-${Math.abs(Math.round(detection.position[2] / 50))}`;
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg overflow-hidden',
+        'bg-white/[0.02] hover:bg-white/[0.04]',
+        'transition-colors duration-150',
+        'border border-white/[0.04]',
+        detection.status === 'confirmed' && 'opacity-60 border-emerald-500/20',
+        detection.status === 'dismissed' && 'opacity-30'
+      )}
+    >
+      {/* Header row */}
+      <div className="flex items-center gap-3 px-4 py-3">
+        {/* Sensor badge */}
+        <div className={cn('flex items-center gap-2 px-2.5 py-1 rounded-md', sensor.bg)}>
+          <SensorIcon className={cn('h-4 w-4', sensor.color)} />
+          <span className={cn('text-xs font-medium', sensor.color)}>{sensor.label}</span>
+        </div>
+
+        {/* Status badge */}
+        {isNew && (
+          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-medium uppercase">
+            New
+          </span>
+        )}
+        {detection.status === 'confirmed' && (
+          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400/70 text-[10px] font-medium uppercase flex items-center gap-1">
+            <Check className="h-3 w-3" /> Confirmed
+          </span>
+        )}
+
+        <div className="flex-1" />
+
+        {/* Confidence */}
+        <span className={cn(
+          'font-mono text-xl font-medium',
+          conf >= 85 ? 'text-emerald-400' : conf >= 70 ? 'text-white' : 'text-white/50'
+        )}>
+          {conf}%
+        </span>
+      </div>
+
+      {/* Details row */}
+      <div className="px-4 pb-3 space-y-2">
+        {/* Metadata line */}
+        <div className="flex items-center gap-3 text-xs text-white/50">
+          <span>{formatTime(detection.timestamp)}</span>
+          <span>·</span>
+          <span>{detection.vehicleName}</span>
+          <span>·</span>
+          <span className="font-mono">{reading}</span>
+        </div>
+
+        {/* Signature and sector */}
+        <div className="flex items-center gap-2 text-sm">
+          <MapPin className="h-3.5 w-3.5 text-white/30" />
+          <span className="text-white/60">{sector}</span>
+          <span className="text-white/20">|</span>
+          <span className="text-white/80">{signature}</span>
+        </div>
+      </div>
+
+      {/* Actions row */}
+      {isActionable && (
+        <div className="flex items-center gap-2 px-4 py-2 border-t border-white/[0.04] bg-white/[0.01]">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-3 text-xs text-white/50 hover:text-white"
+            onClick={(e) => { e.stopPropagation(); onLocate(); }}
+          >
+            <Crosshair className="mr-1.5 h-3.5 w-3.5" />
+            Locate
+          </Button>
+          <div className="flex-1" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-3 text-xs text-white/50 hover:text-red-400"
+            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+          >
+            <X className="mr-1.5 h-3.5 w-3.5" />
+            Dismiss
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-3 text-xs bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+            onClick={(e) => { e.stopPropagation(); onConfirm(); }}
+          >
+            <Check className="mr-1.5 h-3.5 w-3.5" />
+            Confirm
+          </Button>
+        </div>
+      )}
+
+      {/* Non-actionable: just locate */}
+      {!isActionable && (
+        <div className="flex items-center gap-2 px-4 py-2 border-t border-white/[0.04] bg-white/[0.01]">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-3 text-xs text-white/50 hover:text-white"
+            onClick={(e) => { e.stopPropagation(); onLocate(); }}
+          >
+            <Crosshair className="mr-1.5 h-3.5 w-3.5" />
+            View on map
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}

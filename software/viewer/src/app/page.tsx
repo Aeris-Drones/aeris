@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { GCSLayout } from "@/components/layout/GCSLayout";
+import { LegacyGCSLayout as GCSLayout } from "@/components/layout/LegacyGCSLayout";
 import { Scene3D, Scene3DHandle } from "@/components/Scene3D";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CoordinateOriginProvider } from "@/context/CoordinateOriginContext";
@@ -355,7 +355,7 @@ function HomeContent() {
                   exit={{ opacity: 0, x: 10 }}
                   transition={transitions.fast}
                 >
-                  <FleetPanel variant="floating" />
+                  <FleetPanel />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -411,7 +411,7 @@ export default function Home() {
           <LayerVisibilityProvider>
             <DetectionProvider>
               <MissionProvider demoMode initialProgress={{ searchAreaKm2: 2.4, totalDrones: 4, activeDrones: 4 }}>
-                <FleetProvider demoMode>
+                <FleetProvider>
                   <ZoneProvider>
                     <HomeContent />
                     <KeyboardShortcutsOverlay />

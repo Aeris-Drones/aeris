@@ -22,30 +22,29 @@ const SHORTCUTS: ShortcutGroup[] = [
     title: 'Mission Control',
     shortcuts: [
       { key: 'Space', description: 'Pause / Resume mission' },
-      { key: 'Esc', description: 'Cancel current action' },
+      { key: 'Esc', description: 'Cancel current action / Close sheet' },
     ],
   },
   {
-    title: 'Camera',
+    title: 'Vehicle Selection',
     shortcuts: [
-      { key: 'C', description: 'Toggle camera controls' },
-      { key: '1', description: 'Wide view' },
-      { key: '2', description: 'Track drone' },
-      { key: '3', description: 'Overhead view' },
-      { key: 'R', description: 'Reset camera' },
+      { key: '1-6', description: 'Select drone 1-6' },
     ],
   },
   {
     title: 'Panels',
     shortcuts: [
-      { key: 'F', description: 'Toggle fleet panel' },
-      { key: 'Z', description: 'Toggle zones panel' },
-      { key: '?', description: 'Show shortcuts' },
+      { key: 'L', description: 'Toggle layers panel' },
+      { key: 'D', description: 'Toggle detections sheet' },
+      { key: 'F', description: 'Toggle fleet sheet' },
+      { key: 'Z', description: 'Enter zone drawing mode' },
+      { key: '?', description: 'Show keyboard shortcuts' },
     ],
   },
   {
-    title: 'Navigation',
+    title: 'Camera',
     shortcuts: [
+      { key: 'R', description: 'Reset camera to default view' },
       { key: 'Click + Drag', description: 'Orbit camera' },
       { key: 'Scroll', description: 'Zoom in/out' },
       { key: 'Right Click', description: 'Pan camera' },
