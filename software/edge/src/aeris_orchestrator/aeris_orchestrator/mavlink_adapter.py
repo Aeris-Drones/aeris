@@ -56,6 +56,8 @@ class MavlinkAdapter:
         self._mission_id = ""
         self._latest_setpoint: Setpoint | None = None
         self._state_lock = threading.Lock()
+        self._last_setpoint_sent_monotonic = float("-inf")
+        self._setpoint_dispatch_condition = threading.Condition(self._state_lock)
 
     @property
     def is_streaming(self) -> bool:
@@ -66,6 +68,10 @@ class MavlinkAdapter:
         return self._host, self._port
 
     @property
+    def last_setpoint_send_monotonic(self) -> float:
+        with self._state_lock:
+            return self._last_setpoint_sent_monotonic
+
     def command_port(self) -> int:
         return self._command_port
 
@@ -157,6 +163,7 @@ class MavlinkAdapter:
             self._mission_id = mission_id
             self._latest_setpoint = dict(initial_setpoint)
             self._running = True
+            self._last_setpoint_sent_monotonic = float("-inf")
 
         self._stream_thread = threading.Thread(
             target=self._stream_loop,
@@ -194,6 +201,18 @@ class MavlinkAdapter:
             self._mav_connection.close()
             if self._command_connection is not None:
                 self._command_connection.close()
+
+    def wait_for_setpoint_dispatch(
+        self, *, after_monotonic: float, timeout_sec: float
+    ) -> float | None:
+        deadline = time.monotonic() + max(timeout_sec, 0.0)
+        with self._state_lock:
+            while self._last_setpoint_sent_monotonic <= after_monotonic:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    return None
+                self._setpoint_dispatch_condition.wait(timeout=remaining)
+            return self._last_setpoint_sent_monotonic
 
     def send_return_to_launch(self) -> bool:
         """Send an explicit RTL command to the currently selected endpoint."""
@@ -538,5 +557,8 @@ class MavlinkAdapter:
                     0.0,
                     0.0,
                 )
+            with self._state_lock:
+                self._last_setpoint_sent_monotonic = time.monotonic()
+                self._setpoint_dispatch_condition.notify_all()
         except OSError as error:
             self._logger(f"MAVLink setpoint send failed: {error}")

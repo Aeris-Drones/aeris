@@ -278,6 +278,39 @@ def test_adapter_send_rtl_returns_false_on_oserror(monkeypatch) -> None:
     adapter.close()
 
 
+def test_adapter_wait_for_setpoint_dispatch_tracks_first_send(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
+    marker = time.monotonic()
+    adapter.start_stream("mission-1", {"x": 0.0, "z": 0.0, "altitude_m": 10.0})
+    dispatched_monotonic = adapter.wait_for_setpoint_dispatch(
+        after_monotonic=marker,
+        timeout_sec=0.2,
+    )
+    assert dispatched_monotonic is not None
+    assert dispatched_monotonic >= marker
+    assert (
+        adapter.wait_for_setpoint_dispatch(
+            after_monotonic=time.monotonic() + 1.0,
+            timeout_sec=0.05,
+        )
+        is None
+    )
+    adapter.close()
+
+
 def test_adapter_sends_hold_and_resume_with_ack(monkeypatch) -> None:
     connections: list[_FakeConnection] = []
 
