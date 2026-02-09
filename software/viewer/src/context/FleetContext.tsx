@@ -11,15 +11,32 @@ import React, {
   createContext,
   useContext,
   useState,
+  useEffect,
   useCallback,
   useMemo,
   type ReactNode,
 } from 'react';
-import type { VehicleInfo, VehicleCommand, VehicleCommandRequest } from '@/types/vehicle';
+import type {
+  VehicleInfo,
+  VehicleCommand,
+  VehicleCommandRequest,
+  VehicleStatus,
+} from '@/types/vehicle';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { vehicleStateToInfo } from '@/types/vehicle';
 import { useROSConnection } from '@/hooks/useROSConnection';
+import {
+  buildVehicleCommandServiceRequest,
+  callVehicleCommandService,
+  formatVehicleCommandFailure,
+  getVehicleCommandValidationError,
+} from '@/lib/fleetCommandBehavior';
 import ROSLIB from 'roslib';
+
+type FleetCommandResult = {
+  success: boolean;
+  message: string;
+};
 
 // ============================================================================
 // Context Types
@@ -36,10 +53,14 @@ interface FleetContextValue {
   toggleVehicleSelection: (id: string) => void;
   
   // Commands
-  sendCommand: (vehicleId: string, command: VehicleCommand, params?: { latitude?: number; longitude?: number; altitude?: number }) => void;
-  recallVehicle: (vehicleId: string) => void;
-  holdVehicle: (vehicleId: string) => void;
-  resumeVehicle: (vehicleId: string) => void;
+  sendCommand: (
+    vehicleId: string,
+    command: VehicleCommand,
+    params?: { latitude?: number; longitude?: number; altitude?: number }
+  ) => Promise<FleetCommandResult>;
+  recallVehicle: (vehicleId: string) => Promise<FleetCommandResult>;
+  holdVehicle: (vehicleId: string) => Promise<FleetCommandResult>;
+  resumeVehicle: (vehicleId: string) => Promise<FleetCommandResult>;
   recallAll: () => void;
   holdAll: () => void;
   resumeAll: () => void;
@@ -55,6 +76,7 @@ interface FleetContextValue {
   
   // Command history
   lastCommand?: VehicleCommandRequest;
+  commandErrors: Record<string, string>;
 }
 
 // ============================================================================
@@ -77,12 +99,53 @@ export function FleetProvider({ children }: FleetProviderProps) {
   
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [lastCommand, setLastCommand] = useState<VehicleCommandRequest>();
+  const [commandErrors, setCommandErrors] = useState<Record<string, string>>({});
+  const [commandStatusHints, setCommandStatusHints] = useState<Record<string, VehicleStatus>>({});
+  const [activeMissionId, setActiveMissionId] = useState('');
   
   // Convert raw vehicle states to VehicleInfo
   const vehicles = useMemo(() => {
-    return rawVehicles.map(v => vehicleStateToInfo(v, v.id === selectedVehicleId));
-  }, [rawVehicles, selectedVehicleId]);
-  
+    return rawVehicles.map(v => {
+      const vehicleInfo = vehicleStateToInfo(v, v.id === selectedVehicleId);
+      const hintedStatus = commandStatusHints[v.id];
+      if (vehicleInfo.status !== 'offline' && hintedStatus) {
+        vehicleInfo.status = hintedStatus;
+      }
+      return vehicleInfo;
+    });
+  }, [commandStatusHints, rawVehicles, selectedVehicleId]);
+
+  useEffect(() => {
+    if (!ros || !isConnected) {
+      return;
+    }
+
+    const missionStateTopic = new ROSLIB.Topic({
+      ros,
+      name: '/orchestrator/mission_state',
+      messageType: 'aeris_msgs/MissionState',
+    });
+
+    const handleMissionState = (message: ROSLIB.Message) => {
+      const payload = message as { mission_id?: unknown; state?: unknown };
+      const missionId = typeof payload.mission_id === 'string' ? payload.mission_id.trim() : '';
+      const state = typeof payload.state === 'string' ? payload.state.trim() : '';
+
+      if (missionId) {
+        setActiveMissionId(missionId);
+      }
+      if (state === 'IDLE' || state === 'ABORTED' || state === 'COMPLETE') {
+        setCommandStatusHints({});
+        setActiveMissionId('');
+      }
+    };
+
+    missionStateTopic.subscribe(handleMissionState);
+    return () => {
+      missionStateTopic.unsubscribe();
+    };
+  }, [isConnected, ros]);
+
   // Selected vehicle
   const selectedVehicle = useMemo(() => {
     return vehicles.find(v => v.id === selectedVehicleId) ?? null;
@@ -117,11 +180,28 @@ export function FleetProvider({ children }: FleetProviderProps) {
   // Commands
   // ============================================================================
   
-  const sendCommand = useCallback((
+  const publishLegacyCommand = useCallback((request: VehicleCommandRequest) => {
+    if (!ros || !isConnected) {
+      return;
+    }
+
+    const topic = new ROSLIB.Topic({
+      ros,
+      name: '/fleet/command',
+      messageType: 'std_msgs/String',
+    });
+
+    const message = new ROSLIB.Message({
+      data: JSON.stringify(request),
+    });
+    topic.publish(message);
+  }, [ros, isConnected]);
+
+  const sendCommand = useCallback(async (
     vehicleId: string,
     command: VehicleCommand,
     params?: { latitude?: number; longitude?: number; altitude?: number }
-  ) => {
+  ): Promise<FleetCommandResult> => {
     const request: VehicleCommandRequest = {
       vehicleId,
       command,
@@ -130,45 +210,101 @@ export function FleetProvider({ children }: FleetProviderProps) {
     };
     
     setLastCommand(request);
-    
-    // Publish to ROS if connected
-    if (ros && isConnected) {
-      const topic = new ROSLIB.Topic({
-        ros: ros,
-        name: '/fleet/command',
-        messageType: 'std_msgs/String',
-      });
-      
-      const message = new ROSLIB.Message({
-        data: JSON.stringify(request),
-      });
-      
-      topic.publish(message);
+
+    const validationError = getVehicleCommandValidationError({
+      rosConnected: !!ros && isConnected,
+      vehicleId,
+    });
+    if (validationError) {
+      setCommandErrors(prev => ({ ...prev, [vehicleId]: validationError }));
+      return { success: false, message: validationError };
     }
-  }, [ros, isConnected]);
+
+    const serviceRequest = buildVehicleCommandServiceRequest({
+      vehicleId,
+      command,
+      missionId: activeMissionId,
+    });
+
+    try {
+      const response = await callVehicleCommandService({
+        ros,
+        request: serviceRequest,
+        createService: args =>
+          new ROSLIB.Service(args as { ros: ROSLIB.Ros; name: string; serviceType: string }),
+        createServiceRequest: payload => new ROSLIB.ServiceRequest(payload as object),
+      });
+
+      if (!response.success) {
+        const failure = formatVehicleCommandFailure(command, vehicleId, response.message);
+        setCommandErrors(prev => ({ ...prev, [vehicleId]: failure }));
+        console.warn(`[FleetContext] ${failure}`);
+        return { success: false, message: failure };
+      }
+
+      setCommandErrors(prev => {
+        if (!(vehicleId in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[vehicleId];
+        return next;
+      });
+
+      const nextStatusByCommand: Partial<Record<VehicleCommand, VehicleStatus>> = {
+        HOLD: 'holding',
+        RESUME: 'active',
+        RECALL: 'returning',
+      };
+      const nextStatus = nextStatusByCommand[command];
+      if (nextStatus) {
+        setCommandStatusHints(prev => ({ ...prev, [vehicleId]: nextStatus }));
+      }
+
+      // Keep backward compatibility with legacy listeners until they are removed.
+      publishLegacyCommand(request);
+      return response;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      // Preserve backward compatibility when the service is unavailable.
+      publishLegacyCommand(request);
+      setCommandErrors(prev => {
+        if (!(vehicleId in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[vehicleId];
+        return next;
+      });
+      const fallbackMessage =
+        `vehicle_command service failed (${errorMessage}); command published to legacy /fleet/command`;
+      console.warn(`[FleetContext] ${fallbackMessage}`);
+      return { success: true, message: fallbackMessage };
+    }
+  }, [activeMissionId, isConnected, publishLegacyCommand, ros]);
   
   const recallVehicle = useCallback((vehicleId: string) => {
-    sendCommand(vehicleId, 'RECALL');
+    return sendCommand(vehicleId, 'RECALL');
   }, [sendCommand]);
   
   const holdVehicle = useCallback((vehicleId: string) => {
-    sendCommand(vehicleId, 'HOLD');
+    return sendCommand(vehicleId, 'HOLD');
   }, [sendCommand]);
   
   const resumeVehicle = useCallback((vehicleId: string) => {
-    sendCommand(vehicleId, 'RESUME');
+    return sendCommand(vehicleId, 'RESUME');
   }, [sendCommand]);
   
   const recallAll = useCallback(() => {
-    vehicles.forEach(v => sendCommand(v.id, 'RECALL'));
+    void Promise.all(vehicles.map(v => sendCommand(v.id, 'RECALL')));
   }, [vehicles, sendCommand]);
   
   const holdAll = useCallback(() => {
-    vehicles.forEach(v => sendCommand(v.id, 'HOLD'));
+    void Promise.all(vehicles.map(v => sendCommand(v.id, 'HOLD')));
   }, [vehicles, sendCommand]);
   
   const resumeAll = useCallback(() => {
-    vehicles.forEach(v => sendCommand(v.id, 'RESUME'));
+    void Promise.all(vehicles.map(v => sendCommand(v.id, 'RESUME')));
   }, [vehicles, sendCommand]);
   
   // ============================================================================
@@ -190,6 +326,7 @@ export function FleetProvider({ children }: FleetProviderProps) {
     resumeAll,
     fleetStats,
     lastCommand,
+    commandErrors,
   };
   
   return (

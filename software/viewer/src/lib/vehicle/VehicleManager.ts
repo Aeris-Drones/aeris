@@ -8,6 +8,7 @@ export interface VehicleState {
   type: VehicleType;
   position: Vector3; // Local position (Three.js coordinates)
   rawPosition: GeoCoordinates; // Keep raw lat/lon for map/UI usage
+  velocity: Vector3; // Velocity vector from telemetry (m/s)
   orientation: Quaternion;
   heading: number; // yaw in radians
   trajectory: Vector3[]; // History of positions
@@ -83,6 +84,7 @@ export class VehicleManager {
       type: typeEnum,
       position: position,
       rawPosition: { lat: message.position.latitude, lon: message.position.longitude },
+      velocity: new Vector3(message.velocity.x, message.velocity.y, message.velocity.z),
       orientation: quaternion,
       heading: message.orientation.yaw,
       trajectory: [...buffer.positions],

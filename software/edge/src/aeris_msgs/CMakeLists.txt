@@ -27,6 +27,7 @@ set(interface_files
   "srv/GasIsopleth.srv"
   "srv/SetCameraView.srv"
   "srv/MissionCommand.srv"
+  "srv/VehicleCommand.srv"
   "action/MapTile.action"
   "action/ThermalHotspot.action"
   "action/AcousticBearing.action"

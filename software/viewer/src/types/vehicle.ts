@@ -220,18 +220,25 @@ export function vehicleStateToInfo(
   state: VehicleState,
   isSelected: boolean = false
 ): VehicleInfo {
-  // Calculate speed from velocity (simulated for now)
-  const speed = Math.sqrt(
-    state.position.x ** 2 + state.position.y ** 2
-  ) * 0.1; // Simulated
-  
-  // Simulated battery and signal (in production, from telemetry)
-  const batteryPercent = 75 + Math.random() * 20;
-  const signalStrength = 80 + Math.random() * 15;
+  const now = Date.now();
+  const telemetryAgeMs = Math.max(0, now - state.lastUpdate);
+  const offlineThresholdMs = 5000;
+  const signalDecayWindowMs = 10000;
+
+  const speed = calculateSpeed({
+    x: state.velocity.x,
+    y: state.velocity.y,
+    z: state.velocity.z,
+  });
+  const freshness = Math.max(0, 1 - telemetryAgeMs / signalDecayWindowMs);
+  const signalStrength = Math.round(freshness * 100);
+  const status: VehicleStatus =
+    telemetryAgeMs > offlineThresholdMs ? 'offline' : 'active';
+  const batteryPercent = 100;
   
   return {
     ...state,
-    status: 'active',
+    status,
     batteryPercent,
     signalStrength,
     speed,
