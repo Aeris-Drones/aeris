@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { GasPlume } from '../../hooks/useGasPerception';
 import vertexShader from '../../lib/shaders/gasParticle.vert.glsl';
 import fragmentShader from '../../lib/shaders/gasParticle.frag.glsl';
-import { COLORS } from './GasPlume';
+import { COLORS } from './GasPlumeColors';
 
 const DEFAULT_PARTICLE_COUNT = 50000;
 const DEFAULT_LIFETIME = 4.0;
@@ -19,7 +19,6 @@ interface GasPlumeParticlesProps {
   windDirection?: THREE.Vector3;
   turbulenceScale?: number;
   adaptiveScaling?: boolean;
-  debugPerf?: boolean;
 }
 
 interface PolygonInfo {
@@ -44,7 +43,6 @@ export function GasPlumeParticles({
   windDirection,
   turbulenceScale = 2.0,
   adaptiveScaling = false,
-  debugPerf = false,
 }: GasPlumeParticlesProps) {
   const materialRef = useRef<THREE.ShaderMaterial>(null);
   const perfRef = useRef({ elapsed: 0, frames: 0, lastCheck: 0 });
@@ -127,7 +125,7 @@ export function GasPlumeParticles({
       .applyAxisAngle(UP_AXIS, Math.sin(state.clock.elapsedTime * 0.1) * 0.2);
     material.uniforms.uWindDirection.value.copy(tempWind.current);
 
-    if (!adaptiveScaling && !debugPerf) return;
+    if (!adaptiveScaling) return;
 
     const geom = geometryRef.current;
     if (!geom) return;
@@ -138,18 +136,6 @@ export function GasPlumeParticles({
 
     if (state.clock.elapsedTime - perf.lastCheck >= 1) {
       const avgFrame = perf.elapsed / Math.max(perf.frames, 1);
-      const fps = avgFrame > 0 ? 1 / avgFrame : 0;
-
-      if (debugPerf) {
-        console.log(`[GasPlumeParticles] fps=${fps.toFixed(1)} instances=${geom.instanceCount}`);
-      }
-
-      if (!adaptiveScaling) {
-        perf.elapsed = 0;
-        perf.frames = 0;
-        perf.lastCheck = state.clock.elapsedTime;
-        return;
-      }
 
       let nextCount = geom.instanceCount;
 

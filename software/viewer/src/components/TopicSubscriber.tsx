@@ -17,13 +17,8 @@ export function TopicSubscriber() {
       messageType: 'rosgraph_msgs/Clock',
     });
 
-    const handleMessage = (message: unknown) => {
+    const handleMessage = () => {
       setMessageCount((prev) => prev + 1);
-      
-      // Log ~1% of messages randomly to avoid spamming console
-      if (Math.random() < 0.01) {
-        console.log('Received /clock:', message);
-      }
     };
 
     topic.subscribe(handleMessage);

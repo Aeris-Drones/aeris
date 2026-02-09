@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ROSLIB from 'roslib';
+import * as THREE from 'three';
 import { useROSConnection } from './useROSConnection';
 import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 import { geoToLocal } from '../lib/ros/mapTile';
@@ -22,6 +23,14 @@ export interface GasPlume {
   timestamp: number;
 }
 
+/** Wind information derived from plume centerline data */
+export interface WindInfo {
+  /** Normalized direction vector of wind flow */
+  direction: THREE.Vector3;
+  /** Estimated wind speed in m/s (default: 2.0) */
+  speed: number;
+}
+
 interface GasIsoplethMsg {
   species?: string;
   units?: string;
@@ -30,6 +39,8 @@ interface GasIsoplethMsg {
 }
 
 const PLUME_TTL_MS = 5000; // 5 seconds, slower decay than acoustic
+const DEFAULT_WIND_SPEED = 2.0; // m/s - used when no speed data available
+const DEFAULT_FALLBACK_WIND = new THREE.Vector3(1.0, 0.2, 0.5).normalize();
 
 export function useGasPerception() {
   const { ros, isConnected } = useROSConnection();
@@ -96,5 +107,52 @@ export function useGasPerception() {
     return () => clearInterval(interval);
   }, []);
 
-  return { plumes };
+  // Derive wind direction and speed from centerline data
+  const wind = useMemo((): WindInfo => {
+    // Find a plume with valid centerline data
+    const plumeWithCenterline = plumes.find((plume) => plume.centerline.length >= 2);
+
+    if (!plumeWithCenterline) {
+      // No centerline data available, use fallback wind direction
+      return {
+        direction: DEFAULT_FALLBACK_WIND.clone(),
+        speed: DEFAULT_WIND_SPEED,
+      };
+    }
+
+    const centerline = plumeWithCenterline.centerline;
+    const first = centerline[0];
+    const last = centerline[centerline.length - 1];
+
+    // Calculate direction vector from start to end of centerline
+    const direction = new THREE.Vector3(
+      last.x - first.x,
+      0, // Keep wind horizontal for overlay visualization
+      last.z - first.z
+    );
+
+    // If centerline points are too close, use fallback
+    if (direction.lengthSq() < 1e-6) {
+      return {
+        direction: DEFAULT_FALLBACK_WIND.clone(),
+        speed: DEFAULT_WIND_SPEED,
+      };
+    }
+
+    // Normalize direction and estimate speed from centerline length
+    // Speed estimation: use centerline length as a rough proxy
+    // (in real implementation, this would come from sensor data)
+    const centerlineLength = direction.length();
+    direction.normalize();
+
+    // Estimate speed: longer centerlines suggest faster wind (clamped 1-5 m/s)
+    const estimatedSpeed = Math.min(5.0, Math.max(1.0, centerlineLength / 20));
+
+    return {
+      direction,
+      speed: estimatedSpeed,
+    };
+  }, [plumes]);
+
+  return { plumes, wind };
 }
