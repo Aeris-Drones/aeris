@@ -11,11 +11,17 @@ import React, {
   createContext,
   useContext,
   useState,
+  useEffect,
   useCallback,
   useMemo,
   type ReactNode,
 } from 'react';
-import type { VehicleInfo, VehicleCommand, VehicleCommandRequest } from '@/types/vehicle';
+import type {
+  VehicleInfo,
+  VehicleCommand,
+  VehicleCommandRequest,
+  VehicleStatus,
+} from '@/types/vehicle';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { vehicleStateToInfo } from '@/types/vehicle';
 import { useROSConnection } from '@/hooks/useROSConnection';
@@ -94,12 +100,51 @@ export function FleetProvider({ children }: FleetProviderProps) {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [lastCommand, setLastCommand] = useState<VehicleCommandRequest>();
   const [commandErrors, setCommandErrors] = useState<Record<string, string>>({});
+  const [commandStatusHints, setCommandStatusHints] = useState<Record<string, VehicleStatus>>({});
+  const [activeMissionId, setActiveMissionId] = useState('');
   
   // Convert raw vehicle states to VehicleInfo
   const vehicles = useMemo(() => {
-    return rawVehicles.map(v => vehicleStateToInfo(v, v.id === selectedVehicleId));
-  }, [rawVehicles, selectedVehicleId]);
-  
+    return rawVehicles.map(v => {
+      const vehicleInfo = vehicleStateToInfo(v, v.id === selectedVehicleId);
+      const hintedStatus = commandStatusHints[v.id];
+      if (vehicleInfo.status !== 'offline' && hintedStatus) {
+        vehicleInfo.status = hintedStatus;
+      }
+      return vehicleInfo;
+    });
+  }, [commandStatusHints, rawVehicles, selectedVehicleId]);
+
+  useEffect(() => {
+    if (!ros || !isConnected) {
+      return;
+    }
+
+    const missionStateTopic = new ROSLIB.Topic({
+      ros,
+      name: '/orchestrator/mission_state',
+      messageType: 'aeris_msgs/MissionState',
+    });
+
+    const handleMissionState = (message: ROSLIB.Message) => {
+      const payload = message as { mission_id?: unknown; state?: unknown };
+      const missionId = typeof payload.mission_id === 'string' ? payload.mission_id.trim() : '';
+      const state = typeof payload.state === 'string' ? payload.state.trim() : '';
+
+      if (missionId) {
+        setActiveMissionId(missionId);
+      }
+      if (state === 'IDLE' || state === 'ABORTED' || state === 'COMPLETE') {
+        setCommandStatusHints({});
+      }
+    };
+
+    missionStateTopic.subscribe(handleMissionState);
+    return () => {
+      missionStateTopic.unsubscribe();
+    };
+  }, [isConnected, ros]);
+
   // Selected vehicle
   const selectedVehicle = useMemo(() => {
     return vehicles.find(v => v.id === selectedVehicleId) ?? null;
@@ -177,13 +222,15 @@ export function FleetProvider({ children }: FleetProviderProps) {
     const serviceRequest = buildVehicleCommandServiceRequest({
       vehicleId,
       command,
+      missionId: activeMissionId,
     });
 
     try {
       const response = await callVehicleCommandService({
         ros,
         request: serviceRequest,
-        createService: args => new ROSLIB.Service(args),
+        createService: args =>
+          new ROSLIB.Service(args as { ros: ROSLIB.Ros; name: string; serviceType: string }),
         createServiceRequest: payload => new ROSLIB.ServiceRequest(payload as object),
       });
 
@@ -203,6 +250,16 @@ export function FleetProvider({ children }: FleetProviderProps) {
         return next;
       });
 
+      const nextStatusByCommand: Partial<Record<VehicleCommand, VehicleStatus>> = {
+        HOLD: 'holding',
+        RESUME: 'active',
+        RECALL: 'returning',
+      };
+      const nextStatus = nextStatusByCommand[command];
+      if (nextStatus) {
+        setCommandStatusHints(prev => ({ ...prev, [vehicleId]: nextStatus }));
+      }
+
       // Keep backward compatibility with legacy listeners until they are removed.
       publishLegacyCommand(request);
       return response;
@@ -213,7 +270,7 @@ export function FleetProvider({ children }: FleetProviderProps) {
       console.error('[FleetContext] Failed to send vehicle command:', error);
       return { success: false, message: failure };
     }
-  }, [isConnected, publishLegacyCommand, ros]);
+  }, [activeMissionId, isConnected, publishLegacyCommand, ros]);
   
   const recallVehicle = useCallback((vehicleId: string) => {
     return sendCommand(vehicleId, 'RECALL');

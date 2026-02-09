@@ -16,6 +16,8 @@ _COMMAND_ACK_RETRIES = 1
 _RTL_ACK_TIMEOUT_SEC = 1.0
 _RTL_HEARTBEAT_TIMEOUT_SEC = 2.0
 _RTL_ACK_RETRIES = 1
+_PARTNER_PRIME_TIMEOUT_SEC = 0.4
+_STREAM_PARTNER_POLL_TIMEOUT_SEC = 0.01
 
 
 class MavlinkAdapter:
@@ -26,6 +28,7 @@ class MavlinkAdapter:
         *,
         host: str = "127.0.0.1",
         port: int = 14540,
+        command_port: int | None = None,
         stream_hz: float = 10.0,
         target_system: int = 1,
         target_component: int = 1,
@@ -35,12 +38,14 @@ class MavlinkAdapter:
     ) -> None:
         self._host = host
         self._port = port
+        self._command_port = int(command_port) if command_port is not None else int(port)
         self._stream_hz = max(stream_hz, 2.1)
-        self._target_system = target_system
-        self._target_component = target_component
+        self._target_system = int(target_system)
+        self._target_component = int(target_component)
         self._source_system = source_system
         self._source_component = source_component
         self._logger = logger or (lambda _: None)
+        self._partner_ready = self._command_port == self._port
 
         self._mav_connection = self._new_connection()
         self._connection_lock = threading.Lock()
@@ -59,22 +64,46 @@ class MavlinkAdapter:
     def endpoint(self) -> tuple[str, int]:
         return self._host, self._port
 
-    def set_endpoint(self, host: str, port: int) -> None:
+    @property
+    def command_port(self) -> int:
+        return self._command_port
+
+    @property
+    def target(self) -> tuple[int, int]:
+        return self._target_system, self._target_component
+
+    def set_target(self, target_system: int, target_component: int = 1) -> None:
+        self._target_system = int(target_system)
+        self._target_component = int(target_component)
+
+    def set_endpoint(self, host: str, port: int, command_port: int | None = None) -> None:
         host_clean = host.strip() or "127.0.0.1"
         port_clean = int(port)
-        if host_clean == self._host and port_clean == self._port:
+        command_port_clean = (
+            int(command_port) if command_port is not None else int(port_clean)
+        )
+        if (
+            host_clean == self._host
+            and port_clean == self._port
+            and command_port_clean == self._command_port
+        ):
             return
 
         with self._connection_lock:
             previous = self._mav_connection
-            self._host = host_clean
-            self._port = port_clean
-            self._mav_connection = self._new_connection()
             try:
                 previous.close()
             except OSError:
                 pass
-        self._logger(f"MAVLink endpoint set to {self._host}:{self._port}")
+            self._host = host_clean
+            self._port = port_clean
+            self._command_port = command_port_clean
+            self._partner_ready = self._command_port == self._port
+            self._mav_connection = self._new_connection()
+        self._logger(
+            "MAVLink endpoint set to "
+            f"{self._host}:{self._port} (command_port={self._command_port})"
+        )
 
     def upload_mission_items_int(self, mission_id: str, waypoints: list[Setpoint]) -> None:
         if not waypoints:
@@ -169,10 +198,18 @@ class MavlinkAdapter:
         )
 
     def send_hold_position(self) -> bool:
-        """Pause autonomous progression for the currently selected endpoint."""
+        """Put the target vehicle in PX4 AUTO.LOITER (hold) mode."""
         return self._send_command_with_ack(
-            command_id=mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE,
-            params=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            command_id=mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+            params=(
+                float(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
+                4.0,  # PX4_CUSTOM_MAIN_MODE_AUTO
+                3.0,  # PX4_CUSTOM_SUB_MODE_AUTO_LOITER
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ),
             ack_timeout_sec=_COMMAND_ACK_TIMEOUT_SEC,
             ack_retries=_COMMAND_ACK_RETRIES,
             require_rtl_heartbeat=False,
@@ -181,10 +218,18 @@ class MavlinkAdapter:
         )
 
     def send_resume_mission(self) -> bool:
-        """Resume autonomous progression for the currently selected endpoint."""
+        """Put the target vehicle in PX4 AUTO.MISSION (resume) mode."""
         return self._send_command_with_ack(
-            command_id=mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE,
-            params=(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            command_id=mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+            params=(
+                float(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
+                4.0,  # PX4_CUSTOM_MAIN_MODE_AUTO
+                4.0,  # PX4_CUSTOM_SUB_MODE_AUTO_MISSION
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ),
             ack_timeout_sec=_COMMAND_ACK_TIMEOUT_SEC,
             ack_retries=_COMMAND_ACK_RETRIES,
             require_rtl_heartbeat=False,
@@ -207,6 +252,12 @@ class MavlinkAdapter:
             mavutil.mavlink.MAV_RESULT_ACCEPTED,
             mavutil.mavlink.MAV_RESULT_IN_PROGRESS,
         }
+        if not self._ensure_partner_ready(timeout_sec=_PARTNER_PRIME_TIMEOUT_SEC):
+            self._logger(
+                f"{label} command could not run because no MAVLink partner is available "
+                f"for {self._host}:{self._port} (command_port={self._command_port})"
+            )
+            return False
 
         for attempt in range(1, ack_retries + 2):
             confirmation = attempt - 1
@@ -309,7 +360,9 @@ class MavlinkAdapter:
         get_system = getattr(message, "get_srcSystem", None)
         if callable(get_system):
             try:
-                if int(get_system()) != int(self._target_system):
+                if int(self._target_system) > 0 and int(get_system()) != int(
+                    self._target_system
+                ):
                     return False
             except (TypeError, ValueError):
                 return False
@@ -352,6 +405,8 @@ class MavlinkAdapter:
                 return
 
             if setpoint is not None:
+                if not self._partner_ready:
+                    self._ensure_partner_ready(timeout_sec=_STREAM_PARTNER_POLL_TIMEOUT_SEC)
                 self._send_local_ned_setpoint(setpoint)
 
             next_tick += period
@@ -363,11 +418,45 @@ class MavlinkAdapter:
                 next_tick = time.perf_counter()
 
     def _new_connection(self):
+        if self._command_port != self._port:
+            return mavutil.mavlink_connection(
+                f"udpin:0.0.0.0:{self._port}",
+                source_system=self._source_system,
+                source_component=self._source_component,
+            )
         return mavutil.mavlink_connection(
             f"udpout:{self._host}:{self._port}",
             source_system=self._source_system,
             source_component=self._source_component,
         )
+
+    def _ensure_partner_ready(self, timeout_sec: float) -> bool:
+        if self._partner_ready:
+            return True
+
+        deadline = time.monotonic() + max(timeout_sec, 0.0)
+        while time.monotonic() < deadline:
+            remaining = max(deadline - time.monotonic(), 0.0)
+            wait_slice = min(0.25, remaining)
+            try:
+                with self._connection_lock:
+                    sock = getattr(self._mav_connection, "port", None)
+                    if sock is None:
+                        self._partner_ready = True
+                        return True
+                    sock.sendto(b"\x00", (self._host, self._command_port))
+                    message = self._mav_connection.recv_match(
+                        blocking=True, timeout=wait_slice
+                    )
+            except OSError as error:
+                self._logger(f"MAVLink endpoint handshake failed: {error}")
+                return False
+
+            if message is not None:
+                self._partner_ready = True
+                return True
+
+        return False
 
     def _send_local_ned_setpoint(self, setpoint: Setpoint) -> None:
         # Our mission plan uses x/east and z/north in meters. MAVLink local NED expects

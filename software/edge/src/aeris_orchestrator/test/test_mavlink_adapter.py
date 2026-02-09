@@ -1,4 +1,5 @@
 import time
+from types import SimpleNamespace
 
 from pymavlink import mavutil
 
@@ -26,18 +27,39 @@ class _FakeMav:
 
 
 class _FakeConnection:
+    class _FakeSocket:
+        def __init__(self) -> None:
+            self.sendto_calls: list[tuple[bytes, tuple[str, int]]] = []
+
+        def sendto(self, payload: bytes, endpoint: tuple[str, int]) -> None:
+            self.sendto_calls.append((payload, endpoint))
+
     def __init__(self, endpoint: str) -> None:
         self.endpoint = endpoint
         self.mav = _FakeMav()
         self.closed = False
+        self.port = self._FakeSocket()
         self.messages_by_type: dict[str, list[object]] = {}
-        self.recv_match_calls: list[tuple[str, bool, float | None]] = []
+        self.recv_match_calls: list[tuple[str | None, bool, float | None]] = []
 
     def close(self) -> None:
         self.closed = True
 
-    def recv_match(self, type: str, blocking: bool, timeout: float | None = None):
+    def recv_match(
+        self,
+        type: str | None = None,
+        blocking: bool = False,
+        timeout: float | None = None,
+    ):
         self.recv_match_calls.append((type, blocking, timeout))
+        if type is None:
+            any_queue = self.messages_by_type.get("__any__", [])
+            if any_queue:
+                return any_queue.pop(0)
+            for queue in self.messages_by_type.values():
+                if queue:
+                    return queue.pop(0)
+            return None
         queue = self.messages_by_type.get(type, [])
         if queue:
             return queue.pop(0)
@@ -272,7 +294,7 @@ def test_adapter_sends_hold_and_resume_with_ack(monkeypatch) -> None:
     )
 
     adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
-    command_id = mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE
+    command_id = mavutil.mavlink.MAV_CMD_DO_SET_MODE
     connections[0].messages_by_type.setdefault("COMMAND_ACK", []).extend(
         [
             _FakeAck(command_id, mavutil.mavlink.MAV_RESULT_ACCEPTED),
@@ -286,9 +308,13 @@ def test_adapter_sends_hold_and_resume_with_ack(monkeypatch) -> None:
     sent_calls = connections[0].mav.command_long_calls
     assert len(sent_calls) == 2
     assert sent_calls[0][2] == command_id
-    assert sent_calls[0][4] == 0.0
+    assert sent_calls[0][4] == float(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)
+    assert sent_calls[0][5] == 4.0
+    assert sent_calls[0][6] == 3.0
     assert sent_calls[1][2] == command_id
-    assert sent_calls[1][4] == 1.0
+    assert sent_calls[1][4] == float(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)
+    assert sent_calls[1][5] == 4.0
+    assert sent_calls[1][6] == 4.0
     adapter.close()
 
 
@@ -309,11 +335,52 @@ def test_adapter_rejects_hold_when_command_ack_is_rejected(monkeypatch) -> None:
     adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
     connections[0].messages_by_type.setdefault("COMMAND_ACK", []).append(
         _FakeAck(
-            mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE,
+            mavutil.mavlink.MAV_CMD_DO_SET_MODE,
             mavutil.mavlink.MAV_RESULT_DENIED,
         )
     )
 
     assert not adapter.send_hold_position()
     assert len(connections[0].mav.command_long_calls) >= 1
+    adapter.close()
+
+
+def test_adapter_primes_udpin_partner_when_command_port_differs(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(
+        host="127.0.0.1",
+        port=14541,
+        command_port=14581,
+        stream_hz=20.0,
+        target_system=2,
+    )
+    assert connections[0].endpoint == "udpin:0.0.0.0:14541"
+
+    connections[0].messages_by_type.setdefault("__any__", []).append(SimpleNamespace())
+    connections[0].messages_by_type.setdefault("COMMAND_ACK", []).append(
+        _FakeAck(
+            mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+            mavutil.mavlink.MAV_RESULT_ACCEPTED,
+        )
+    )
+    connections[0].messages_by_type.setdefault("HEARTBEAT", []).append(
+        _FakeHeartbeat(_px4_rtl_custom_mode())
+    )
+
+    assert adapter.send_return_to_launch()
+    assert connections[0].port.sendto_calls
+    assert connections[0].port.sendto_calls[0] == (b"\x00", ("127.0.0.1", 14581))
+    assert connections[0].mav.command_long_calls[0][0] == 2
     adapter.close()
