@@ -302,7 +302,7 @@ class MissionNode(Node):
                 continue
             if now - last_seen <= availability_cutoff:
                 return endpoint
-        return self._scout_endpoints[0]
+        return None
 
     def _set_default_mission_id_if_needed(self, mission_id: str) -> str:
         stripped = mission_id.strip()
@@ -521,7 +521,9 @@ class MissionNode(Node):
         selected_scout = self._select_first_available_scout()
         if selected_scout is None:
             response.success = False
-            response.message = "start_mission rejected: no scout endpoints configured"
+            response.message = (
+                "start_mission rejected: no scout endpoint reported telemetry recently"
+            )
             return response
         self._active_scout_vehicle_id = selected_scout.vehicle_id
         self._mavlink_adapter.set_endpoint(selected_scout.host, selected_scout.port)

@@ -66,6 +66,19 @@ class MissionObserver(Node):
             self.progress_updates.append(message)
 
 
+def _publish_scout_telemetry(
+    observer: MissionObserver, mission_node: MissionNode, vehicle_id: str = "scout1"
+) -> None:
+    telemetry = Telemetry()
+    telemetry.vehicle_id = vehicle_id
+    telemetry.vehicle_type = "scout"
+    observer.telemetry_publisher.publish(telemetry)
+    normalized_id = mission_node._normalize_vehicle_id(vehicle_id)  # noqa: SLF001
+    assert _wait_until(
+        lambda: normalized_id in mission_node._scout_last_seen_monotonic  # noqa: SLF001
+    )
+
+
 @pytest.fixture
 def ros_runtime():
     rclpy.init()
@@ -101,6 +114,7 @@ def mission_harness(ros_runtime: MultiThreadedExecutor):
 
 def test_start_mission_transitions_to_planning_then_searching(mission_harness) -> None:
     mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node)
 
     request = MissionCommand.Request()
     request.command = "START"
@@ -143,6 +157,7 @@ def test_start_mission_rejects_invalid_command(mission_harness) -> None:
 
 def test_abort_mission_transitions_to_aborted(mission_harness) -> None:
     mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node)
 
     start_request = MissionCommand.Request()
     start_request.command = "START"
@@ -169,7 +184,8 @@ def test_abort_mission_transitions_to_aborted(mission_harness) -> None:
 
 
 def test_abort_mission_rejects_invalid_command(mission_harness) -> None:
-    _, observer = mission_harness
+    mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node)
 
     start_request = MissionCommand.Request()
     start_request.command = "START"
@@ -196,7 +212,8 @@ def test_abort_mission_rejects_invalid_command(mission_harness) -> None:
 
 
 def test_abort_mission_rejects_mission_id_mismatch(mission_harness) -> None:
-    _, observer = mission_harness
+    mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node)
 
     start_request = MissionCommand.Request()
     start_request.command = "START"
@@ -298,14 +315,7 @@ def test_start_mission_rejects_non_finite_polygon_coordinates(mission_harness) -
 def test_start_mission_prefers_recently_seen_scout_endpoint(mission_harness) -> None:
     mission_node, observer = mission_harness
 
-    telemetry = Telemetry()
-    telemetry.vehicle_id = "scout2"
-    telemetry.vehicle_type = "scout"
-    observer.telemetry_publisher.publish(telemetry)
-
-    assert _wait_until(
-        lambda: "scout_2" in mission_node._scout_last_seen_monotonic  # noqa: SLF001
-    )
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
 
     request = MissionCommand.Request()
     request.command = "START"
@@ -325,6 +335,7 @@ def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
     mission_harness, monkeypatch
 ) -> None:
     mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
 
     start_request = MissionCommand.Request()
     start_request.command = "START"
@@ -337,21 +348,7 @@ def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
     assert start_future.result().success
     assert _wait_until(lambda: "SEARCHING" in observer.states)
 
-    telemetry_scout_1 = Telemetry()
-    telemetry_scout_1.vehicle_id = "scout1"
-    telemetry_scout_1.vehicle_type = "scout"
-    observer.telemetry_publisher.publish(telemetry_scout_1)
-
-    telemetry_scout_2 = Telemetry()
-    telemetry_scout_2.vehicle_id = "scout2"
-    telemetry_scout_2.vehicle_type = "scout"
-    observer.telemetry_publisher.publish(telemetry_scout_2)
-
-    assert _wait_until(
-        lambda: {"scout_1", "scout_2"}.issubset(  # noqa: SLF001
-            set(mission_node._scout_last_seen_monotonic.keys())  # noqa: SLF001
-        )
-    )
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
 
     endpoint_calls: list[tuple[str, int]] = []
     rtl_attempts: list[int] = []
@@ -383,3 +380,19 @@ def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
     assert _wait_until(lambda: "ABORTED" in observer.states)
     assert len(rtl_attempts) == 2
     assert sorted(endpoint_calls) == [("127.0.0.1", 14540), ("127.0.0.1", 14541)]
+
+
+def test_start_mission_rejects_when_no_scout_is_online(mission_harness) -> None:
+    _, observer = mission_harness
+
+    request = MissionCommand.Request()
+    request.command = "START"
+    request.mission_id = "no-online-scout"
+    request.zone_geometry = VALID_ZONE_GEOMETRY
+    result_future = observer.start_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert not response.success
+    assert "no scout endpoint reported telemetry recently" in response.message

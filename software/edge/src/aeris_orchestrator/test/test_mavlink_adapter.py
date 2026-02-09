@@ -30,9 +30,34 @@ class _FakeConnection:
         self.endpoint = endpoint
         self.mav = _FakeMav()
         self.closed = False
+        self.messages_by_type: dict[str, list[object]] = {}
+        self.recv_match_calls: list[tuple[str, bool, float | None]] = []
 
     def close(self) -> None:
         self.closed = True
+
+    def recv_match(self, type: str, blocking: bool, timeout: float | None = None):
+        self.recv_match_calls.append((type, blocking, timeout))
+        queue = self.messages_by_type.get(type, [])
+        if queue:
+            return queue.pop(0)
+        return None
+
+
+class _FakeAck:
+    def __init__(self, command: int, result: int) -> None:
+        self.command = command
+        self.result = result
+
+
+class _FakeHeartbeat:
+    def __init__(self, custom_mode: int) -> None:
+        self.custom_mode = custom_mode
+
+
+def _px4_rtl_custom_mode() -> int:
+    # PX4 MAIN_MODE_AUTO=4, SUB_MODE_AUTO_RTL=5.
+    return (5 << 24) | (4 << 16)
 
 
 def test_adapter_sends_mission_item_int_and_local_ned_setpoints(monkeypatch) -> None:
@@ -95,6 +120,15 @@ def test_adapter_sends_explicit_rtl_command_to_current_endpoint(monkeypatch) -> 
     )
 
     adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
+    connections[0].messages_by_type.setdefault("COMMAND_ACK", []).append(
+        _FakeAck(
+            mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+            mavutil.mavlink.MAV_RESULT_ACCEPTED,
+        )
+    )
+    connections[0].messages_by_type.setdefault("HEARTBEAT", []).append(
+        _FakeHeartbeat(_px4_rtl_custom_mode())
+    )
     assert adapter.send_return_to_launch()
 
     first_conn = connections[0]
@@ -103,10 +137,121 @@ def test_adapter_sends_explicit_rtl_command_to_current_endpoint(monkeypatch) -> 
     assert rtl_call[0] == 1  # target_system default
     assert rtl_call[1] == 1  # target_component default
     assert rtl_call[2] == mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH
+    assert rtl_call[3] == 0  # confirmation on first attempt
 
     adapter.set_endpoint("127.0.0.1", 14541)
+    connections[1].messages_by_type.setdefault("COMMAND_ACK", []).append(
+        _FakeAck(
+            mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+            mavutil.mavlink.MAV_RESULT_ACCEPTED,
+        )
+    )
+    connections[1].messages_by_type.setdefault("HEARTBEAT", []).append(
+        _FakeHeartbeat(_px4_rtl_custom_mode())
+    )
     assert adapter.send_return_to_launch()
     assert len(connections) == 2
     assert len(connections[1].mav.command_long_calls) == 1
 
+    adapter.close()
+
+
+def test_adapter_retries_rtl_when_ack_is_missing(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
+    connections[0].messages_by_type.setdefault("COMMAND_ACK", []).extend(
+        [
+            None,
+            _FakeAck(
+                mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+                mavutil.mavlink.MAV_RESULT_ACCEPTED,
+            ),
+        ]
+    )
+    connections[0].messages_by_type.setdefault("HEARTBEAT", []).append(
+        _FakeHeartbeat(_px4_rtl_custom_mode())
+    )
+
+    assert adapter.send_return_to_launch()
+    assert len(connections[0].mav.command_long_calls) == 2
+    first_attempt = connections[0].mav.command_long_calls[0]
+    second_attempt = connections[0].mav.command_long_calls[1]
+    assert first_attempt[3] == 0
+    assert second_attempt[3] == 1
+    adapter.close()
+
+
+def test_adapter_returns_false_when_heartbeat_never_confirms_rtl(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
+    connections[0].messages_by_type.setdefault("COMMAND_ACK", []).extend(
+        [
+            _FakeAck(
+                mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+                mavutil.mavlink.MAV_RESULT_ACCEPTED,
+            ),
+            _FakeAck(
+                mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+                mavutil.mavlink.MAV_RESULT_ACCEPTED,
+            ),
+        ]
+    )
+    connections[0].messages_by_type.setdefault("HEARTBEAT", []).extend(
+        [
+            _FakeHeartbeat(0),
+            _FakeHeartbeat(0),
+        ]
+    )
+
+    assert not adapter.send_return_to_launch()
+    assert len(connections[0].mav.command_long_calls) == 2
+    adapter.close()
+
+
+def test_adapter_send_rtl_returns_false_on_oserror(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
+
+    def _raise_oserror(*args):
+        raise OSError("simulated failure")
+
+    connections[0].mav.command_long_send = _raise_oserror
+
+    assert not adapter.send_return_to_launch()
     adapter.close()

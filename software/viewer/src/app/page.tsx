@@ -48,19 +48,7 @@ import { PiPVideoFeed } from '@/components/pip/PiPVideoFeed';
 import { AlertToaster, showAlert, dismissAllAlerts, type Alert } from '@/components/alerts';
 import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
 import { useMissionControl } from '@/hooks/useMissionControl';
-
-// Mock fleet data with extended info for sheets
-const mockVehicles: VehicleInfo[] = [
-  { id: 'scout-1', name: 'Scout 1', status: 'active', battery: 78, altitude: 50, linkQuality: 95, coverage: 32 },
-  { id: 'scout-2', name: 'Scout 2', status: 'warning', battery: 45, altitude: 80, linkQuality: 88, coverage: 28 },
-  { id: 'ranger-1', name: 'Ranger 1', status: 'returning', battery: 22, altitude: 60, linkQuality: 72, coverage: 45 },
-  { id: 'ranger-2', name: 'Ranger 2', status: 'idle', battery: 100, altitude: 0, linkQuality: 100, coverage: 0 },
-];
-
-const mockWarnings: VehicleWarning[] = [
-  { vehicleId: 'scout-2', message: 'Battery below 50%', severity: 'warning' },
-  { vehicleId: 'ranger-1', message: 'Battery critical', severity: 'critical' },
-];
+import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 
 // Mock detections data with extended sensor readings
 const mockDetections: Detection[] = [
@@ -140,6 +128,7 @@ function V2PageContent() {
     abortMission,
     rosConnected,
   } = useMissionControl();
+  const { vehicles: telemetryVehicles } = useVehicleTelemetry();
 
   // Detection state
   const [detections, setDetections] = useState<Detection[]>(mockDetections);
@@ -150,20 +139,49 @@ function V2PageContent() {
   // Ref for camera control
   const mapRef = useRef<MapScene3DHandle>(null);
 
+  const fleetVehicles = useMemo<VehicleInfo[]>(() => {
+    return telemetryVehicles.map((vehicle) => ({
+      id: vehicle.id,
+      name: vehicle.id.replace(/[_-]/g, ' ').toUpperCase(),
+      status: 'active',
+      battery: 100,
+      altitude: Math.round(vehicle.position.y),
+      linkQuality: 100,
+      coverage: 0,
+    }));
+  }, [telemetryVehicles]);
+
+  const vehiclePositionById = useMemo(() => {
+    const entries = telemetryVehicles.map((vehicle) => [
+      vehicle.id,
+      [vehicle.position.x, vehicle.position.z] as [number, number],
+    ]);
+    return new Map(entries);
+  }, [telemetryVehicles]);
+
+  const fleetWarnings = useMemo<VehicleWarning[]>(
+    () =>
+      fleetVehicles
+        .filter((vehicle) => vehicle.battery <= 50)
+        .map((vehicle) => ({
+          vehicleId: vehicle.id,
+          message:
+            vehicle.battery <= 25 ? 'Battery critical' : 'Battery below 50%',
+          severity: vehicle.battery <= 25 ? 'critical' : 'warning',
+        })),
+    [fleetVehicles]
+  );
+
   // Vehicle handlers (defined before useEffect to avoid dependency issues)
   const handleLocateVehicle = useCallback((id: string) => {
     setSelectedDroneId(id);
     if (mapRef.current) {
-      const positions: Record<string, [number, number]> = {
-        'scout-1': [0, 0],
-        'scout-2': [150, -100],
-        'ranger-1': [-120, 80],
-        'ranger-2': [0, 0],
-      };
-      const pos = positions[id] || [0, 0];
-      mapRef.current.teleportTo(pos[0], pos[1]);
+      const pos = vehiclePositionById.get(id);
+      if (pos) {
+        mapRef.current.teleportTo(pos[0], pos[1]);
+      }
     }
-  }, []);
+  }, [vehiclePositionById]);
 
   const handleViewFeed = useCallback((id: string) => {
     setPipVehicleId(id);
@@ -177,7 +195,7 @@ function V2PageContent() {
       description: 'Last contact: 45 seconds ago - Initiating recovery',
       dismissible: false,
       timestamp: new Date(),
-      action: { label: 'LOCATE', onClick: () => handleLocateVehicle('scout-2') },
+      action: { label: 'LOCATE', onClick: () => handleLocateVehicle('scout_2') },
     },
     {
       id: 'demo-warning',
@@ -186,7 +204,7 @@ function V2PageContent() {
       description: '22% remaining - Auto RTH initiated',
       dismissible: true,
       timestamp: new Date(),
-      action: { label: 'VIEW', onClick: () => handleViewFeed('ranger-1') },
+      action: { label: 'VIEW', onClick: () => handleViewFeed('ranger_1') },
     },
   ], [handleLocateVehicle, handleViewFeed]);
   const hasAddedInitialAlerts = useRef(false);
@@ -289,8 +307,8 @@ function V2PageContent() {
         case '6':
           // Select drone 1-6
           const droneIndex = parseInt(e.key) - 1;
-          if (droneIndex < mockVehicles.length) {
-            handleLocateVehicle(mockVehicles[droneIndex].id);
+          if (droneIndex < fleetVehicles.length) {
+            handleLocateVehicle(fleetVehicles[droneIndex].id);
           }
           break;
         case 'r':
@@ -305,12 +323,16 @@ function V2PageContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [missionPhase, isPaused, pauseMission, resumeMission, handleLocateVehicle]);
+  }, [missionPhase, isPaused, pauseMission, resumeMission, handleLocateVehicle, fleetVehicles]);
 
   // Calculate stats
-  const activeVehicles = mockVehicles.filter(v => v.status === 'active' || v.status === 'warning');
-  const avgBattery = Math.round(mockVehicles.reduce((sum, v) => sum + v.battery, 0) / mockVehicles.length);
-  const avgAltitude = Math.round(activeVehicles.reduce((sum, v) => sum + v.altitude, 0) / (activeVehicles.length || 1));
+  const activeVehicles = fleetVehicles.filter(v => v.status === 'active' || v.status === 'warning');
+  const avgBattery = Math.round(
+    fleetVehicles.reduce((sum, v) => sum + v.battery, 0) / (fleetVehicles.length || 1)
+  );
+  const avgAltitude = Math.round(
+    activeVehicles.reduce((sum, v) => sum + v.altitude, 0) / (activeVehicles.length || 1)
+  );
 
   // Detection stats
   const thermalCount = detections.filter(d => d.sensorType === 'thermal').length;
@@ -358,19 +380,19 @@ function V2PageContent() {
         <CommandDock
           fleetCard={
             <FleetSheet
-              vehicles={mockVehicles}
+              vehicles={fleetVehicles}
               selectedVehicleId={selectedDroneId}
               onLocate={handleLocateVehicle}
               onViewFeed={handleViewFeed}
               onRTH={handleRTH}
               trigger={
                 <FleetCard
-                  vehicles={mockVehicles}
+                  vehicles={fleetVehicles}
                   activeCount={activeVehicles.length}
-                  totalCount={mockVehicles.length}
+                  totalCount={fleetVehicles.length}
                   avgBattery={avgBattery}
                   avgAltitude={avgAltitude}
-                  warnings={mockWarnings}
+                  warnings={fleetWarnings}
                 />
               }
             />
@@ -414,7 +436,7 @@ function V2PageContent() {
 
       pipFeed={
         pipVehicleId ? (() => {
-          const vehicle = mockVehicles.find(v => v.id === pipVehicleId);
+          const vehicle = fleetVehicles.find(v => v.id === pipVehicleId);
           if (!vehicle) return null;
 
           const isLive = vehicle.status === 'active' || vehicle.status === 'warning';
@@ -426,7 +448,7 @@ function V2PageContent() {
               batteryPercent={vehicle.battery}
               altitude={vehicle.altitude}
               isLive={isLive}
-              allVehicles={mockVehicles.map(v => ({
+              allVehicles={fleetVehicles.map(v => ({
                 id: v.id,
                 name: v.name,
                 status: v.status,

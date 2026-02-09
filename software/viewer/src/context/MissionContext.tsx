@@ -349,6 +349,10 @@ export function MissionProvider({
     setState(prev => ({
       ...prev,
       phase,
+      pausedAt:
+        phase === 'SEARCHING' || phase === 'TRACKING'
+          ? prev.pausedAt
+          : undefined,
     }));
   }, []);
 

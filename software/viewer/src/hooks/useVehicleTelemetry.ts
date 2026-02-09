@@ -29,7 +29,14 @@ export function useVehicleTelemetry() {
     });
 
     const handleMessage = (message: ROSLIB.Message) => {
-      const telemetry = parseVehicleTelemetry(message);
+      let telemetry;
+      try {
+        telemetry = parseVehicleTelemetry(message);
+      } catch (error) {
+        console.warn('[useVehicleTelemetry] Ignoring invalid telemetry payload:', error);
+        return;
+      }
+
       const newOrigin = manager.processTelemetry(telemetry, originRef.current);
 
       if (newOrigin) {

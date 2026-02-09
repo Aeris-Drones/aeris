@@ -18,9 +18,15 @@ import {
   type MissionCommand,
   type MissionProgress,
 } from '@/types/mission';
+import {
+  computeMissionControlFlags,
+  getAbortMissionValidationError,
+  withServiceTimeout,
+} from '@/lib/missionControlBehavior';
 import ROSLIB from 'roslib';
 
 type SearchPattern = 'lawnmower' | 'spiral';
+const MISSION_SERVICE_TIMEOUT_MS = 8000;
 
 // ============================================================================
 // Hook Return Type
@@ -162,32 +168,36 @@ export function useMissionControl(): MissionControlState {
         zone_geometry: string;
       }
     ): Promise<{ success: boolean; message: string }> => {
-      return new Promise((resolve, reject) => {
-        if (!ros || !rosConnected) {
-          reject(new Error('ROS is not connected'));
-          return;
-        }
-
-        const service = new ROSLIB.Service({
-          ros,
-          name: serviceName,
-          serviceType: 'aeris_msgs/srv/MissionCommand',
-        });
-        const serviceRequest = new ROSLIB.ServiceRequest(request);
-        service.callService(
-          serviceRequest,
-          response => {
-            const typed = response as { success?: boolean; message?: string };
-            resolve({
-              success: Boolean(typed.success),
-              message: typed.message ?? '',
-            });
-          },
-          error => {
-            reject(new Error(String(error)));
+      return withServiceTimeout(
+        (resolve, reject) => {
+          if (!ros || !rosConnected) {
+            reject(new Error('ROS is not connected'));
+            return;
           }
-        );
-      });
+
+          const service = new ROSLIB.Service({
+            ros,
+            name: serviceName,
+            serviceType: 'aeris_msgs/srv/MissionCommand',
+          });
+          const serviceRequest = new ROSLIB.ServiceRequest(request);
+          service.callService(
+            serviceRequest,
+            response => {
+              const typed = response as { success?: boolean; message?: string };
+              resolve({
+                success: Boolean(typed.success),
+                message: typed.message ?? '',
+              });
+            },
+            error => {
+              reject(new Error(String(error)));
+            }
+          );
+        },
+        MISSION_SERVICE_TIMEOUT_MS,
+        serviceName
+      );
     },
     [ros, rosConnected]
   );
@@ -395,21 +405,22 @@ export function useMissionControl(): MissionControlState {
   const abortMission = useCallback(() => {
     setAbortMissionError(null);
 
-    if (!rosConnected || !ros) {
-      setAbortMissionError('ROS is disconnected. Reconnect before aborting the mission.');
-      return;
-    }
-
-    const missionId = state.missionId?.trim();
-    if (!missionId) {
-      console.warn('[MissionControl] abort_mission called without a missionId');
-      setAbortMissionError('Mission abort failed: active mission id is missing.');
+    const missionId = state.missionId;
+    const validationError = getAbortMissionValidationError({
+      rosConnected: rosConnected && !!ros,
+      missionId,
+    });
+    if (validationError) {
+      if (!missionId?.trim()) {
+        console.warn('[MissionControl] abort_mission called without a missionId');
+      }
+      setAbortMissionError(validationError);
       return;
     }
 
     callMissionService('abort_mission', {
       command: 'ABORT',
-      mission_id: missionId,
+      mission_id: missionId.trim(),
       zone_geometry: '',
     })
       .then(response => {
@@ -457,23 +468,25 @@ export function useMissionControl(): MissionControlState {
   // ============================================================================
   
   const computedState = useMemo(() => {
-    const isActive = state.phase === 'SEARCHING' || state.phase === 'TRACKING';
-    const isPaused = state.pausedAt !== undefined;
-    const isComplete = state.phase === 'COMPLETE';
-    const isIdle = state.phase === 'IDLE';
+    const controlFlags = computeMissionControlFlags({
+      phase: state.phase,
+      pausedAt: state.pausedAt,
+      hasValidStartZone,
+      rosConnected,
+    });
     
     return {
       phase: state.phase,
-      isActive,
-      isPaused,
-      isComplete,
+      isActive: controlFlags.isActive,
+      isPaused: controlFlags.isPaused,
+      isComplete: controlFlags.isComplete,
       missionId: state.missionId,
       
       // Control flags
-      canStart: isIdle && !isPaused && hasValidStartZone && rosConnected,
-      canPause: isActive && !isPaused,
-      canResume: isPaused,
-      canAbort: isActive || isPaused,
+      canStart: controlFlags.canStart,
+      canPause: controlFlags.canPause,
+      canResume: controlFlags.canResume,
+      canAbort: controlFlags.canAbort,
       hasValidStartZone,
     };
   }, [rosConnected, hasValidStartZone, state.phase, state.pausedAt, state.missionId]);

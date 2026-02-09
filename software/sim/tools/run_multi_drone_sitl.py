@@ -78,17 +78,24 @@ def execute(vehicles):
         env.setdefault("PX4_MAVLINK_UDP_PRT", str(vehicle["mavlink_udp_port"]))
         cmd = [px4_bin, "-i", env["PX4_INSTANCE"], "-d"]
         print(f"Launching {vehicle['name']}: {' '.join(cmd)}")
-        processes.append(subprocess.Popen(cmd, env=env))
+        processes.append((vehicle["name"], subprocess.Popen(cmd, env=env)))
 
     def shutdown(*_):
-        for proc in processes:
+        for _, proc in processes:
             proc.send_signal(signal.SIGINT)
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    for proc in processes:
-        proc.wait()
+    failures = []
+    for name, proc in processes:
+        code = proc.wait()
+        if code != 0:
+            failures.append((name, code))
+
+    if failures:
+        details = ", ".join(f"{name}={code}" for name, code in failures)
+        raise RuntimeError(f"PX4 SITL process failed: {details}")
 
 
 def main():
