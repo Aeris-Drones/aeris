@@ -533,7 +533,7 @@ class MissionNode(Node):
                 except OSError as error:
                     restore_error = (
                         "vehicle_command dispatch failed to restore active endpoint "
-                        f"{restore_host}:{restore_port}"
+                        f"{restore_host}:{restore_port} "
                         f"(command_port={restore_command_port}, "
                         f"target={restore_target_system}/{restore_target_component}): {error}"
                     )

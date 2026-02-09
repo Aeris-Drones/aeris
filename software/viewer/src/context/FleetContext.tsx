@@ -136,6 +136,7 @@ export function FleetProvider({ children }: FleetProviderProps) {
       }
       if (state === 'IDLE' || state === 'ABORTED' || state === 'COMPLETE') {
         setCommandStatusHints({});
+        setActiveMissionId('');
       }
     };
 
@@ -265,10 +266,20 @@ export function FleetProvider({ children }: FleetProviderProps) {
       return response;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const failure = formatVehicleCommandFailure(command, vehicleId, errorMessage);
-      setCommandErrors(prev => ({ ...prev, [vehicleId]: failure }));
-      console.error('[FleetContext] Failed to send vehicle command:', error);
-      return { success: false, message: failure };
+      // Preserve backward compatibility when the service is unavailable.
+      publishLegacyCommand(request);
+      setCommandErrors(prev => {
+        if (!(vehicleId in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[vehicleId];
+        return next;
+      });
+      const fallbackMessage =
+        `vehicle_command service failed (${errorMessage}); command published to legacy /fleet/command`;
+      console.warn(`[FleetContext] ${fallbackMessage}`);
+      return { success: true, message: fallbackMessage };
     }
   }, [activeMissionId, isConnected, publishLegacyCommand, ros]);
   

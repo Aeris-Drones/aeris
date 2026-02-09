@@ -141,7 +141,7 @@ def test_start_mission_transitions_to_planning_then_searching(mission_harness) -
 
     assert _wait_until(lambda: len(observer.progress_updates) > 0)
     assert _wait_until(lambda: "TRACKING" in observer.states)
-    assert _wait_until(lambda: mission_node._mavlink_adapter.is_streaming)  # noqa: SLF001
+    assert _wait_until(lambda: mission_node._mavlink_adapter.is_streaming)
 
 
 def test_start_mission_rejects_invalid_command(mission_harness) -> None:
@@ -333,7 +333,7 @@ def test_start_mission_prefers_recently_seen_scout_endpoint(mission_harness) -> 
     assert response is not None
     assert response.success
     assert "scout 'scout_2'" in response.message
-    assert mission_node._active_scout_vehicle_id == "scout_2"  # noqa: SLF001
+    assert mission_node._active_scout_vehicle_id == "scout_2"
 
 
 def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
@@ -370,8 +370,8 @@ def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
             raise OSError("simulated endpoint write failure")
         return True
 
-    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
-    monkeypatch.setattr(  # noqa: SLF001
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(
         mission_node._mavlink_adapter, "send_return_to_launch", _record_rtl_attempt
     )
 
@@ -413,9 +413,9 @@ def test_vehicle_command_targets_only_requested_endpoint(
     del observer
 
     now = time.monotonic()
-    mission_node._state = "SEARCHING"  # noqa: SLF001
-    mission_node._mission_id = "vehicle-command-mission"  # noqa: SLF001
-    mission_node._scout_last_seen_monotonic = {  # noqa: SLF001
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vehicle-command-mission"
+    mission_node._scout_last_seen_monotonic = {
         "scout_1": now,
         "scout_2": now,
     }
@@ -433,8 +433,8 @@ def test_vehicle_command_targets_only_requested_endpoint(
         hold_calls.append(1)
         return True
 
-    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
-    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)  # noqa: SLF001
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)
 
     request = SimpleNamespace(
         command="HOLD",
@@ -442,21 +442,21 @@ def test_vehicle_command_targets_only_requested_endpoint(
         mission_id="vehicle-command-mission",
     )
     response = SimpleNamespace(success=False, message="")
-    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+    result = mission_node._handle_vehicle_command(request, response)
 
     assert result.success
     assert hold_calls == [1]
     assert endpoint_calls == [("127.0.0.1", 14542), ("127.0.0.1", 14540)]
-    assert mission_node._state == "SEARCHING"  # noqa: SLF001
+    assert mission_node._state == "SEARCHING"
 
 
 def test_vehicle_command_rejects_unknown_vehicle(mission_harness) -> None:
     mission_node, observer = mission_harness
     del observer
 
-    mission_node._state = "SEARCHING"  # noqa: SLF001
-    mission_node._mission_id = "reject-unknown-vehicle"  # noqa: SLF001
-    mission_node._scout_last_seen_monotonic = {}  # noqa: SLF001
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "reject-unknown-vehicle"
+    mission_node._scout_last_seen_monotonic = {}
 
     request = SimpleNamespace(
         command="HOLD",
@@ -464,7 +464,7 @@ def test_vehicle_command_rejects_unknown_vehicle(mission_harness) -> None:
         mission_id="reject-unknown-vehicle",
     )
     response = SimpleNamespace(success=False, message="")
-    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+    result = mission_node._handle_vehicle_command(request, response)
 
     assert not result.success
     assert "unknown vehicle_id" in result.message
@@ -474,9 +474,9 @@ def test_vehicle_command_rejects_offline_vehicle(mission_harness) -> None:
     mission_node, observer = mission_harness
     del observer
 
-    mission_node._state = "SEARCHING"  # noqa: SLF001
-    mission_node._mission_id = "reject-offline-vehicle"  # noqa: SLF001
-    mission_node._scout_last_seen_monotonic = {  # noqa: SLF001
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "reject-offline-vehicle"
+    mission_node._scout_last_seen_monotonic = {
         "scout_2": time.monotonic() - 10.0,
     }
 
@@ -486,7 +486,7 @@ def test_vehicle_command_rejects_offline_vehicle(mission_harness) -> None:
         mission_id="reject-offline-vehicle",
     )
     response = SimpleNamespace(success=False, message="")
-    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+    result = mission_node._handle_vehicle_command(request, response)
 
     assert not result.success
     assert "offline vehicle_id" in result.message
@@ -496,9 +496,9 @@ def test_vehicle_command_rejects_unsupported_command(mission_harness) -> None:
     mission_node, observer = mission_harness
     del observer
 
-    mission_node._state = "SEARCHING"  # noqa: SLF001
-    mission_node._mission_id = "reject-command"  # noqa: SLF001
-    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}  # noqa: SLF001
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "reject-command"
+    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}
 
     request = SimpleNamespace(
         command="LAND",
@@ -506,7 +506,7 @@ def test_vehicle_command_rejects_unsupported_command(mission_harness) -> None:
         mission_id="reject-command",
     )
     response = SimpleNamespace(success=False, message="")
-    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+    result = mission_node._handle_vehicle_command(request, response)
 
     assert not result.success
     assert "unsupported command" in result.message
@@ -516,9 +516,9 @@ def test_vehicle_command_rejects_invalid_state_transition(mission_harness) -> No
     mission_node, observer = mission_harness
     del observer
 
-    mission_node._state = "IDLE"  # noqa: SLF001
-    mission_node._mission_id = "state-gate"  # noqa: SLF001
-    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}  # noqa: SLF001
+    mission_node._state = "IDLE"
+    mission_node._mission_id = "state-gate"
+    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}
 
     request = SimpleNamespace(
         command="HOLD",
@@ -526,7 +526,7 @@ def test_vehicle_command_rejects_invalid_state_transition(mission_harness) -> No
         mission_id="state-gate",
     )
     response = SimpleNamespace(success=False, message="")
-    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+    result = mission_node._handle_vehicle_command(request, response)
 
     assert not result.success
     assert "rejected while in IDLE" in result.message
@@ -538,9 +538,9 @@ def test_vehicle_command_rejects_invalid_per_vehicle_transition(
     mission_node, observer = mission_harness
     del observer
 
-    mission_node._state = "SEARCHING"  # noqa: SLF001
-    mission_node._mission_id = "transition-gate"  # noqa: SLF001
-    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}  # noqa: SLF001
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "transition-gate"
+    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}
 
     endpoint_calls: list[tuple[str, int]] = []
     hold_calls: list[int] = []
@@ -555,8 +555,8 @@ def test_vehicle_command_rejects_invalid_per_vehicle_transition(
         hold_calls.append(1)
         return True
 
-    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
-    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)  # noqa: SLF001
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)
 
     request = SimpleNamespace(
         command="HOLD",
@@ -564,11 +564,11 @@ def test_vehicle_command_rejects_invalid_per_vehicle_transition(
         mission_id="transition-gate",
     )
     response = SimpleNamespace(success=False, message="")
-    first_result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+    first_result = mission_node._handle_vehicle_command(request, response)
     assert first_result.success
 
     second_response = SimpleNamespace(success=False, message="")
-    second_result = mission_node._handle_vehicle_command(request, second_response)  # noqa: SLF001
+    second_result = mission_node._handle_vehicle_command(request, second_response)
     assert not second_result.success
     assert "invalid transition" in second_result.message
     assert hold_calls == [1]
@@ -604,8 +604,8 @@ def test_vehicle_command_service_accepts_online_target(mission_harness, monkeypa
         hold_calls.append(1)
         return True
 
-    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
-    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)  # noqa: SLF001
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)
 
     request = VehicleCommand.Request()
     request.command = "HOLD"
@@ -620,7 +620,7 @@ def test_vehicle_command_service_accepts_online_target(mission_harness, monkeypa
     assert "accepted" in response.message
     assert endpoint_calls == [("127.0.0.1", 14542), ("127.0.0.1", 14541)]
     assert hold_calls == [1]
-    assert mission_node._state == "SEARCHING"  # noqa: SLF001
+    assert mission_node._state == "SEARCHING"
 
 
 def test_vehicle_command_service_rejects_unknown_target(mission_harness) -> None:
@@ -658,10 +658,10 @@ def test_vehicle_command_applies_endpoint_command_port_and_target_system(
     del observer
 
     now = time.monotonic()
-    mission_node._state = "SEARCHING"  # noqa: SLF001
-    mission_node._mission_id = "vehicle-command-target-system"  # noqa: SLF001
-    mission_node._active_scout_vehicle_id = "scout_1"  # noqa: SLF001
-    mission_node._scout_endpoints = [  # noqa: SLF001
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vehicle-command-target-system"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_endpoints = [
         ScoutEndpoint(
             vehicle_id="scout_1",
             host="127.0.0.1",
@@ -679,8 +679,8 @@ def test_vehicle_command_applies_endpoint_command_port_and_target_system(
             target_component=1,
         ),
     ]
-    mission_node._reset_vehicle_command_states()  # noqa: SLF001
-    mission_node._scout_last_seen_monotonic = {  # noqa: SLF001
+    mission_node._reset_vehicle_command_states()
+    mission_node._scout_last_seen_monotonic = {
         "scout_1": now,
         "scout_2": now,
     }
@@ -705,9 +705,9 @@ def test_vehicle_command_applies_endpoint_command_port_and_target_system(
         hold_calls.append(1)
         return True
 
-    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
-    monkeypatch.setattr(mission_node._mavlink_adapter, "set_target", _record_target)  # noqa: SLF001
-    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)  # noqa: SLF001
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_target", _record_target)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)
 
     request = SimpleNamespace(
         command="HOLD",
@@ -715,7 +715,7 @@ def test_vehicle_command_applies_endpoint_command_port_and_target_system(
         mission_id="vehicle-command-target-system",
     )
     response = SimpleNamespace(success=False, message="")
-    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+    result = mission_node._handle_vehicle_command(request, response)
 
     assert result.success
     assert hold_calls == [1]
@@ -733,14 +733,14 @@ def test_vehicle_command_pauses_stream_when_switching_endpoints(
     del observer
 
     now = time.monotonic()
-    mission_node._state = "SEARCHING"  # noqa: SLF001
-    mission_node._mission_id = "vehicle-command-stream-guard"  # noqa: SLF001
-    mission_node._active_scout_vehicle_id = "scout_1"  # noqa: SLF001
-    mission_node._plan_state.waypoints = [  # noqa: SLF001
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vehicle-command-stream-guard"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._plan_state.waypoints = [
         {"x": 10.0, "z": 20.0, "altitude_m": 30.0}
     ]
-    mission_node._plan_state.current_waypoint_index = 0  # noqa: SLF001
-    mission_node._scout_endpoints = [  # noqa: SLF001
+    mission_node._plan_state.current_waypoint_index = 0
+    mission_node._scout_endpoints = [
         ScoutEndpoint(
             vehicle_id="scout_1",
             host="127.0.0.1",
@@ -758,12 +758,12 @@ def test_vehicle_command_pauses_stream_when_switching_endpoints(
             target_component=1,
         ),
     ]
-    mission_node._reset_vehicle_command_states()  # noqa: SLF001
-    mission_node._scout_last_seen_monotonic = {  # noqa: SLF001
+    mission_node._reset_vehicle_command_states()
+    mission_node._scout_last_seen_monotonic = {
         "scout_1": now,
         "scout_2": now,
     }
-    mission_node._mavlink_adapter._running = True  # noqa: SLF001
+    mission_node._mavlink_adapter._running = True
 
     endpoint_calls: list[tuple[str, int, int | None]] = []
     target_calls: list[tuple[int, int]] = []
@@ -778,17 +778,17 @@ def test_vehicle_command_pauses_stream_when_switching_endpoints(
 
     def _record_stop_stream() -> None:
         stop_stream_calls.append(1)
-        mission_node._mavlink_adapter._running = False  # noqa: SLF001
+        mission_node._mavlink_adapter._running = False
 
     def _record_start_stream(mission_id: str, setpoint: dict[str, float]) -> None:
         start_stream_calls.append((mission_id, dict(setpoint)))
-        mission_node._mavlink_adapter._running = True  # noqa: SLF001
+        mission_node._mavlink_adapter._running = True
 
-    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
-    monkeypatch.setattr(mission_node._mavlink_adapter, "set_target", _record_target)  # noqa: SLF001
-    monkeypatch.setattr(mission_node._mavlink_adapter, "stop_stream", _record_stop_stream)  # noqa: SLF001
-    monkeypatch.setattr(mission_node._mavlink_adapter, "start_stream", _record_start_stream)  # noqa: SLF001
-    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", lambda: True)  # noqa: SLF001
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_target", _record_target)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "stop_stream", _record_stop_stream)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "start_stream", _record_start_stream)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", lambda: True)
 
     request = SimpleNamespace(
         command="HOLD",
@@ -796,7 +796,7 @@ def test_vehicle_command_pauses_stream_when_switching_endpoints(
         mission_id="vehicle-command-stream-guard",
     )
     response = SimpleNamespace(success=False, message="")
-    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+    result = mission_node._handle_vehicle_command(request, response)
 
     assert result.success
     assert stop_stream_calls == [1]

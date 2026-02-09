@@ -1,5 +1,4 @@
 import time
-from types import SimpleNamespace
 
 from pymavlink import mavutil
 
@@ -345,7 +344,7 @@ def test_adapter_rejects_hold_when_command_ack_is_rejected(monkeypatch) -> None:
     adapter.close()
 
 
-def test_adapter_primes_udpin_partner_when_command_port_differs(monkeypatch) -> None:
+def test_adapter_sends_commands_to_command_port_when_it_differs(monkeypatch) -> None:
     connections: list[_FakeConnection] = []
 
     def _fake_connection(endpoint: str, source_system: int, source_component: int):
@@ -367,8 +366,8 @@ def test_adapter_primes_udpin_partner_when_command_port_differs(monkeypatch) -> 
         target_system=2,
     )
     assert connections[0].endpoint == "udpin:0.0.0.0:14541"
+    assert connections[1].endpoint == "udpout:127.0.0.1:14581"
 
-    connections[0].messages_by_type.setdefault("__any__", []).append(SimpleNamespace())
     connections[0].messages_by_type.setdefault("COMMAND_ACK", []).append(
         _FakeAck(
             mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
@@ -380,7 +379,7 @@ def test_adapter_primes_udpin_partner_when_command_port_differs(monkeypatch) -> 
     )
 
     assert adapter.send_return_to_launch()
-    assert connections[0].port.sendto_calls
-    assert connections[0].port.sendto_calls[0] == (b"\x00", ("127.0.0.1", 14581))
-    assert connections[0].mav.command_long_calls[0][0] == 2
+    assert connections[1].mav.command_long_calls
+    assert connections[1].mav.command_long_calls[0][0] == 2
+    assert not connections[0].mav.command_long_calls
     adapter.close()

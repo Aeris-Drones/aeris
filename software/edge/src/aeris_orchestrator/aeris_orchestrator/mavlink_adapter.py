@@ -48,6 +48,7 @@ class MavlinkAdapter:
         self._partner_ready = self._command_port == self._port
 
         self._mav_connection = self._new_connection()
+        self._command_connection = self._new_command_connection()
         self._connection_lock = threading.Lock()
 
         self._running = False
@@ -91,15 +92,22 @@ class MavlinkAdapter:
 
         with self._connection_lock:
             previous = self._mav_connection
+            previous_command = self._command_connection
             try:
                 previous.close()
             except OSError:
                 pass
+            if previous_command is not None:
+                try:
+                    previous_command.close()
+                except OSError:
+                    pass
             self._host = host_clean
             self._port = port_clean
             self._command_port = command_port_clean
             self._partner_ready = self._command_port == self._port
             self._mav_connection = self._new_connection()
+            self._command_connection = self._new_command_connection()
         self._logger(
             "MAVLink endpoint set to "
             f"{self._host}:{self._port} (command_port={self._command_port})"
@@ -184,6 +192,8 @@ class MavlinkAdapter:
         self.stop_stream()
         with self._connection_lock:
             self._mav_connection.close()
+            if self._command_connection is not None:
+                self._command_connection.close()
 
     def send_return_to_launch(self) -> bool:
         """Send an explicit RTL command to the currently selected endpoint."""
@@ -252,18 +262,31 @@ class MavlinkAdapter:
             mavutil.mavlink.MAV_RESULT_ACCEPTED,
             mavutil.mavlink.MAV_RESULT_IN_PROGRESS,
         }
-        if not self._ensure_partner_ready(timeout_sec=_PARTNER_PRIME_TIMEOUT_SEC):
+        if self._command_connection is None and not self._ensure_partner_ready(
+            timeout_sec=_PARTNER_PRIME_TIMEOUT_SEC
+        ):
             self._logger(
                 f"{label} command could not run because no MAVLink partner is available "
                 f"for {self._host}:{self._port} (command_port={self._command_port})"
             )
             return False
 
+        command_connection = (
+            self._command_connection
+            if self._command_connection is not None
+            else self._mav_connection
+        )
+        command_log_endpoint = (
+            f"{self._host}:{self._command_port}"
+            if self._command_connection is not None
+            else f"{self._host}:{self._port}"
+        )
+
         for attempt in range(1, ack_retries + 2):
             confirmation = attempt - 1
             try:
                 with self._connection_lock:
-                    self._mav_connection.mav.command_long_send(
+                    command_connection.mav.command_long_send(
                         self._target_system,
                         self._target_component,
                         command_id,
@@ -278,7 +301,7 @@ class MavlinkAdapter:
                     )
                 self._logger(
                     f"Sent command {command_id} ({label}) to "
-                    f"{self._host}:{self._port} (attempt {attempt}, confirmation={confirmation})"
+                    f"{command_log_endpoint} (attempt {attempt}, confirmation={confirmation})"
                 )
             except OSError as error:
                 self._logger(f"MAVLink {label} command send failed: {error}")
@@ -430,9 +453,24 @@ class MavlinkAdapter:
             source_component=self._source_component,
         )
 
+    def _new_command_connection(self):
+        if self._command_port == self._port:
+            return None
+        return mavutil.mavlink_connection(
+            f"udpout:{self._host}:{self._command_port}",
+            source_system=self._source_system,
+            source_component=self._source_component,
+        )
+
     def _ensure_partner_ready(self, timeout_sec: float) -> bool:
         if self._partner_ready:
             return True
+
+        with self._connection_lock:
+            clients = getattr(self._mav_connection, "clients", None)
+            if isinstance(clients, set) and clients:
+                self._partner_ready = True
+                return True
 
         deadline = time.monotonic() + max(timeout_sec, 0.0)
         while time.monotonic() < deadline:
@@ -444,7 +482,9 @@ class MavlinkAdapter:
                     if sock is None:
                         self._partner_ready = True
                         return True
-                    sock.sendto(b"\x00", (self._host, self._command_port))
+                    sock.sendto(b"\x00", (self._host, self._port))
+                    if self._command_port != self._port:
+                        sock.sendto(b"\x00", (self._host, self._command_port))
                     message = self._mav_connection.recv_match(
                         blocking=True, timeout=wait_slice
                     )
