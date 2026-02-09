@@ -869,9 +869,14 @@ class MissionNode(Node):
         return list(deduped.values())
 
     def _reset_vehicle_command_states(self) -> None:
+        all_vehicle_ids = {
+            endpoint.vehicle_id for endpoint in self._scout_endpoints
+        } | {
+            endpoint.vehicle_id for endpoint in self._ranger_endpoints
+        }
         self._vehicle_command_states = {
-            endpoint.vehicle_id: self._VEHICLE_COMMAND_STATE_ACTIVE
-            for endpoint in self._scout_endpoints
+            vehicle_id: self._VEHICLE_COMMAND_STATE_ACTIVE
+            for vehicle_id in sorted(all_vehicle_ids)
         }
 
     def _next_vehicle_command_state(self, command: str) -> str:

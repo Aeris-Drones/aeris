@@ -1300,3 +1300,26 @@ def test_vehicle_command_pauses_stream_when_switching_endpoints(
         ("127.0.0.1", 14541, 14581),
     ]
     assert target_calls == [(3, 1), (2, 1)]
+
+
+def test_reset_vehicle_command_states_includes_ranger_endpoints(
+    mission_harness_multi_vehicle,
+) -> None:
+    mission_node, observer = mission_harness_multi_vehicle
+    del observer
+
+    mission_node._scout_endpoints = [
+        ScoutEndpoint(vehicle_id="scout_1", host="127.0.0.1", port=14541),
+        ScoutEndpoint(vehicle_id="scout_2", host="127.0.0.1", port=14542),
+    ]
+    mission_node._ranger_endpoints = [
+        ScoutEndpoint(vehicle_id="ranger_1", host="127.0.0.1", port=14543),
+    ]
+
+    mission_node._reset_vehicle_command_states()
+
+    assert mission_node._vehicle_command_states == {
+        "ranger_1": mission_node._VEHICLE_COMMAND_STATE_ACTIVE,
+        "scout_1": mission_node._VEHICLE_COMMAND_STATE_ACTIVE,
+        "scout_2": mission_node._VEHICLE_COMMAND_STATE_ACTIVE,
+    }
