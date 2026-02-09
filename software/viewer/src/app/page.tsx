@@ -41,10 +41,13 @@ import { VehicleInfo } from '@/components/sheets/VehicleCard';
 import { LayersPanel } from '@/components/layers/LayersPanel';
 import { LayerVisibilityProvider } from '@/context/LayerVisibilityContext';
 import { ZoneProvider, useZoneContext } from '@/context/ZoneContext';
+import { CoordinateOriginProvider } from '@/context/CoordinateOriginContext';
+import { MissionProvider } from '@/context/MissionContext';
 import { ZoneToolbar } from '@/components/zones/ZoneToolbar';
 import { PiPVideoFeed } from '@/components/pip/PiPVideoFeed';
 import { AlertToaster, showAlert, dismissAllAlerts, type Alert } from '@/components/alerts';
 import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
+import { useMissionControl } from '@/hooks/useMissionControl';
 
 // Mock fleet data with extended info for sheets
 const mockVehicles: VehicleInfo[] = [
@@ -90,13 +93,17 @@ const INITIAL_ALERT_COUNT = 2;
 
 export default function V2Page() {
   return (
-    <LayerVisibilityProvider>
-      <ZoneProvider>
-        <V2PageContent />
-        <AlertToaster visibleToasts={5} />
-        <KeyboardShortcutsOverlay />
-      </ZoneProvider>
-    </LayerVisibilityProvider>
+    <CoordinateOriginProvider>
+      <LayerVisibilityProvider>
+        <ZoneProvider>
+          <MissionProvider>
+            <V2PageContent />
+            <AlertToaster visibleToasts={5} />
+            <KeyboardShortcutsOverlay />
+          </MissionProvider>
+        </ZoneProvider>
+      </LayerVisibilityProvider>
+    </CoordinateOriginProvider>
   );
 }
 
@@ -115,11 +122,24 @@ function V2PageContent() {
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
   
-  // Mission state
-  const [missionPhase, setMissionPhase] = useState<MissionPhase>('SEARCHING');
-  const [elapsedTime, setElapsedTime] = useState(847); // ~14 minutes
-  const [isPaused, setIsPaused] = useState(false);
-  const [progress, setProgress] = useState(42);
+  const {
+    phase: missionPhase,
+    elapsedSeconds,
+    coveragePercent,
+    isPaused,
+    canStart,
+    canPause,
+    canAbort,
+    hasValidStartZone,
+    selectedPattern,
+    setSelectedPattern,
+    startMissionError,
+    startMission,
+    pauseMission,
+    resumeMission,
+    abortMission,
+    rosConnected,
+  } = useMissionControl();
 
   // Detection state
   const [detections, setDetections] = useState<Detection[]>(mockDetections);
@@ -195,27 +215,6 @@ function V2PageContent() {
     }
   }, [detections]);
 
-  // Mission control handlers
-  const handleStart = useCallback(() => {
-    setMissionPhase('SEARCHING');
-    setElapsedTime(0);
-    setProgress(0);
-    setIsPaused(false);
-  }, []);
-
-  const handlePause = useCallback(() => {
-    setIsPaused(true);
-  }, []);
-
-  const handleResume = useCallback(() => {
-    setIsPaused(false);
-  }, []);
-
-  const handleAbort = useCallback(() => {
-    setMissionPhase('ABORTED');
-    setIsPaused(false);
-  }, []);
-
   // Detection handlers
   const handleConfirmDetection = useCallback((id: string) => {
     setDetections(prev => prev.map(d => 
@@ -271,9 +270,9 @@ function V2PageContent() {
           e.preventDefault();
           if (missionPhase === 'SEARCHING' || missionPhase === 'TRACKING') {
             if (isPaused) {
-              handleResume();
+              resumeMission();
             } else {
-              handlePause();
+              pauseMission();
             }
           }
           break;
@@ -306,7 +305,7 @@ function V2PageContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [missionPhase, isPaused, handlePause, handleResume, handleLocateVehicle]);
+  }, [missionPhase, isPaused, pauseMission, resumeMission, handleLocateVehicle]);
 
   // Calculate stats
   const activeVehicles = mockVehicles.filter(v => v.status === 'active' || v.status === 'warning');
@@ -341,10 +340,10 @@ function V2PageContent() {
       
       statusPill={
         <StatusPill
-          missionPhase={missionPhase}
-          elapsedTime={elapsedTime}
-          progressPercent={progress}
-          connectionStatus="connected"
+          missionPhase={missionPhase as MissionPhase}
+          elapsedTime={elapsedSeconds}
+          progressPercent={Math.round(coveragePercent)}
+          connectionStatus={rosConnected ? "connected" : "disconnected"}
           alertCount={INITIAL_ALERT_COUNT}
           hasUnreadAlerts={INITIAL_ALERT_COUNT > 0}
           onAlertClick={handleAlertClick}
@@ -397,13 +396,17 @@ function V2PageContent() {
             <ControlsCard
               missionPhase={missionPhase}
               isPaused={isPaused}
-              canStart={missionPhase === 'IDLE' || missionPhase === 'COMPLETE' || missionPhase === 'ABORTED'}
-              canPause={missionPhase === 'SEARCHING' || missionPhase === 'TRACKING'}
-              canAbort={missionPhase === 'SEARCHING' || missionPhase === 'TRACKING'}
-              onStart={handleStart}
-              onPause={handlePause}
-              onResume={handleResume}
-              onAbort={handleAbort}
+              canStart={canStart}
+              canPause={canPause}
+              canAbort={canAbort}
+              hasValidStartZone={hasValidStartZone}
+              selectedPattern={selectedPattern}
+              setSelectedPattern={setSelectedPattern}
+              startMissionError={startMissionError}
+              onStart={startMission}
+              onPause={pauseMission}
+              onResume={resumeMission}
+              onAbort={abortMission}
             />
           }
         />

@@ -16,7 +16,14 @@ import { cn } from '@/lib/utils';
  * - ABORT: Red, 5-second countdown confirmation
  */
 
-export type MissionPhase = 'IDLE' | 'SEARCHING' | 'TRACKING' | 'COMPLETE' | 'ABORTED';
+export type MissionPhase =
+  | 'IDLE'
+  | 'PLANNING'
+  | 'SEARCHING'
+  | 'TRACKING'
+  | 'COMPLETE'
+  | 'ABORTED';
+export type SearchPattern = 'lawnmower' | 'spiral';
 
 export interface ControlsCardProps {
   missionPhase: MissionPhase;
@@ -24,6 +31,10 @@ export interface ControlsCardProps {
   canStart: boolean;
   canPause: boolean;
   canAbort: boolean;
+  hasValidStartZone?: boolean;
+  selectedPattern?: SearchPattern;
+  setSelectedPattern?: (pattern: SearchPattern) => void;
+  startMissionError?: string | null;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -36,6 +47,10 @@ export function ControlsCard({
   canStart,
   canPause,
   canAbort,
+  hasValidStartZone = true,
+  selectedPattern = 'lawnmower',
+  setSelectedPattern,
+  startMissionError = null,
   onStart,
   onPause,
   onResume,
@@ -44,7 +59,10 @@ export function ControlsCard({
   const [abortCountdown, setAbortCountdown] = useState<number | null>(null);
   
   const isIdle = missionPhase === 'IDLE';
-  const isActive = missionPhase === 'SEARCHING' || missionPhase === 'TRACKING';
+  const isActive =
+    missionPhase === 'PLANNING' ||
+    missionPhase === 'SEARCHING' ||
+    missionPhase === 'TRACKING';
 
   // Handle abort countdown
   useEffect(() => {
@@ -84,7 +102,34 @@ export function ControlsCard({
       </div>
 
       {/* Button row */}
-      <div className="flex items-stretch gap-3">
+      <div className="space-y-2">
+        {isIdle && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] uppercase tracking-wide text-white/50" htmlFor="mission-pattern-inline">
+                Pattern
+              </label>
+              <select
+                id="mission-pattern-inline"
+                value={selectedPattern}
+                onChange={(event) => setSelectedPattern?.(event.target.value as SearchPattern)}
+                className="h-7 rounded-md border border-white/15 bg-white/5 px-2 text-xs text-white/90 outline-none"
+              >
+                <option value="lawnmower">Lawnmower</option>
+                <option value="spiral">Spiral</option>
+              </select>
+            </div>
+            {!hasValidStartZone && (
+              <p className="text-[10px] text-[var(--warning)]">
+                Select an active zone with at least 3 points.
+              </p>
+            )}
+            {startMissionError && (
+              <p className="text-[10px] text-[var(--danger)]">{startMissionError}</p>
+            )}
+          </div>
+        )}
+        <div className="flex items-stretch gap-3">
         {/* START button - only show when idle */}
         {isIdle && (
           <ShimmerButton
@@ -163,6 +208,7 @@ export function ControlsCard({
             NEW
           </ShimmerButton>
         )}
+        </div>
       </div>
 
       {/* Status hint */}

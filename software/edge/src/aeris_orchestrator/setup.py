@@ -12,7 +12,7 @@ setup(
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
     ],
-    install_requires=["setuptools"],
+    install_requires=["setuptools", "pymavlink"],
     zip_safe=True,
     maintainer="Aeris Developers",
     maintainer_email="dev@aeris.local",
