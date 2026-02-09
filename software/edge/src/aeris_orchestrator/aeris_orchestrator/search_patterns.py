@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Iterable
 
+from .vehicle_ids import normalize_vehicle_id
+
 Waypoint = dict[str, float]
 
 _EPSILON = 1e-6
@@ -51,13 +53,12 @@ def partition_polygon_for_scouts(
     if len(normalized) < 3:
         return []
 
-    ordered_vehicle_ids = sorted(
-        {
-            _normalize_vehicle_id(vehicle_id)
-            for vehicle_id in scout_vehicle_ids
-            if _normalize_vehicle_id(vehicle_id)
-        }
-    )
+    normalized_ids: set[str] = set()
+    for vehicle_id in scout_vehicle_ids:
+        normalized_id = normalize_vehicle_id(vehicle_id)
+        if normalized_id:
+            normalized_ids.add(normalized_id)
+    ordered_vehicle_ids = sorted(normalized_ids)
     if not ordered_vehicle_ids:
         return []
 
@@ -239,13 +240,6 @@ def _normalize_polygon(polygon: Iterable[dict[str, float]]) -> list[Waypoint]:
         last = normalized[-1]
         if abs(first["x"] - last["x"]) <= _EPSILON and abs(first["z"] - last["z"]) <= _EPSILON:
             normalized = normalized[:-1]
-    return normalized
-
-
-def _normalize_vehicle_id(value: str) -> str:
-    normalized = value.strip().lower().replace("-", "_")
-    if not normalized:
-        return ""
     return normalized
 
 
