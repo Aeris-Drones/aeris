@@ -255,3 +255,65 @@ def test_adapter_send_rtl_returns_false_on_oserror(monkeypatch) -> None:
 
     assert not adapter.send_return_to_launch()
     adapter.close()
+
+
+def test_adapter_sends_hold_and_resume_with_ack(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
+    command_id = mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE
+    connections[0].messages_by_type.setdefault("COMMAND_ACK", []).extend(
+        [
+            _FakeAck(command_id, mavutil.mavlink.MAV_RESULT_ACCEPTED),
+            _FakeAck(command_id, mavutil.mavlink.MAV_RESULT_ACCEPTED),
+        ]
+    )
+
+    assert adapter.send_hold_position()
+    assert adapter.send_resume_mission()
+
+    sent_calls = connections[0].mav.command_long_calls
+    assert len(sent_calls) == 2
+    assert sent_calls[0][2] == command_id
+    assert sent_calls[0][4] == 0.0
+    assert sent_calls[1][2] == command_id
+    assert sent_calls[1][4] == 1.0
+    adapter.close()
+
+
+def test_adapter_rejects_hold_when_command_ack_is_rejected(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
+    connections[0].messages_by_type.setdefault("COMMAND_ACK", []).append(
+        _FakeAck(
+            mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE,
+            mavutil.mavlink.MAV_RESULT_DENIED,
+        )
+    )
+
+    assert not adapter.send_hold_position()
+    assert len(connections[0].mav.command_long_calls) >= 1
+    adapter.close()

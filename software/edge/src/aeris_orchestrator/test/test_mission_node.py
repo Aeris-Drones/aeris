@@ -1,11 +1,12 @@
 import json
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 import rclpy
 from aeris_msgs.msg import MissionProgress, MissionState, Telemetry
-from aeris_msgs.srv import MissionCommand
+from aeris_msgs.srv import MissionCommand, VehicleCommand
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
@@ -56,6 +57,9 @@ class MissionObserver(Node):
         )
         self.start_client = self.create_client(MissionCommand, "start_mission")
         self.abort_client = self.create_client(MissionCommand, "abort_mission")
+        self.vehicle_command_client = self.create_client(
+            VehicleCommand, "vehicle_command"
+        )
 
     def _on_state(self, message: MissionState) -> None:
         with self._state_lock:
@@ -102,6 +106,7 @@ def mission_harness(ros_runtime: MultiThreadedExecutor):
 
     assert observer.start_client.wait_for_service(timeout_sec=2.0)
     assert observer.abort_client.wait_for_service(timeout_sec=2.0)
+    assert observer.vehicle_command_client.wait_for_service(timeout_sec=2.0)
 
     try:
         yield mission_node, observer
@@ -396,3 +401,199 @@ def test_start_mission_rejects_when_no_scout_is_online(mission_harness) -> None:
     assert response is not None
     assert not response.success
     assert "no scout endpoint reported telemetry recently" in response.message
+
+
+def test_vehicle_command_targets_only_requested_endpoint(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    now = time.monotonic()
+    mission_node._state = "SEARCHING"  # noqa: SLF001
+    mission_node._mission_id = "vehicle-command-mission"  # noqa: SLF001
+    mission_node._scout_last_seen_monotonic = {  # noqa: SLF001
+        "scout_1": now,
+        "scout_2": now,
+    }
+
+    endpoint_calls: list[tuple[str, int]] = []
+    hold_calls: list[int] = []
+
+    def _record_endpoint(host: str, port: int) -> None:
+        endpoint_calls.append((host, int(port)))
+
+    def _record_hold() -> bool:
+        hold_calls.append(1)
+        return True
+
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)  # noqa: SLF001
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="scout2",
+        mission_id="vehicle-command-mission",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+
+    assert result.success
+    assert hold_calls == [1]
+    assert endpoint_calls == [("127.0.0.1", 14541)]
+    assert mission_node._state == "SEARCHING"  # noqa: SLF001
+
+
+def test_vehicle_command_rejects_unknown_vehicle(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"  # noqa: SLF001
+    mission_node._mission_id = "reject-unknown-vehicle"  # noqa: SLF001
+    mission_node._scout_last_seen_monotonic = {}  # noqa: SLF001
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="unknown7",
+        mission_id="reject-unknown-vehicle",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+
+    assert not result.success
+    assert "unknown vehicle_id" in result.message
+
+
+def test_vehicle_command_rejects_offline_vehicle(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"  # noqa: SLF001
+    mission_node._mission_id = "reject-offline-vehicle"  # noqa: SLF001
+    mission_node._scout_last_seen_monotonic = {  # noqa: SLF001
+        "scout_2": time.monotonic() - 10.0,
+    }
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="scout2",
+        mission_id="reject-offline-vehicle",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+
+    assert not result.success
+    assert "offline vehicle_id" in result.message
+
+
+def test_vehicle_command_rejects_unsupported_command(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"  # noqa: SLF001
+    mission_node._mission_id = "reject-command"  # noqa: SLF001
+    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}  # noqa: SLF001
+
+    request = SimpleNamespace(
+        command="LAND",
+        vehicle_id="scout1",
+        mission_id="reject-command",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+
+    assert not result.success
+    assert "unsupported command" in result.message
+
+
+def test_vehicle_command_rejects_invalid_state_transition(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "IDLE"  # noqa: SLF001
+    mission_node._mission_id = "state-gate"  # noqa: SLF001
+    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}  # noqa: SLF001
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="scout1",
+        mission_id="state-gate",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)  # noqa: SLF001
+
+    assert not result.success
+    assert "rejected while in IDLE" in result.message
+
+
+def test_vehicle_command_service_accepts_online_target(mission_harness, monkeypatch) -> None:
+    mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
+
+    start_request = MissionCommand.Request()
+    start_request.command = "START"
+    start_request.mission_id = "vehicle-service-accept"
+    start_request.zone_geometry = VALID_ZONE_GEOMETRY
+    start_future = observer.start_client.call_async(start_request)
+
+    assert _wait_until(lambda: start_future.done())
+    assert start_future.result() is not None
+    assert start_future.result().success
+    assert _wait_until(lambda: "SEARCHING" in observer.states)
+
+    endpoint_calls: list[tuple[str, int]] = []
+    hold_calls: list[int] = []
+
+    def _record_endpoint(host: str, port: int) -> None:
+        endpoint_calls.append((host, int(port)))
+
+    def _record_hold() -> bool:
+        hold_calls.append(1)
+        return True
+
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)  # noqa: SLF001
+
+    request = VehicleCommand.Request()
+    request.command = "HOLD"
+    request.vehicle_id = "scout2"
+    request.mission_id = "vehicle-service-accept"
+    result_future = observer.vehicle_command_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert response.success
+    assert "accepted" in response.message
+    assert endpoint_calls == [("127.0.0.1", 14541)]
+    assert hold_calls == [1]
+    assert mission_node._state == "SEARCHING"  # noqa: SLF001
+
+
+def test_vehicle_command_service_rejects_unknown_target(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+
+    start_request = MissionCommand.Request()
+    start_request.command = "START"
+    start_request.mission_id = "vehicle-service-reject"
+    start_request.zone_geometry = VALID_ZONE_GEOMETRY
+    start_future = observer.start_client.call_async(start_request)
+
+    assert _wait_until(lambda: start_future.done())
+    assert start_future.result() is not None
+    assert start_future.result().success
+    assert _wait_until(lambda: "SEARCHING" in observer.states)
+
+    request = VehicleCommand.Request()
+    request.command = "HOLD"
+    request.vehicle_id = "unknown99"
+    request.mission_id = "vehicle-service-reject"
+    result_future = observer.vehicle_command_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert not response.success
+    assert "unknown vehicle_id" in response.message
