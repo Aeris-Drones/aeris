@@ -67,14 +67,12 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
     isConnectingRef.current = true;
     setState('connecting');
     setError(null);
-    console.log(`[ROS] Connecting to ${url}...`);
 
     const ros = new ROSLIB.Ros({
       url: url,
     });
 
     ros.on('connection', () => {
-      console.log('[ROS] Connected successfully');
       setState('connected');
       setError(null);
       retryCountRef.current = 0;
@@ -90,26 +88,19 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
 
       if (retryCountRef.current < maxRetries) {
         const delay = getRetryDelay();
-        console.log(`[ROS] Retrying in ${delay}ms (attempt ${retryCountRef.current + 1}/${maxRetries})`);
-
         retryTimeoutRef.current = setTimeout(() => {
           retryCountRef.current++;
           connectRef.current();
         }, delay);
-      } else {
-        console.error(`[ROS] Max retries (${maxRetries}) exceeded. Giving up.`);
       }
     });
 
     ros.on('close', () => {
-      console.log('[ROS] Connection closed');
       setState('disconnected');
       isConnectingRef.current = false;
 
       if (retryCountRef.current < maxRetries) {
         const delay = getRetryDelay();
-        console.log(`[ROS] Auto-reconnecting in ${delay}ms...`);
-
         retryTimeoutRef.current = setTimeout(() => {
           retryCountRef.current++;
           connectRef.current();
@@ -126,8 +117,6 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
   }, [connect]);
 
   const disconnect = useCallback(() => {
-    console.log('[ROS] Disconnecting...');
-
     if (retryTimeoutRef.current) {
       clearTimeout(retryTimeoutRef.current);
       retryTimeoutRef.current = null;

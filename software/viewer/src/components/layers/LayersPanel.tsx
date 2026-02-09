@@ -11,7 +11,6 @@ import {
   ChevronUp,
   Layers,
   LucideIcon,
-  PenTool,
   Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';

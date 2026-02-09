@@ -6,7 +6,6 @@ import {
   Maximize2,
   Minimize2,
   Signal, 
-  SignalLow, 
   SignalZero,
   Battery,
   ArrowUp,
@@ -67,8 +66,8 @@ function getBatteryColor(percent: number): string {
 }
 
 function getSignalIcon(isLive: boolean) {
-  if (!isLive) return SignalZero;
-  return Signal;
+  if (!isLive) return <SignalZero className="h-4 w-4" />;
+  return <Signal className="h-4 w-4" />;
 }
 
 export function PiPVideoFeed({
@@ -84,9 +83,9 @@ export function PiPVideoFeed({
   onExpand,
 }: PiPVideoFeedProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const SignalIcon = getSignalIcon(isLive);
 
   const handleExpand = () => {
+    onExpand();
     setIsExpanded(!isExpanded);
   };
 
@@ -167,7 +166,7 @@ export function PiPVideoFeed({
                   'flex items-center gap-2',
                   isLive ? 'text-emerald-400' : 'text-white/30'
                 )}>
-                  <SignalIcon className="h-4 w-4" />
+                  {getSignalIcon(isLive)}
                   <span className="text-xs">{isLive ? 'Connected' : 'Offline'}</span>
                 </div>
               </div>
@@ -285,7 +284,7 @@ export function PiPVideoFeed({
               'flex items-center gap-1',
               isLive ? 'text-emerald-400' : 'text-white/30'
             )}>
-              <SignalIcon className="h-3 w-3" />
+              {isLive ? <Signal className="h-3 w-3" /> : <SignalZero className="h-3 w-3" />}
             </div>
           </div>
         </div>

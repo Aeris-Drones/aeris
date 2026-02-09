@@ -17,8 +17,8 @@ function CountAnimation({
   useEffect(() => {
     const animation = animate(count, number, { duration: 2 });
 
-    return animation.stop;
-  }, []);
+    return () => animation.stop();
+  }, [count, number]);
 
   return <motion.h1 className={cn(className)}>{rounded}</motion.h1>;
 }

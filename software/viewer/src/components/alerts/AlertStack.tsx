@@ -20,9 +20,9 @@
  * └───────────────────────────────────────────────────────────────────────┘
  */
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { toast, Toaster } from 'sonner';
-import { AlertCircle, AlertTriangle, Info, MapPin, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ============================================================================
@@ -48,9 +48,15 @@ export interface Alert {
 // Configuration per spec
 // ============================================================================
 
-// All toasts auto-dismiss after 10 seconds - they're just notifications
-// The actual alerts persist in the AlertPanel
-const TOAST_DURATION = 10000; // 10 seconds for all toasts
+// Toast auto-dismiss durations per spec Section 4.6:
+// - Critical: cannot be auto-dismissed (undefined = no auto-dismiss)
+// - Warning: 30 seconds
+// - Info: 10 seconds
+const TOAST_DURATIONS: Record<AlertSeverity, number | undefined> = {
+  critical: undefined, // No auto-dismiss
+  warning: 30000,      // 30 seconds
+  info: 10000,         // 10 seconds
+};
 
 const SEVERITY_ICONS: Record<AlertSeverity, React.ReactNode> = {
   critical: <AlertCircle className="h-5 w-5 text-[var(--danger)]" />,
@@ -112,13 +118,13 @@ export function showAlert(alert: Omit<Alert, 'timestamp'>, options?: { playSound
                   severity === 'warning' ? toast.warning : 
                   toast.info;
 
-  // All toasts auto-dismiss after 10s - they're just notifications
+  // Auto-dismiss based on severity per spec
   // The actual alerts persist in the AlertPanel (accessed via bell icon)
   toastFn(title, {
     id,
     description,
-    duration: TOAST_DURATION,
-    dismissible: true, // User can always dismiss the toast (alert stays in panel)
+    duration: TOAST_DURATIONS[severity],
+    dismissible: severity !== 'critical', // Critical alerts require explicit action
     icon: SEVERITY_ICONS[severity],
     action: action ? {
       label: action.label,
@@ -160,13 +166,10 @@ export function dismissAllAlerts() {
 interface AlertToasterProps {
   /** Maximum visible toasts */
   visibleToasts?: number;
-  /** Enable audio cues */
-  enableAudio?: boolean;
 }
 
 export function AlertToaster({ 
   visibleToasts = 5,
-  enableAudio = true,
 }: AlertToasterProps) {
   return (
     <Toaster

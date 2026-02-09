@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
+import React, { useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { Canvas, ThreeEvent } from '@react-three/fiber';
 import { CameraControls, Grid } from '@react-three/drei';

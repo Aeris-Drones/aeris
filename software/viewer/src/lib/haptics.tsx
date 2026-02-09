@@ -1,8 +1,10 @@
 'use client';
 
+import type { PointerEventHandler } from 'react';
+
 /**
  * AERIS GCS Haptic Feedback
- * 
+ *
  * Trigger haptic feedback on supported devices (primarily iPad/iOS)
  * Falls back gracefully on unsupported devices
  */
@@ -44,13 +46,13 @@ export function haptic(style: HapticStyle = 'light'): void {
 /**
  * Component wrapper that adds haptic feedback on press
  */
-export function withHaptic<P extends object>(
-  WrappedComponent: React.ComponentType<P>,
-  style: HapticStyle = 'light'
-) {
+export function withHaptic<
+  P extends { onPointerDown?: PointerEventHandler<unknown> }
+>(WrappedComponent: React.ComponentType<P>, style: HapticStyle = 'light') {
   return function HapticWrapper(props: P) {
-    const handlePointerDown = () => {
-      haptic(style);
+    const handlePointerDown: PointerEventHandler<unknown> = (event) => {
+      props.onPointerDown?.(event);
+      if (!event.defaultPrevented) haptic(style);
     };
 
     return <WrappedComponent {...props} onPointerDown={handlePointerDown} />;

@@ -144,9 +144,6 @@ export function FleetProvider({ children }: FleetProviderProps) {
       });
       
       topic.publish(message);
-      console.log(`[Fleet] Command sent: ${command} to ${vehicleId}`);
-    } else {
-      console.log(`[Fleet] Command queued (offline): ${command} to ${vehicleId}`);
     }
   }, [ros, isConnected]);
   

@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { MapPin, Video, Home, Battery, Signal, Gauge, Radio } from 'lucide-react';
+import { MapPin, Video, Home, Signal, Gauge, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**

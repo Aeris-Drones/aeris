@@ -13,7 +13,7 @@ setup(
     install_requires=["setuptools"],
     zip_safe=True,
     maintainer="Aeris Developers",
-    maintainer_email="dev@aeris.local",  # TODO: update email
+    maintainer_email="dev@aeris.local",
     description="Synthetic perception publishers for thermal, acoustic, and gas cues.",
     license="proprietary",
     tests_require=["pytest"],

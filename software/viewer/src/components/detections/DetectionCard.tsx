@@ -4,11 +4,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { cardVariants, transitions, buttonVariants } from '@/lib/animations';
-import {
-  getSensorColor,
-  getConfidenceColor,
-  type SensorType,
-} from '@/lib/design-tokens';
+import { type SensorType } from '@/lib/design-tokens';
 import {
   ConfidenceBar,
   ConfidenceBadge,
@@ -18,7 +14,6 @@ import type { Detection } from '@/types/detection';
 import {
   formatDetectionSummary,
   getTimeSince,
-  getDetectionDirection,
   getClassificationName,
   getSensorName,
 } from '@/types/detection';
@@ -29,10 +24,6 @@ import {
   Check,
   X,
   MapPin,
-  Clock,
-  Eye,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 
 interface DetectionCardProps {
@@ -61,7 +52,6 @@ export function DetectionCard({
   className,
 }: DetectionCardProps) {
   const [isExpanded, setIsExpanded] = useState(expanded);
-  const [isHovered, setIsHovered] = useState(false);
 
   const handleExpand = () => {
     const newExpanded = !isExpanded;
@@ -84,7 +74,6 @@ export function DetectionCard({
     onFocus?.();
   };
 
-  const sensorColorClass = `border-l-sensor-${detection.sensorType}`;
   const isNew = detection.status === 'new';
   const isConfirmed = detection.status === 'confirmed';
   const isDismissed = detection.status === 'dismissed';
@@ -96,8 +85,6 @@ export function DetectionCard({
       animate="visible"
       exit="exit"
       whileHover="hover"
-      onHoverStart={() => setIsHovered(true)}
-      onHoverEnd={() => setIsHovered(false)}
       className={cn(
         // Base card styling
         'relative bg-surface-2 rounded-lg overflow-hidden cursor-pointer',
@@ -345,7 +332,6 @@ export function DetectionCardCompact({
   detection,
   onConfirm,
   onDismiss,
-  onFocus,
   className,
 }: Omit<DetectionCardProps, 'expanded' | 'onExpand'>) {
   return (

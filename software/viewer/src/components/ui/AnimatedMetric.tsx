@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { motion, useSpring, useTransform, animate } from 'framer-motion';
+import { motion, animate } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { durations } from '@/lib/design-tokens';
 import { ArrowUp, ArrowDown, Minus } from 'lucide-react';

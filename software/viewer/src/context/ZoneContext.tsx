@@ -15,7 +15,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import type { PriorityZone, ZoneInput, ZonePriority, ZonePoint } from '@/types/zone';
-import { createZone, generateZoneId } from '@/types/zone';
+import { createZone } from '@/types/zone';
 
 // ============================================================================
 // Drawing State
@@ -113,7 +113,6 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
   const addZone = useCallback((input: ZoneInput): PriorityZone => {
     const zone = createZone(input);
     setZones(prev => [...prev, zone]);
-    console.log(`[Zone] Created zone: ${zone.name} (Priority ${zone.priority})`);
     return zone;
   }, []);
   
@@ -128,7 +127,6 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     if (selectedZoneId === id) {
       setSelectedZoneId(null);
     }
-    console.log(`[Zone] Deleted zone: ${id}`);
   }, [selectedZoneId]);
   
   const completeZone = useCallback((id: string) => {
@@ -153,7 +151,6 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
       currentPriority: priority,
       points: [],
     });
-    console.log(`[Zone] Started drawing priority ${priority} zone`);
   }, []);
   
   const addPoint = useCallback((point: ZonePoint) => {
@@ -176,7 +173,6 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
       currentPriority: 1,
       points: [],
     });
-    console.log('[Zone] Drawing cancelled');
   }, []);
   
   const finishDrawing = useCallback((name?: string, notes?: string): PriorityZone | null => {

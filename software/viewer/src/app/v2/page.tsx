@@ -26,7 +26,7 @@
  * Deliverable: Production-ready dashboard
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { GCSLayout } from '@/components/layout/GCSLayout';
 import { StatusPill, MissionPhase } from '@/components/layout/StatusPill';
 import { CommandDock } from '@/components/layout/CommandDock';
@@ -86,6 +86,7 @@ const mockDetections: Detection[] = [
     temperature: 36.8, sector: 'Sector A-3', signatureType: 'Possible survivor'
   },
 ];
+const INITIAL_ALERT_COUNT = 2;
 
 export default function V2Page() {
   return (
@@ -109,10 +110,6 @@ function V2PageContent() {
     isDrawing,
     addPoint,
   } = useZoneContext();
-  
-  // Stored alerts - clicking bell re-shows these as toasts
-  const [storedAlerts, setStoredAlerts] = useState<Alert[]>([]);
-  const [areAlertsOpen, setAreAlertsOpen] = useState(false);
   
   // Selection state for markers
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
@@ -152,38 +149,33 @@ function V2PageContent() {
     setPipVehicleId(id);
   }, []);
   
-  // Add demo alerts on mount (client-side only to avoid hydration issues)
+  const storedAlerts = useMemo<Alert[]>(() => [
+    {
+      id: 'demo-critical',
+      severity: 'critical',
+      title: 'Scout-2 COMMS LOST',
+      description: 'Last contact: 45 seconds ago - Initiating recovery',
+      dismissible: false,
+      timestamp: new Date(),
+      action: { label: 'LOCATE', onClick: () => handleLocateVehicle('scout-2') },
+    },
+    {
+      id: 'demo-warning',
+      severity: 'warning',
+      title: 'Ranger-1 low battery',
+      description: '22% remaining - Auto RTH initiated',
+      dismissible: true,
+      timestamp: new Date(),
+      action: { label: 'VIEW', onClick: () => handleViewFeed('ranger-1') },
+    },
+  ], [handleLocateVehicle, handleViewFeed]);
   const hasAddedInitialAlerts = useRef(false);
+  const areAlertsOpenRef = useRef(false);
   useEffect(() => {
-    if (!hasAddedInitialAlerts.current) {
-      hasAddedInitialAlerts.current = true;
-      
-      const alerts: Alert[] = [
-        {
-          id: 'demo-critical',
-          severity: 'critical',
-          title: 'Scout-2 COMMS LOST',
-          description: 'Last contact: 45 seconds ago - Initiating recovery',
-          dismissible: false,
-          timestamp: new Date(),
-          action: { label: 'LOCATE', onClick: () => handleLocateVehicle('scout-2') },
-        },
-        {
-          id: 'demo-warning',
-          severity: 'warning',
-          title: 'Ranger-1 low battery',
-          description: '22% remaining - Auto RTH initiated',
-          dismissible: true,
-          timestamp: new Date(),
-          action: { label: 'VIEW', onClick: () => handleViewFeed('ranger-1') },
-        },
-      ];
-      
-      // Store alerts and show as toasts
-      setStoredAlerts(alerts);
-      alerts.forEach(alert => showAlert(alert));
-    }
-  }, [handleLocateVehicle, handleViewFeed]);
+    if (hasAddedInitialAlerts.current) return;
+    hasAddedInitialAlerts.current = true;
+    storedAlerts.forEach((alert) => showAlert(alert));
+  }, [storedAlerts]);
 
   const handleDroneSelect = (id: string) => {
     setSelectedDroneId(id || null);
@@ -250,26 +242,22 @@ function V2PageContent() {
   }, []);
 
   const handleExpandPip = useCallback(() => {
-    console.log('Expand PiP to fullscreen');
     // Future: fullscreen modal
   }, []);
 
   const handleRTH = useCallback((id: string) => {
-    console.log('RTH for', id);
     // Would send RTH command
+    void id;
   }, []);
 
   // Bell click - toggle toasts: show stored alerts when opening, dismiss all toasts when closing
   const handleAlertClick = useCallback(() => {
-    setAreAlertsOpen((prev) => {
-      const next = !prev;
-      if (next) {
-        storedAlerts.forEach(alert => showAlert(alert, { playSound: false }));
-      } else {
-        dismissAllAlerts();
-      }
-      return next;
-    });
+    areAlertsOpenRef.current = !areAlertsOpenRef.current;
+    if (areAlertsOpenRef.current) {
+      storedAlerts.forEach((alert) => showAlert(alert, { playSound: false }));
+      return;
+    }
+    dismissAllAlerts();
   }, [storedAlerts]);
 
   // Keyboard shortcuts per spec Section 5.2
@@ -357,8 +345,8 @@ function V2PageContent() {
           elapsedTime={elapsedTime}
           progressPercent={progress}
           connectionStatus="connected"
-          alertCount={storedAlerts.length}
-          hasUnreadAlerts={storedAlerts.length > 0}
+          alertCount={INITIAL_ALERT_COUNT}
+          hasUnreadAlerts={INITIAL_ALERT_COUNT > 0}
           onAlertClick={handleAlertClick}
         />
       }

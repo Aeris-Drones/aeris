@@ -21,7 +21,6 @@ import {
   Pause,
   Play,
   Battery,
-  Wifi,
   AlertTriangle,
 } from 'lucide-react';
 

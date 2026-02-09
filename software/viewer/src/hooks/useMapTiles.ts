@@ -43,12 +43,10 @@ export function useMapTiles() {
     };
 
     topic.subscribe(handleMessage);
-    console.log('[useMapTiles] Subscribed to /map/tiles');
 
     return () => {
       topic.unsubscribe();
       manager.clear();
-      console.log('[useMapTiles] Unsubscribed');
     };
   }, [ros, isConnected]);
 

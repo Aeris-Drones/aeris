@@ -7,9 +7,9 @@
  * computed state flags, and real-time detection statistics.
  */
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback, useContext } from 'react';
 import { useMissionContext } from '@/context/MissionContext';
-import { useDetectionContext } from '@/context/DetectionContext';
+import { DetectionContext } from '@/context/DetectionContext';
 import { useROSConnection } from './useROSConnection';
 import type { MissionPhase, MissionCommand } from '@/types/mission';
 import ROSLIB from 'roslib';
@@ -85,11 +85,10 @@ export function useMissionControl(): MissionControlState {
   let detectionStats = stats.detectionCounts;
   let confirmedCount = stats.confirmedSurvivors;
   let pendingCount = stats.pendingDetections;
-  
-  try {
-    const detectionContext = useDetectionContext();
+
+  const detectionContext = useContext(DetectionContext);
+  if (detectionContext) {
     const detectionContextStats = detectionContext.stats;
-    
     detectionStats = {
       thermal: detectionContextStats.byType.thermal ?? 0,
       acoustic: detectionContextStats.byType.acoustic ?? 0,
@@ -97,10 +96,8 @@ export function useMissionControl(): MissionControlState {
       total: detectionContextStats.total,
     };
     confirmedCount = detectionContextStats.byStatus.confirmed ?? 0;
-    pendingCount = (detectionContextStats.byStatus.new ?? 0) + 
+    pendingCount = (detectionContextStats.byStatus.new ?? 0) +
                    (detectionContextStats.byStatus.reviewing ?? 0);
-  } catch {
-    // DetectionContext not available, use mission stats
   }
   
   // ============================================================================
@@ -113,13 +110,13 @@ export function useMissionControl(): MissionControlState {
       console.warn('[MissionControl] ROS not connected, command not published');
       return;
     }
-    
+
     const topic = new ROSLIB.Topic({
       ros: ros,
       name: '/mission/command',
       messageType: 'std_msgs/String',
     });
-    
+
     const message = new ROSLIB.Message({
       data: JSON.stringify({
         command,
@@ -127,9 +124,8 @@ export function useMissionControl(): MissionControlState {
         missionId: state.missionId,
       }),
     });
-    
+
     topic.publish(message);
-    console.log(`[MissionControl] Published command: ${command}`);
   }, [ros, rosConnected, state.missionId]);
   
   // Subscribe to mission state updates from ROS
@@ -152,17 +148,17 @@ export function useMissionControl(): MissionControlState {
       try {
         const data = JSON.parse((message as { data: string }).data);
         // Could update phase from external source
-        console.log('[MissionControl] Received state update:', data);
+        void data;
       } catch (error) {
         console.warn('[MissionControl] Failed to parse state message:', error);
       }
     };
-    
+
     const handleProgressMessage = (message: ROSLIB.Message) => {
       try {
         const data = JSON.parse((message as { data: string }).data);
         // Could update progress from external source
-        console.log('[MissionControl] Received progress update:', data);
+        void data;
       } catch (error) {
         console.warn('[MissionControl] Failed to parse progress message:', error);
       }

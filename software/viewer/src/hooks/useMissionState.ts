@@ -19,8 +19,9 @@ export function useMissionState() {
     });
 
     const handleMessage = (message: ROSLIB.Message) => {
-      // @ts-expect-error - ROSLIB message typing is loose
-      const data = message.data as string;
+      const data = typeof (message as { data?: unknown }).data === 'string'
+        ? (message as { data: string }).data
+        : 'IDLE';
 
       if (MISSION_PHASES.includes(data as MissionPhase)) {
           setMissionState(data as MissionPhase);
@@ -30,7 +31,6 @@ export function useMissionState() {
     };
 
     topic.subscribe(handleMessage);
-    console.log('[useMissionState] Subscribed to /mission/state');
 
     return () => {
       topic.unsubscribe();

@@ -49,10 +49,10 @@ const statusColors: Record<VehicleStatus, string> = {
 };
 
 function getBatteryIcon(percent: number) {
-  if (percent > 75) return BatteryFull;
-  if (percent > 50) return BatteryMedium;
-  if (percent > 20) return BatteryLow;
-  return BatteryWarning;
+  if (percent > 75) return <BatteryFull className="h-4 w-4" />;
+  if (percent > 50) return <BatteryMedium className="h-4 w-4" />;
+  if (percent > 20) return <BatteryLow className="h-4 w-4" />;
+  return <BatteryWarning className="h-4 w-4" />;
 }
 
 function getBatteryColor(percent: number) {
@@ -70,7 +70,6 @@ export function FleetCard({
 }: FleetCardProps) {
   const hasWarnings = warnings.length > 0;
   const criticalWarnings = warnings.filter(w => w.severity === 'critical').length;
-  const BatteryIcon = getBatteryIcon(avgBattery);
 
   return (
     <Card
@@ -129,7 +128,7 @@ export function FleetCard({
 
         {/* Battery indicator - using Lucide icon */}
         <div className={cn('flex items-center gap-1.5', getBatteryColor(avgBattery))}>
-          <BatteryIcon className="h-4 w-4" />
+          {getBatteryIcon(avgBattery)}
           <span className="font-mono text-sm">
             {avgBattery}%
           </span>

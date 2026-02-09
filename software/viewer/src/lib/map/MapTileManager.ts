@@ -60,7 +60,6 @@ export class MapTileManager {
       activeOrigin = center;
       this.origin = center;
       newOrigin = center;
-      console.log(`[MapTileManager] Set origin to ${center.lat}, ${center.lon} from tile ${key}`);
     } else if (!this.origin) {
         this.origin = activeOrigin;
     }

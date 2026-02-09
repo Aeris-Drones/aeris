@@ -150,8 +150,7 @@ export function MissionControlPanel({
   // Reset abort confirmation after timeout
   useEffect(() => {
     if (!showAbortConfirm) return;
-    
-    setAbortCountdown(5);
+
     const countdownInterval = setInterval(() => {
       setAbortCountdown(prev => {
         if (prev <= 1) {
@@ -169,6 +168,7 @@ export function MissionControlPanel({
   const handleAbort = useCallback(() => {
     if (!showAbortConfirm) {
       setShowAbortConfirm(true);
+      setAbortCountdown(5);
     } else {
       abortMission();
       setShowAbortConfirm(false);

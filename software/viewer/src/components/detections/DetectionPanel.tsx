@@ -3,13 +3,12 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { panelVariants } from '@/lib/animations';
 import { DetectionList } from './DetectionList';
-import { useDetectionCounts, useNewDetections } from '@/hooks/useDetections';
+import { useDetectionCounts } from '@/hooks/useDetections';
 import { useDetectionContext } from '@/context/DetectionContext';
 import type { Detection } from '@/types/detection';
 import { Badge } from '@/components/ui/badge';
-import { Bell, Check, AlertTriangle, X, Undo2 } from 'lucide-react';
+import { Bell, Check, AlertTriangle, Undo2 } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 
 interface DetectionPanelProps {
@@ -19,7 +18,6 @@ interface DetectionPanelProps {
 
 export function DetectionPanel({ onDetectionFocus, className }: DetectionPanelProps) {
   const counts = useDetectionCounts();
-  const newDetections = useNewDetections();
   const { canUndo, undoLastAction } = useDetectionContext();
 
   return (

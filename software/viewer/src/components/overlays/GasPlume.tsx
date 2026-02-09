@@ -6,13 +6,7 @@ import { useLayerVisibility } from '../../context/LayerVisibilityContext';
 import { GasPlumeParticles } from './GasPlumeParticles';
 import { WindVectors } from './WindVectors';
 import { PlumeCenterline } from './PlumeCenterline';
-
-// Color ramp: Purple (low) -> Green (medium) -> Yellow (high)
-export const COLORS = {
-  low: new THREE.Color(0x9333ea),    // Purple
-  medium: new THREE.Color(0x22c55e), // Green
-  high: new THREE.Color(0xf59e0b),   // Amber/Yellow
-};
+import { COLORS } from './GasPlumeColors';
 
 // Animation constants
 const PULSE_SPEED = 2;
@@ -50,7 +44,6 @@ export function GasPlume() {
   const { plumes, wind } = useGasPerception();
   const { gas } = useLayerVisibility();
   const groupRef = useRef<THREE.Group>(null);
-  const debugPerf = process.env.NEXT_PUBLIC_GAS_PERF === '1';
   const adaptiveScaling = process.env.NEXT_PUBLIC_GAS_PARTICLE_ADAPTIVE === '1';
 
   // Build mesh data with memoization
@@ -144,7 +137,6 @@ export function GasPlume() {
         plumes={plumes}
         windDirection={wind.direction.clone().multiplyScalar(wind.speed)}
         adaptiveScaling={adaptiveScaling}
-        debugPerf={debugPerf}
       />
 
       {/* Layer 3: Centerline glow tube (AC3, AC4) */}

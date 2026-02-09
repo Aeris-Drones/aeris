@@ -7,7 +7,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { CoordinateOriginProvider } from "@/context/CoordinateOriginContext";
 import { LayerVisibilityProvider } from "@/context/LayerVisibilityContext";
 import { DetectionProvider } from "@/context/DetectionContext";
-import { MissionProvider, useMissionContext } from "@/context/MissionContext";
+import { MissionProvider } from "@/context/MissionContext";
 import { FleetProvider } from "@/context/FleetContext";
 import { ZoneProvider } from "@/context/ZoneContext";
 import { ToastProvider } from "@/components/ui/Toast";
@@ -22,7 +22,6 @@ import { cn } from "@/lib/utils";
 import { 
   Camera, 
   Eye, 
-  EyeOff, 
   Layers, 
   Wifi, 
   WifiOff,
@@ -31,7 +30,6 @@ import {
   AlertCircle,
   CheckCircle2,
   Pause,
-  Play,
   Radio,
   Plane,
   MapPin
@@ -39,7 +37,6 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useMissionControl } from "@/hooks/useMissionControl";
 import { formatMissionTime, getMissionPhaseConfig } from "@/types/mission";
-import { useDetectionContext } from "@/context/DetectionContext";
 import { transitions } from "@/lib/animations";
 
 // ============================================================================
@@ -246,7 +243,11 @@ function HomeContent() {
         case ' ':
           e.preventDefault();
           if (isActive) {
-            isPaused ? resumeMission() : pauseMission();
+            if (isPaused) {
+              resumeMission();
+            } else {
+              pauseMission();
+            }
           }
           break;
         case 'r':

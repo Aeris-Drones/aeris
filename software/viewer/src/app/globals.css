@@ -125,31 +125,6 @@
   --color-contrast-fg: var(--ds-contrast-fg);
   --color-geist-background: var(--geist-background);
   --shadow-menu: var(--ds-shadow-menu);
-  --ds-shadow-menu: var(----ds-shadow-menu);
-  --color-ds-contrast-fg: var(----ds-contrast-fg);
-  --ds-shadow-border-small: var(----ds-shadow-border-small);
-  --ds-shadow-small: var(----ds-shadow-small);
-  --ds-shadow-border: var(----ds-shadow-border);
-  --ds-focus-ring: var(----ds-focus-ring);
-  --ds-focus-color: var(----ds-focus-color);
-  --color-ds-gray-alpha-200: var(----ds-gray-alpha-200);
-  --color-ds-gray-1000-h: var(----ds-gray-1000-h);
-  --color-ds-gray-700: var(----ds-gray-700);
-  --color-ds-gray-400: var(----ds-gray-400);
-  --color-ds-amber-850: var(----ds-amber-850);
-  --color-ds-amber-800: var(----ds-amber-800);
-  --color-ds-blue-700: var(----ds-blue-700);
-  --color-ds-red-800: var(----ds-red-800);
-  --color-ds-background-100: var(----ds-background-100);
-  --color-ds-gray-alpha-400: var(----ds-gray-alpha-400);
-  --color-ds-gray-1000: var(----ds-gray-1000);
-  --color-ds-gray-100: var(----ds-gray-100);
-  --color-ds-amber-900: var(----ds-amber-900);
-  --color-ds-amber-100: var(----ds-amber-100);
-  --color-ds-red-900: var(----ds-red-900);
-  --color-ds-red-100: var(----ds-red-100);
-  --color-ds-blue-900: var(----ds-blue-900);
-  --color-ds-blue-100: var(----ds-blue-100)
 ;
   @keyframes fade-spin {
   0% {

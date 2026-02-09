@@ -38,36 +38,20 @@ export function MissionTimer({
   className,
 }: MissionTimerProps) {
   const { state } = useMissionContext();
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [tick, setTick] = useState(0);
   
-  // Calculate and update elapsed time
+  // Drive rerenders while mission is active
   useEffect(() => {
-    // If mission hasn't started, show 00:00
-    if (state.phase === 'IDLE' || !state.startTime) {
-      setElapsedSeconds(0);
-      return;
-    }
-    
-    // Calculate current elapsed time
-    const calculateElapsed = () => {
-      return calculateElapsedSeconds(state);
-    };
-    
-    // Set initial value
-    setElapsedSeconds(calculateElapsed());
-    
-    // If paused, don't update
-    if (state.pausedAt) {
-      return;
-    }
-    
-    // Update every second while active
+    if (state.phase === 'IDLE' || !state.startTime || state.pausedAt) return;
     const interval = setInterval(() => {
-      setElapsedSeconds(calculateElapsed());
+      setTick((current) => current + 1);
     }, 1000);
-    
     return () => clearInterval(interval);
   }, [state]);
+
+  void tick;
+  const elapsedSeconds =
+    state.phase === 'IDLE' || !state.startTime ? 0 : calculateElapsedSeconds(state);
   
   // Size configurations
   const sizeConfig = {

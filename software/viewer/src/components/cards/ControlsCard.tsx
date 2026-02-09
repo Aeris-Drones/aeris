@@ -49,26 +49,20 @@ export function ControlsCard({
   // Handle abort countdown
   useEffect(() => {
     if (abortCountdown === null) return;
-    
-    if (abortCountdown === 0) {
-      onAbort();
-      setAbortCountdown(null);
-      return;
-    }
 
     const timer = setTimeout(() => {
-      setAbortCountdown(abortCountdown - 1);
+      setAbortCountdown((prev) => {
+        if (prev === null) return prev;
+        if (prev <= 1) {
+          onAbort();
+          return null;
+        }
+        return prev - 1;
+      });
     }, 1000);
 
     return () => clearTimeout(timer);
   }, [abortCountdown, onAbort]);
-
-  // Reset countdown if mission changes
-  useEffect(() => {
-    if (!isActive) {
-      setAbortCountdown(null);
-    }
-  }, [isActive]);
 
   const handleAbortClick = useCallback(() => {
     if (abortCountdown !== null) {

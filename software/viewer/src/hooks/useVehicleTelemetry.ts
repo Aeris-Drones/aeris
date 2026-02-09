@@ -40,7 +40,6 @@ export function useVehicleTelemetry() {
     };
 
     topic.subscribe(handleMessage);
-    console.log('[useVehicleTelemetry] Subscribed to /vehicle/telemetry');
 
     return () => {
       topic.unsubscribe();

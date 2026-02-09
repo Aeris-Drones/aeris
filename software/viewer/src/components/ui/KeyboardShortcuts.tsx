@@ -9,7 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { transitions, panelVariants } from '@/lib/animations';
+import { panelVariants } from '@/lib/animations';
 import { X, Keyboard } from 'lucide-react';
 
 interface ShortcutGroup {

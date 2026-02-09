@@ -72,6 +72,36 @@ const MissionContext = createContext<MissionContextValue | null>(null);
 const STORAGE_KEY_STATE = 'aeris-mission-state';
 const STORAGE_KEY_PROGRESS = 'aeris-mission-progress';
 
+function loadInitialMissionState(): MissionState {
+  const initial = getInitialMissionState();
+  if (typeof window === 'undefined') return initial;
+  try {
+    const savedState = localStorage.getItem(STORAGE_KEY_STATE);
+    if (!savedState) return initial;
+    const parsed = JSON.parse(savedState) as MissionState;
+    if (parsed.phase !== 'IDLE' && parsed.startTime) return parsed;
+  } catch (error) {
+    console.warn('Failed to restore mission state:', error);
+  }
+  return initial;
+}
+
+function loadInitialMissionProgress(initialProgress?: Partial<MissionProgress>): MissionProgress {
+  const initial = { ...getInitialMissionProgress(), ...initialProgress };
+  if (typeof window === 'undefined') return initial;
+  try {
+    const savedProgress = localStorage.getItem(STORAGE_KEY_PROGRESS);
+    if (!savedProgress) return initial;
+    return {
+      ...initial,
+      ...(JSON.parse(savedProgress) as Partial<MissionProgress>),
+    };
+  } catch (error) {
+    console.warn('Failed to restore mission progress:', error);
+    return initial;
+  }
+}
+
 // ============================================================================
 // Provider Component
 // ============================================================================
@@ -90,11 +120,10 @@ export function MissionProvider({
   initialProgress,
 }: MissionProviderProps) {
   // Core state
-  const [state, setState] = useState<MissionState>(getInitialMissionState);
-  const [progress, setProgress] = useState<MissionProgress>(() => ({
-    ...getInitialMissionProgress(),
-    ...initialProgress,
-  }));
+  const [state, setState] = useState<MissionState>(loadInitialMissionState);
+  const [progress, setProgress] = useState<MissionProgress>(() =>
+    loadInitialMissionProgress(initialProgress)
+  );
   const [stats, setStats] = useState<MissionStats>(getInitialMissionStats);
   
   // Command tracking
@@ -109,32 +138,6 @@ export function MissionProvider({
   // ============================================================================
   // Persistence
   // ============================================================================
-  
-  // Load persisted state on mount
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    try {
-      const savedState = localStorage.getItem(STORAGE_KEY_STATE);
-      if (savedState) {
-        const parsed = JSON.parse(savedState) as MissionState;
-        // Only restore if mission was active
-        if (parsed.phase !== 'IDLE' && parsed.startTime) {
-          setState(parsed);
-        }
-      }
-      
-      const savedProgress = localStorage.getItem(STORAGE_KEY_PROGRESS);
-      if (savedProgress) {
-        setProgress(prev => ({
-          ...prev,
-          ...JSON.parse(savedProgress),
-        }));
-      }
-    } catch (error) {
-      console.warn('Failed to restore mission state:', error);
-    }
-  }, []);
   
   // Persist state changes
   useEffect(() => {
@@ -265,8 +268,6 @@ export function MissionProvider({
     });
     
     recordCommand('START');
-    
-    console.log(`[Mission] Started mission ${missionId}`);
   }, [recordCommand]);
   
   const pauseMission = useCallback(() => {
@@ -278,7 +279,6 @@ export function MissionProvider({
     }));
     
     recordCommand('PAUSE');
-    console.log('[Mission] Paused');
   }, [state.phase, state.pausedAt, recordCommand]);
   
   const resumeMission = useCallback(() => {
@@ -293,7 +293,6 @@ export function MissionProvider({
     }));
     
     recordCommand('RESUME');
-    console.log(`[Mission] Resumed after ${Math.floor(pauseDuration / 1000)}s pause`);
   }, [state.pausedAt, recordCommand]);
   
   const abortMission = useCallback(() => {
@@ -303,7 +302,6 @@ export function MissionProvider({
     }));
     
     recordCommand('ABORT');
-    console.log('[Mission] Aborted');
   }, [recordCommand]);
   
   const completeMission = useCallback(() => {
@@ -315,7 +313,6 @@ export function MissionProvider({
     }));
     
     recordCommand('COMPLETE');
-    console.log('[Mission] Completed');
   }, [recordCommand]);
   
   // ============================================================================

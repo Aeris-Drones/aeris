@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { listContainerVariants, listItemVariants } from '@/lib/animations';
 import { DetectionCard, DetectionCardCompact } from './DetectionCard';
 import { useDetectionContext } from '@/context/DetectionContext';
-import type { Detection, DetectionSortBy, DetectionSortOrder } from '@/types/detection';
+import type { Detection, DetectionSortBy } from '@/types/detection';
 import type { SensorType } from '@/lib/design-tokens';
 import {
   Thermometer,
@@ -14,10 +14,8 @@ import {
   Wind,
   ArrowUpDown,
   Filter,
-  X,
   AlertCircle,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 
 interface DetectionListProps {
   /** Use compact card variant */

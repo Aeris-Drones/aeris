@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
-import * as THREE from 'three';
+import React from 'react';
 import { Line } from '@react-three/drei';
 
 interface FlightTrail3DProps {
@@ -19,17 +18,6 @@ export function FlightTrail3D({
   lineWidth = 2,
   dashed = true,
 }: FlightTrail3DProps) {
-  // Create gradient colors fading from transparent to solid
-  const colors = useMemo(() => {
-    const colorObj = new THREE.Color(color);
-    return points.map((_, i) => {
-      const t = i / (points.length - 1);
-      // Fade from 0.1 to 1.0 opacity along the trail
-      const alpha = 0.1 + t * 0.9;
-      return new THREE.Color().copy(colorObj).multiplyScalar(alpha);
-    });
-  }, [points, color]);
-
   if (points.length < 2) return null;
 
   return (

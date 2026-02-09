@@ -1,9 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import type {
   Detection,
-  DetectionAction,
   DetectionFilter,
   DetectionSortBy,
   DetectionSortOrder,
@@ -46,7 +45,7 @@ interface DetectionContextValue {
   canUndo: boolean;
 }
 
-const DetectionContext = createContext<DetectionContextValue | undefined>(undefined);
+export const DetectionContext = createContext<DetectionContextValue | undefined>(undefined);
 
 const DEFAULT_FILTER: DetectionFilter = {
   sensorTypes: undefined,
@@ -71,6 +70,12 @@ export function DetectionProvider({ children }: { children: React.ReactNode }) {
   const [sortBy, setSortBy] = useState<DetectionSortBy>('time');
   const [sortOrder, setSortOrder] = useState<DetectionSortOrder>('desc');
   const [undoState, setUndoState] = useState<UndoState | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Update detection status
   const updateDetectionStatus = useCallback(
@@ -214,7 +219,6 @@ export function DetectionProvider({ children }: { children: React.ReactNode }) {
 
     // Apply time window filter
     if (filter.timeWindow) {
-      const now = Date.now();
       filtered = filtered.filter((d) => now - d.timestamp <= filter.timeWindow!);
     }
 
@@ -242,7 +246,7 @@ export function DetectionProvider({ children }: { children: React.ReactNode }) {
     });
 
     return filtered;
-  }, [detections, filter, sortBy, sortOrder]);
+  }, [detections, filter, sortBy, sortOrder, now]);
 
   // Statistics
   const stats = useMemo((): DetectionStats => {
@@ -266,8 +270,8 @@ export function DetectionProvider({ children }: { children: React.ReactNode }) {
 
   const canUndo = useMemo(() => {
     if (!undoState) return false;
-    return Date.now() - undoState.timestamp < UNDO_TIMEOUT;
-  }, [undoState]);
+    return now - undoState.timestamp < UNDO_TIMEOUT;
+  }, [undoState, now]);
 
   const value: DetectionContextValue = {
     detections,

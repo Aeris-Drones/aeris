@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { breakpoints } from '@/lib/design-tokens';
 
 export type BreakpointKey = keyof typeof breakpoints;
@@ -95,9 +95,6 @@ export function useBreakpoint(): BreakpointState {
   const [state, setState] = useState<BreakpointState>(getBreakpointState);
 
   useEffect(() => {
-    // Update immediately on mount (handles SSR hydration)
-    setState(getBreakpointState());
-
     const handleResize = () => {
       setState(getBreakpointState());
     };
@@ -122,11 +119,13 @@ export function useBreakpoint(): BreakpointState {
  * Hook that returns true if viewport is at or above the specified breakpoint
  */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(false);
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia(query).matches;
+  });
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(query);
-    setMatches(mediaQuery.matches);
 
     const handler = (event: MediaQueryListEvent) => {
       setMatches(event.matches);

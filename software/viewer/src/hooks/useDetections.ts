@@ -12,7 +12,6 @@ import type {
   ThermalDetection,
   AcousticDetection,
   GasDetection,
-  DetectionStatus,
 } from '@/types/detection';
 
 /**
@@ -113,7 +112,7 @@ export function useDetections() {
 
       // Use centerline center point as detection location
       let localPosition: { x: number; y: number; z: number } | undefined;
-      let geoLocation = { latitude: 0, longitude: 0, altitude: 0 };
+      const geoLocation = { latitude: 0, longitude: 0, altitude: 0 };
 
       if (plume.centerline.length > 0) {
         const centerIndex = Math.floor(plume.centerline.length / 2);

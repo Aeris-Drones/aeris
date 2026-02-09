@@ -13,7 +13,7 @@ import { motion } from 'framer-motion';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { AnimatedMetric } from '@/components/ui/AnimatedMetric';
 import { useMissionControl } from '@/hooks/useMissionControl';
-import { formatDuration, formatArea } from '@/types/mission';
+import { formatDuration } from '@/types/mission';
 import { transitions, panelVariants } from '@/lib/animations';
 import { cn } from '@/lib/utils';
 import { MapPin, Clock, Plane, Target } from 'lucide-react';
@@ -184,7 +184,6 @@ export function MissionProgress({
     isActive,
     coveragePercent,
     searchAreaKm2,
-    coveredAreaKm2,
     activeDrones,
     totalDrones,
     estimatedTimeRemaining,

@@ -28,7 +28,6 @@ const SENSOR_LABELS = {
 };
 
 export function DetectionMarker3D({
-  id,
   position,
   sensorType,
   confidence,
