@@ -31,6 +31,10 @@ import {
   formatVehicleCommandFailure,
   getVehicleCommandValidationError,
 } from '@/lib/fleetCommandBehavior';
+import {
+  extractVehicleMissionMetaFromProgressPayload,
+  normalizeVehicleId,
+} from '@/lib/missionProgressVehicleMeta';
 import ROSLIB from 'roslib';
 
 type FleetCommandResult = {
@@ -102,18 +106,43 @@ export function FleetProvider({ children }: FleetProviderProps) {
   const [commandErrors, setCommandErrors] = useState<Record<string, string>>({});
   const [commandStatusHints, setCommandStatusHints] = useState<Record<string, VehicleStatus>>({});
   const [activeMissionId, setActiveMissionId] = useState('');
+  const [vehicleAssignments, setVehicleAssignments] = useState<Record<string, string>>({});
+  const [vehicleAssignmentLabels, setVehicleAssignmentLabels] = useState<Record<string, string>>({});
+  const [vehicleProgress, setVehicleProgress] = useState<Record<string, number>>({});
+  const [vehicleOnline, setVehicleOnline] = useState<Record<string, boolean>>({});
   
   // Convert raw vehicle states to VehicleInfo
   const vehicles = useMemo(() => {
     return rawVehicles.map(v => {
       const vehicleInfo = vehicleStateToInfo(v, v.id === selectedVehicleId);
+      const normalizedId = normalizeVehicleId(v.id);
       const hintedStatus = commandStatusHints[v.id];
       if (vehicleInfo.status !== 'offline' && hintedStatus) {
         vehicleInfo.status = hintedStatus;
       }
+      if (vehicleOnline[normalizedId] === false) {
+        vehicleInfo.status = 'offline';
+      }
+      const assignmentLabel =
+        vehicleAssignmentLabels[normalizedId] ?? vehicleAssignments[normalizedId];
+      if (assignmentLabel) {
+        vehicleInfo.assignment = assignmentLabel;
+      }
+      const missionProgressPercent = vehicleProgress[normalizedId];
+      if (typeof missionProgressPercent === 'number' && Number.isFinite(missionProgressPercent)) {
+        vehicleInfo.missionProgressPercent = missionProgressPercent;
+      }
       return vehicleInfo;
     });
-  }, [commandStatusHints, rawVehicles, selectedVehicleId]);
+  }, [
+    commandStatusHints,
+    rawVehicles,
+    selectedVehicleId,
+    vehicleAssignments,
+    vehicleAssignmentLabels,
+    vehicleOnline,
+    vehicleProgress,
+  ]);
 
   useEffect(() => {
     if (!ros || !isConnected) {
@@ -137,12 +166,51 @@ export function FleetProvider({ children }: FleetProviderProps) {
       if (state === 'IDLE' || state === 'ABORTED' || state === 'COMPLETE') {
         setCommandStatusHints({});
         setActiveMissionId('');
+        setVehicleAssignments({});
+        setVehicleAssignmentLabels({});
+        setVehicleProgress({});
+        setVehicleOnline({});
       }
     };
 
     missionStateTopic.subscribe(handleMissionState);
     return () => {
       missionStateTopic.unsubscribe();
+    };
+  }, [isConnected, ros]);
+
+  useEffect(() => {
+    if (!ros || !isConnected) {
+      return;
+    }
+
+    const missionProgressTopic = new ROSLIB.Topic({
+      ros,
+      name: '/mission/progress',
+      messageType: 'std_msgs/String',
+    });
+
+    const handleMissionProgress = (message: ROSLIB.Message) => {
+      const payload = message as { data?: unknown };
+      const data = typeof payload.data === 'string' ? payload.data : '';
+      const meta = extractVehicleMissionMetaFromProgressPayload(data);
+      if (Object.keys(meta.assignments).length > 0) {
+        setVehicleAssignments(meta.assignments);
+      }
+      if (Object.keys(meta.assignmentLabels).length > 0) {
+        setVehicleAssignmentLabels(meta.assignmentLabels);
+      }
+      if (Object.keys(meta.progress).length > 0) {
+        setVehicleProgress(meta.progress);
+      }
+      if (Object.keys(meta.online).length > 0) {
+        setVehicleOnline(meta.online);
+      }
+    };
+
+    missionProgressTopic.subscribe(handleMissionProgress);
+    return () => {
+      missionProgressTopic.unsubscribe();
     };
   }, [isConnected, ros]);
 

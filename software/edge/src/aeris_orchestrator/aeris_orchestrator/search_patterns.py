@@ -44,6 +44,86 @@ def generate_waypoints(
     return []
 
 
+def partition_polygon_for_scouts(
+    polygon: Iterable[dict[str, float]], scout_vehicle_ids: Iterable[str]
+) -> list[dict[str, object]]:
+    normalized = _normalize_polygon(polygon)
+    if len(normalized) < 3:
+        return []
+
+    ordered_vehicle_ids = sorted(
+        {
+            _normalize_vehicle_id(vehicle_id)
+            for vehicle_id in scout_vehicle_ids
+            if _normalize_vehicle_id(vehicle_id)
+        }
+    )
+    if not ordered_vehicle_ids:
+        return []
+
+    if len(ordered_vehicle_ids) == 1:
+        return [
+            {
+                "vehicle_id": ordered_vehicle_ids[0],
+                "zone_id": "zone-1",
+                "polygon": normalized,
+            }
+        ]
+
+    min_x, max_x, min_z, max_z = _bounding_box(normalized)
+    span_x = max_x - min_x
+    span_z = max_z - min_z
+    axis = "x" if span_x >= span_z else "z"
+    axis_min = min_x if axis == "x" else min_z
+    axis_max = max_x if axis == "x" else max_z
+    span = axis_max - axis_min
+
+    if span <= _EPSILON:
+        return [
+            {
+                "vehicle_id": ordered_vehicle_ids[0],
+                "zone_id": "zone-1",
+                "polygon": normalized,
+            }
+        ]
+
+    partitions: list[dict[str, object]] = []
+    vehicle_count = len(ordered_vehicle_ids)
+    for index, vehicle_id in enumerate(ordered_vehicle_ids):
+        lower = axis_min + (span * index / vehicle_count)
+        upper = (
+            axis_max
+            if index == vehicle_count - 1
+            else axis_min + (span * (index + 1) / vehicle_count)
+        )
+        clipped = _clip_polygon_axis_range(
+            normalized,
+            axis=axis,
+            lower=lower,
+            upper=upper,
+            include_upper=index == vehicle_count - 1,
+        )
+        if len(clipped) < 3 or _polygon_area(clipped) <= _EPSILON:
+            continue
+        partitions.append(
+            {
+                "vehicle_id": vehicle_id,
+                "zone_id": f"zone-{index + 1}",
+                "polygon": clipped,
+            }
+        )
+
+    if not partitions:
+        return [
+            {
+                "vehicle_id": ordered_vehicle_ids[0],
+                "zone_id": "zone-1",
+                "polygon": normalized,
+            }
+        ]
+    return partitions
+
+
 def generate_lawnmower_waypoints(
     polygon: Iterable[dict[str, float]], *, track_spacing_m: float = 5.0
 ) -> list[Waypoint]:
@@ -162,6 +242,13 @@ def _normalize_polygon(polygon: Iterable[dict[str, float]]) -> list[Waypoint]:
     return normalized
 
 
+def _normalize_vehicle_id(value: str) -> str:
+    normalized = value.strip().lower().replace("-", "_")
+    if not normalized:
+        return ""
+    return normalized
+
+
 def _polygon_area(polygon: list[Waypoint]) -> float:
     area = 0.0
     size = len(polygon)
@@ -266,3 +353,121 @@ def _deduplicate_sequential_points(waypoints: list[Waypoint]) -> list[Waypoint]:
         ):
             deduped.append(point)
     return deduped
+
+
+def _clip_polygon_axis_range(
+    polygon: list[Waypoint],
+    *,
+    axis: str,
+    lower: float,
+    upper: float,
+    include_upper: bool,
+) -> list[Waypoint]:
+    if not polygon:
+        return []
+    clipped = _clip_polygon_half_plane(
+        polygon,
+        axis=axis,
+        boundary=lower,
+        keep_greater=True,
+        include_boundary=True,
+    )
+    if not clipped:
+        return []
+    clipped = _clip_polygon_half_plane(
+        clipped,
+        axis=axis,
+        boundary=upper,
+        keep_greater=False,
+        include_boundary=include_upper,
+    )
+    if not clipped:
+        return []
+    return _deduplicate_sequential_points(clipped)
+
+
+def _clip_polygon_half_plane(
+    polygon: list[Waypoint],
+    *,
+    axis: str,
+    boundary: float,
+    keep_greater: bool,
+    include_boundary: bool,
+) -> list[Waypoint]:
+    if axis not in {"x", "z"}:
+        return []
+    if not polygon:
+        return []
+
+    output: list[Waypoint] = []
+    previous = polygon[-1]
+    previous_inside = _is_inside_half_plane(
+        previous,
+        axis=axis,
+        boundary=boundary,
+        keep_greater=keep_greater,
+        include_boundary=include_boundary,
+    )
+
+    for current in polygon:
+        current_inside = _is_inside_half_plane(
+            current,
+            axis=axis,
+            boundary=boundary,
+            keep_greater=keep_greater,
+            include_boundary=include_boundary,
+        )
+
+        if current_inside:
+            if not previous_inside:
+                intersection = _segment_axis_intersection(
+                    previous, current, axis=axis, boundary=boundary
+                )
+                if intersection is not None:
+                    output.append(intersection)
+            output.append({"x": current["x"], "z": current["z"]})
+        elif previous_inside:
+            intersection = _segment_axis_intersection(
+                previous, current, axis=axis, boundary=boundary
+            )
+            if intersection is not None:
+                output.append(intersection)
+
+        previous = current
+        previous_inside = current_inside
+
+    return _deduplicate_sequential_points(output)
+
+
+def _is_inside_half_plane(
+    point: Waypoint,
+    *,
+    axis: str,
+    boundary: float,
+    keep_greater: bool,
+    include_boundary: bool,
+) -> bool:
+    value = point[axis]
+    if keep_greater:
+        if include_boundary:
+            return value >= boundary - _EPSILON
+        return value > boundary + _EPSILON
+    if include_boundary:
+        return value <= boundary + _EPSILON
+    return value < boundary - _EPSILON
+
+
+def _segment_axis_intersection(
+    start: Waypoint, end: Waypoint, *, axis: str, boundary: float
+) -> Waypoint | None:
+    start_axis = start[axis]
+    end_axis = end[axis]
+    delta = end_axis - start_axis
+    if abs(delta) <= _EPSILON:
+        return None
+    t = (boundary - start_axis) / delta
+    t = max(0.0, min(1.0, t))
+    return {
+        "x": start["x"] + ((end["x"] - start["x"]) * t),
+        "z": start["z"] + ((end["z"] - start["z"]) * t),
+    }

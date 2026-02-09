@@ -44,6 +44,8 @@ export interface VehicleInfo extends VehicleState {
   altitude: number;        // meters AGL
   distanceFromHome: number; // meters
   isSelected: boolean;
+  assignment?: string;
+  missionProgressPercent?: number;
 }
 
 /**

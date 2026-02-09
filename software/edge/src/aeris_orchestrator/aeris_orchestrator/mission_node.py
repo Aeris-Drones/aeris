@@ -21,7 +21,11 @@ from rclpy.parameter import Parameter
 from std_msgs.msg import String
 
 from .mavlink_adapter import MavlinkAdapter
-from .search_patterns import generate_waypoints, validate_polygon
+from .search_patterns import (
+    generate_waypoints,
+    partition_polygon_for_scouts,
+    validate_polygon,
+)
 
 
 @dataclass
@@ -71,6 +75,7 @@ class TrackingContext:
     completion_reason: str = ""
     timeout_deadline_monotonic: float = 0.0
     previous_plan: MissionPlanState | None = None
+    selected_scout_previous_plan: MissionPlanState | None = None
     previous_active_scout_vehicle_id: str = ""
     selected_scout_previous_assignment: str = "SEARCHING"
     preserved_non_target_vehicle_ids: list[str] = field(default_factory=list)
@@ -184,6 +189,18 @@ class MissionNode(Node):
         self._tracking_completion_coverage_percent = float(
             self.declare_parameter("tracking_completion_coverage_percent", 100.0).value
         )
+        self._ranger_endpoints_json = str(
+            self.declare_parameter("ranger_endpoints_json", "[]").value
+        )
+        self._ranger_overwatch_radius_m = float(
+            self.declare_parameter("ranger_overwatch_radius_m", 30.0).value
+        )
+        self._ranger_overwatch_altitude_m = float(
+            self.declare_parameter("ranger_overwatch_altitude_m", 45.0).value
+        )
+        self._ranger_orbit_waypoint_count = int(
+            self.declare_parameter("ranger_orbit_waypoint_count", 16).value
+        )
         self._detection_retrigger_from_tracking = bool(
             self.declare_parameter("detection_retrigger_from_tracking", True).value
         )
@@ -218,7 +235,15 @@ class MissionNode(Node):
         self._telemetry_geodetic_origin: dict[str, float] | None = None
         self._active_scout_vehicle_id = ""
         self._scout_assignments: dict[str, str] = {}
+        self._assignment_labels: dict[str, str] = {}
+        self._scout_plans: dict[str, MissionPlanState] = {}
+        self._zone_polygons_by_vehicle: dict[str, list[dict[str, float]]] = {}
         self._scout_endpoints = self._parse_scout_endpoints()
+        self._ranger_endpoints = self._parse_ranger_endpoints()
+        self._ranger_last_seen_monotonic: dict[str, float] = {}
+        self._active_ranger_vehicle_id = ""
+        self._ranger_orbit_waypoints: list[dict[str, float]] = []
+        self._ranger_orbit_index = 0
         self._tracking_context = TrackingContext()
         self._last_detection_event: DetectionEvent | None = None
         self._last_detection_rejection_reason = ""
@@ -349,6 +374,7 @@ class MissionNode(Node):
             if new_state in {"ABORTED", "IDLE"}:
                 self._active_scout_vehicle_id = ""
             self._scout_assignments.clear()
+            self._assignment_labels.clear()
             self._reset_tracking_context()
             self._reset_vehicle_command_states()
 
@@ -374,6 +400,12 @@ class MissionNode(Node):
         self._last_tracking_completion_reason = ""
         self._last_detection_event = None
         self._scout_assignments.clear()
+        self._assignment_labels.clear()
+        self._scout_plans.clear()
+        self._zone_polygons_by_vehicle.clear()
+        self._active_ranger_vehicle_id = ""
+        self._ranger_orbit_waypoints = []
+        self._ranger_orbit_index = 0
         self._reset_tracking_context()
 
     def _reset_plan_state(self) -> None:
@@ -388,18 +420,29 @@ class MissionNode(Node):
         self._tracking_mavlink_adapter.close()
         self._tracking_mavlink_adapter = None
 
-    def _set_scout_assignment(self, vehicle_id: str, assignment: str) -> None:
+    def _set_scout_assignment(
+        self, vehicle_id: str, assignment: str, *, label: str | None = None
+    ) -> None:
         normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
         if not normalized_vehicle_id:
             return
         self._scout_assignments[normalized_vehicle_id] = assignment
+        self._assignment_labels[normalized_vehicle_id] = (
+            label if label is not None else assignment
+        )
 
     def _initialize_search_assignments(self, active_scout_vehicle_id: str) -> None:
         for endpoint in self._scout_endpoints:
-            self._set_scout_assignment(endpoint.vehicle_id, "SEARCHING")
+            label = f"SEARCHING:{self._scout_plans[endpoint.vehicle_id].zone_id}" if endpoint.vehicle_id in self._scout_plans else "IDLE"
+            assignment = "SEARCHING" if endpoint.vehicle_id in self._scout_plans else "IDLE"
+            self._set_scout_assignment(endpoint.vehicle_id, assignment, label=label)
         for vehicle_id in self._scout_last_seen_monotonic:
-            self._set_scout_assignment(vehicle_id, "SEARCHING")
-        self._set_scout_assignment(active_scout_vehicle_id, "SEARCHING")
+            if vehicle_id in self._scout_plans:
+                label = f"SEARCHING:{self._scout_plans[vehicle_id].zone_id}"
+                self._set_scout_assignment(vehicle_id, "SEARCHING", label=label)
+        if active_scout_vehicle_id in self._scout_plans:
+            label = f"SEARCHING:{self._scout_plans[active_scout_vehicle_id].zone_id}"
+            self._set_scout_assignment(active_scout_vehicle_id, "SEARCHING", label=label)
 
     def _clone_plan_state(self, plan: MissionPlanState) -> MissionPlanState:
         return MissionPlanState(
@@ -483,18 +526,73 @@ class MissionNode(Node):
             )
         return endpoints
 
+    def _parse_ranger_endpoints(self) -> list[ScoutEndpoint]:
+        endpoints: list[ScoutEndpoint] = []
+        raw_json = self._ranger_endpoints_json.strip()
+        if not raw_json:
+            return endpoints
+        try:
+            payload = json.loads(raw_json)
+        except json.JSONDecodeError:
+            self.get_logger().warning(
+                "Invalid ranger_endpoints_json; ranger overwatch will remain telemetry-only"
+            )
+            return endpoints
+        if not isinstance(payload, list):
+            return endpoints
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            vehicle_id_raw = str(item.get("vehicle_id", "")).strip()
+            host = str(item.get("host", "127.0.0.1")).strip() or "127.0.0.1"
+            try:
+                port = int(item.get("port", 0))
+            except (TypeError, ValueError):
+                continue
+            try:
+                command_port = int(item.get("command_port", port))
+            except (TypeError, ValueError):
+                command_port = port
+            try:
+                target_system = int(item.get("target_system", 1))
+            except (TypeError, ValueError):
+                target_system = 1
+            try:
+                target_component = int(item.get("target_component", 1))
+            except (TypeError, ValueError):
+                target_component = 1
+            if not vehicle_id_raw or port <= 0:
+                continue
+            endpoints.append(
+                ScoutEndpoint(
+                    vehicle_id=self._normalize_vehicle_id(vehicle_id_raw),
+                    host=host,
+                    port=port,
+                    command_port=command_port if command_port > 0 else port,
+                    target_system=target_system if target_system > 0 else 1,
+                    target_component=target_component if target_component > 0 else 1,
+                )
+            )
+        return endpoints
+
     def _handle_vehicle_telemetry(self, message: Telemetry) -> None:
         vehicle_type = str(message.vehicle_type).strip().lower()
         vehicle_id = self._normalize_vehicle_id(message.vehicle_id)
         if not vehicle_id:
             return
-        if vehicle_type and vehicle_type != "scout" and not vehicle_id.startswith("scout"):
+        is_scout = vehicle_type == "scout" or vehicle_id.startswith("scout")
+        is_ranger = vehicle_type == "ranger" or vehicle_id.startswith("ranger")
+        if vehicle_type and not is_scout and not is_ranger:
             return
 
         latitude = float(message.position.latitude)
         longitude = float(message.position.longitude)
 
-        self._scout_last_seen_monotonic[vehicle_id] = time.monotonic()
+        now_monotonic = time.monotonic()
+        if is_scout:
+            self._scout_last_seen_monotonic[vehicle_id] = now_monotonic
+        elif is_ranger:
+            self._ranger_last_seen_monotonic[vehicle_id] = now_monotonic
         if math.isfinite(latitude) and math.isfinite(longitude):
             self._scout_geodetic_snapshot[vehicle_id] = {
                 "latitude": latitude,
@@ -502,14 +600,26 @@ class MissionNode(Node):
             }
         local_position = self._telemetry_to_local_position(latitude, longitude)
         self._scout_position_snapshot[vehicle_id] = local_position
-        if self._mission_id and vehicle_id not in self._scout_assignments:
-            if (
-                self._tracking_context.active
-                and vehicle_id == self._tracking_context.assigned_scout_vehicle_id
-            ):
-                self._set_scout_assignment(vehicle_id, "TRACKING")
-            else:
-                self._set_scout_assignment(vehicle_id, "SEARCHING")
+        if not self._mission_id:
+            return
+
+        if is_ranger:
+            self._set_scout_assignment(vehicle_id, "OVERWATCH", label="OVERWATCH")
+            return
+
+        if vehicle_id in self._scout_assignments:
+            return
+        if (
+            self._tracking_context.active
+            and vehicle_id == self._tracking_context.assigned_scout_vehicle_id
+        ):
+            self._set_scout_assignment(vehicle_id, "TRACKING")
+            return
+        if vehicle_id in self._scout_plans:
+            label = f"SEARCHING:{self._scout_plans[vehicle_id].zone_id}"
+            self._set_scout_assignment(vehicle_id, "SEARCHING", label=label)
+        else:
+            self._set_scout_assignment(vehicle_id, "IDLE", label="IDLE")
 
     def _handle_thermal_hotspot(self, message: ThermalHotspot) -> None:
         event = self._normalize_thermal_hotspot(message)
@@ -661,6 +771,27 @@ class MissionNode(Node):
                 online.append(endpoint)
         return online
 
+    def _online_ranger_endpoints(self) -> list[ScoutEndpoint]:
+        now = time.monotonic()
+        online_window = max(self._scout_online_window_sec, 0.0)
+        online: list[ScoutEndpoint] = []
+        for endpoint in self._ranger_endpoints:
+            last_seen = self._ranger_last_seen_monotonic.get(endpoint.vehicle_id)
+            if last_seen is None:
+                continue
+            if now - last_seen <= online_window:
+                online.append(endpoint)
+        return online
+
+    def _online_ranger_vehicle_ids(self) -> list[str]:
+        online_ids = {endpoint.vehicle_id for endpoint in self._online_ranger_endpoints()}
+        now = time.monotonic()
+        online_window = max(self._scout_online_window_sec, 0.0)
+        for vehicle_id, last_seen in self._ranger_last_seen_monotonic.items():
+            if now - last_seen <= online_window:
+                online_ids.add(vehicle_id)
+        return sorted(online_ids)
+
     def _select_first_available_scout(self) -> ScoutEndpoint | None:
         online = self._online_scout_endpoints()
         if online:
@@ -702,7 +833,7 @@ class MissionNode(Node):
         return f"mission-{int(time.time())}"
 
     def _active_abort_endpoints(self) -> list[ScoutEndpoint]:
-        if not self._scout_endpoints:
+        if not self._scout_endpoints and not self._ranger_endpoints:
             return []
 
         now = time.monotonic()
@@ -710,8 +841,10 @@ class MissionNode(Node):
         selected: list[ScoutEndpoint] = []
         selected_ids: set[str] = set()
 
-        for endpoint in self._scout_endpoints:
+        for endpoint in [*self._scout_endpoints, *self._ranger_endpoints]:
             last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id)
+            if last_seen is None:
+                last_seen = self._ranger_last_seen_monotonic.get(endpoint.vehicle_id)
             if last_seen is None:
                 continue
             if now - last_seen <= online_window:
@@ -719,7 +852,7 @@ class MissionNode(Node):
                 selected_ids.add(endpoint.vehicle_id)
 
         if self._active_scout_vehicle_id:
-            for endpoint in self._scout_endpoints:
+            for endpoint in [*self._scout_endpoints, *self._ranger_endpoints]:
                 if endpoint.vehicle_id != self._active_scout_vehicle_id:
                     continue
                 if endpoint.vehicle_id not in selected_ids:
@@ -729,7 +862,11 @@ class MissionNode(Node):
 
         if selected:
             return selected
-        return list(self._scout_endpoints)
+        fallback = [*self._scout_endpoints, *self._ranger_endpoints]
+        deduped: dict[str, ScoutEndpoint] = {}
+        for endpoint in fallback:
+            deduped[endpoint.vehicle_id] = endpoint
+        return list(deduped.values())
 
     def _reset_vehicle_command_states(self) -> None:
         self._vehicle_command_states = {
@@ -947,6 +1084,12 @@ class MissionNode(Node):
         selected_scout_previous_assignment = self._scout_assignments.get(
             selected_endpoint.vehicle_id, "SEARCHING"
         )
+        selected_scout_previous_plan = self._scout_plans.get(selected_endpoint.vehicle_id)
+        selected_scout_previous_plan_clone = (
+            self._clone_plan_state(selected_scout_previous_plan)
+            if selected_scout_previous_plan is not None
+            else None
+        )
         preserved_non_target_vehicle_ids = sorted(
             vehicle_id
             for vehicle_id, assignment in self._scout_assignments.items()
@@ -980,7 +1123,9 @@ class MissionNode(Node):
         self._last_detection_rejection_reason = ""
 
         self._active_scout_vehicle_id = selected_endpoint.vehicle_id
-        self._set_scout_assignment(selected_endpoint.vehicle_id, "TRACKING")
+        self._set_scout_assignment(
+            selected_endpoint.vehicle_id, "TRACKING", label="TRACKING"
+        )
         self._plan_state = tracking_plan
 
         self._tracking_context = TrackingContext(
@@ -995,6 +1140,7 @@ class MissionNode(Node):
             timeout_deadline_monotonic=accepted_monotonic
             + max(self._tracking_timeout_sec, 0.1),
             previous_plan=previous_plan,
+            selected_scout_previous_plan=selected_scout_previous_plan_clone,
             previous_active_scout_vehicle_id=previous_scout_vehicle_id,
             selected_scout_previous_assignment=selected_scout_previous_assignment,
             preserved_non_target_vehicle_ids=preserved_non_target_vehicle_ids,
@@ -1056,6 +1202,7 @@ class MissionNode(Node):
             return
 
         previous_plan = self._tracking_context.previous_plan
+        selected_scout_previous_plan = self._tracking_context.selected_scout_previous_plan
         previous_scout_vehicle_id = self._tracking_context.previous_active_scout_vehicle_id
         assigned_scout_vehicle_id = self._tracking_context.assigned_scout_vehicle_id
         selected_scout_previous_assignment = (
@@ -1073,12 +1220,28 @@ class MissionNode(Node):
         self._close_tracking_adapter()
 
         if assigned_scout_vehicle_id:
+            if selected_scout_previous_plan is not None:
+                self._scout_plans[assigned_scout_vehicle_id] = self._clone_plan_state(
+                    selected_scout_previous_plan
+                )
+            restored_label = selected_scout_previous_assignment
+            if (
+                selected_scout_previous_assignment == "SEARCHING"
+                and assigned_scout_vehicle_id in self._scout_plans
+            ):
+                restored_label = (
+                    f"SEARCHING:{self._scout_plans[assigned_scout_vehicle_id].zone_id}"
+                )
             self._set_scout_assignment(
-                assigned_scout_vehicle_id, selected_scout_previous_assignment
+                assigned_scout_vehicle_id,
+                selected_scout_previous_assignment,
+                label=restored_label,
             )
 
         if previous_scout_vehicle_id:
             self._active_scout_vehicle_id = previous_scout_vehicle_id
+            if previous_scout_vehicle_id in self._scout_plans:
+                self._plan_state = self._scout_plans[previous_scout_vehicle_id]
             endpoint = self._select_endpoint_by_vehicle_id(previous_scout_vehicle_id)
             if endpoint is not None:
                 try:
@@ -1227,12 +1390,12 @@ class MissionNode(Node):
             endpoint.target_component,
         )
 
-    def _parse_mission_plan(
+    def _parse_mission_payload(
         self, zone_geometry: str
-    ) -> tuple[MissionPlanState | None, str]:
+    ) -> tuple[str, str, list[dict[str, float]] | None, str]:
         raw_payload = zone_geometry.strip()
         if not raw_payload:
-            return None, (
+            return "", "", None, (
                 "zone_geometry is required. Expected JSON payload: "
                 '{"pattern":"lawnmower|spiral","zone":{"id":"...","polygon":[{"x":0,"z":0}]}}'
             )
@@ -1240,30 +1403,37 @@ class MissionNode(Node):
         try:
             payload = json.loads(raw_payload)
         except json.JSONDecodeError as error:
-            return None, f"zone_geometry is not valid JSON: {error.msg}"
+            return "", "", None, f"zone_geometry is not valid JSON: {error.msg}"
 
         if not isinstance(payload, dict):
-            return None, "zone_geometry root value must be a JSON object"
+            return "", "", None, "zone_geometry root value must be a JSON object"
 
         pattern = str(payload.get("pattern", "")).strip().lower()
         if pattern not in self._SUPPORTED_PATTERNS:
             return (
+                "",
+                "",
                 None,
                 f"unsupported pattern '{pattern}'. Supported values: lawnmower, spiral",
             )
 
         zone_payload = payload.get("zone")
         if not isinstance(zone_payload, dict):
-            return None, "zone object is required in zone_geometry"
+            return "", "", None, "zone object is required in zone_geometry"
 
         zone_id = str(zone_payload.get("id", "")).strip()
         if not zone_id:
-            return None, "zone.id is required in zone_geometry"
+            return "", "", None, "zone.id is required in zone_geometry"
 
         polygon = zone_payload.get("polygon")
         if not isinstance(polygon, list):
-            return None, "zone.polygon must be an array of points"
+            return "", "", None, "zone.polygon must be an array of points"
 
+        return pattern, zone_id, polygon, ""
+
+    def _build_plan_from_polygon(
+        self, *, pattern: str, zone_id: str, polygon: list[dict[str, float]]
+    ) -> tuple[MissionPlanState | None, str]:
         valid_polygon, polygon_error = validate_polygon(polygon)
         if not valid_polygon:
             return None, f"invalid zone polygon: {polygon_error}"
@@ -1300,6 +1470,120 @@ class MissionNode(Node):
             "",
         )
 
+    def _parse_mission_plan(
+        self, zone_geometry: str
+    ) -> tuple[MissionPlanState | None, str]:
+        pattern, zone_id, polygon, error = self._parse_mission_payload(zone_geometry)
+        if error:
+            return None, error
+        assert polygon is not None
+        return self._build_plan_from_polygon(
+            pattern=pattern,
+            zone_id=zone_id,
+            polygon=polygon,
+        )
+
+    def _build_partitioned_scout_plans(
+        self,
+        *,
+        pattern: str,
+        zone_id: str,
+        polygon: list[dict[str, float]],
+        online_scouts: list[ScoutEndpoint],
+        preferred_active_vehicle_id: str,
+    ) -> tuple[
+        dict[str, MissionPlanState],
+        dict[str, list[dict[str, float]]],
+        str,
+        str,
+    ]:
+        if not online_scouts:
+            return {}, {}, "", "no online scouts available"
+
+        online_by_vehicle = {endpoint.vehicle_id: endpoint for endpoint in online_scouts}
+        ordered_vehicle_ids = sorted(online_by_vehicle.keys())
+        preferred_vehicle_id = self._normalize_vehicle_id(preferred_active_vehicle_id)
+
+        # Fallback path for single-scout availability or partition failures.
+        def _single_plan_fallback(
+            vehicle_id: str,
+        ) -> tuple[
+            dict[str, MissionPlanState],
+            dict[str, list[dict[str, float]]],
+            str,
+            str,
+        ]:
+            plan, plan_error = self._build_plan_from_polygon(
+                pattern=pattern,
+                zone_id=zone_id,
+                polygon=polygon,
+            )
+            if plan is None:
+                return {}, {}, "", plan_error
+            return (
+                {vehicle_id: plan},
+                {vehicle_id: [dict(point) for point in polygon]},
+                vehicle_id,
+                "",
+            )
+
+        if len(ordered_vehicle_ids) < 2:
+            active_vehicle = (
+                preferred_vehicle_id
+                if preferred_vehicle_id in online_by_vehicle
+                else ordered_vehicle_ids[0]
+            )
+            return _single_plan_fallback(active_vehicle)
+
+        partitions = partition_polygon_for_scouts(polygon, ordered_vehicle_ids)
+        if len(partitions) < 2:
+            active_vehicle = (
+                preferred_vehicle_id
+                if preferred_vehicle_id in online_by_vehicle
+                else ordered_vehicle_ids[0]
+            )
+            return _single_plan_fallback(active_vehicle)
+
+        plans: dict[str, MissionPlanState] = {}
+        zone_polygons: dict[str, list[dict[str, float]]] = {}
+        for partition in partitions:
+            if not isinstance(partition, dict):
+                continue
+            vehicle_id = self._normalize_vehicle_id(str(partition.get("vehicle_id", "")))
+            if not vehicle_id or vehicle_id not in online_by_vehicle:
+                continue
+            zone_polygon = partition.get("polygon")
+            if not isinstance(zone_polygon, list):
+                continue
+            partition_zone_id = str(partition.get("zone_id", "")).strip()
+            if not partition_zone_id:
+                partition_zone_id = zone_id
+            plan, plan_error = self._build_plan_from_polygon(
+                pattern=pattern,
+                zone_id=partition_zone_id,
+                polygon=zone_polygon,
+            )
+            if plan is None:
+                self.get_logger().warning(
+                    f"Skipping partition for {vehicle_id}: {plan_error}"
+                )
+                continue
+            plans[vehicle_id] = plan
+            zone_polygons[vehicle_id] = [dict(point) for point in zone_polygon]
+
+        if not plans:
+            active_vehicle = (
+                preferred_vehicle_id
+                if preferred_vehicle_id in online_by_vehicle
+                else ordered_vehicle_ids[0]
+            )
+            return _single_plan_fallback(active_vehicle)
+
+        active_vehicle_id = preferred_vehicle_id
+        if active_vehicle_id not in plans:
+            active_vehicle_id = sorted(plans.keys())[0]
+        return plans, zone_polygons, active_vehicle_id, ""
+
     def _current_waypoint(self) -> dict[str, float] | None:
         if not self._plan_state.waypoints:
             return None
@@ -1319,6 +1603,284 @@ class MissionNode(Node):
 
         adapter.upload_mission_items_int(self._mission_id, self._plan_state.waypoints)
         adapter.start_stream(self._mission_id, waypoint)
+
+    def _current_waypoint_for_plan(
+        self, plan: MissionPlanState
+    ) -> dict[str, float] | None:
+        if not plan.waypoints:
+            return None
+        index = plan.current_waypoint_index
+        if index < 0:
+            index = 0
+            plan.current_waypoint_index = 0
+        if index >= len(plan.waypoints):
+            return None
+        return plan.waypoints[index]
+
+    def _is_search_plan_complete(self, plan: MissionPlanState) -> bool:
+        if not plan.waypoints:
+            return True
+        return plan.current_waypoint_index >= (len(plan.waypoints) - 1)
+
+    def _search_plan_progress_percent(self, plan: MissionPlanState) -> float:
+        if not plan.waypoints:
+            return 100.0
+        if len(plan.waypoints) == 1:
+            return 100.0 if self._is_search_plan_complete(plan) else 0.0
+        completed = max(0, min(plan.current_waypoint_index, len(plan.waypoints) - 1))
+        return min(100.0, max(0.0, (completed / (len(plan.waypoints) - 1)) * 100.0))
+
+    def _advance_search_plan_for_vehicle(self, vehicle_id: str) -> None:
+        plan = self._scout_plans.get(vehicle_id)
+        if plan is None:
+            return
+        waypoint = self._current_waypoint_for_plan(plan)
+        if waypoint is None:
+            return
+
+        position = plan.scout_position
+        delta_x = waypoint["x"] - position["x"]
+        delta_z = waypoint["z"] - position["z"]
+        distance = math.hypot(delta_x, delta_z)
+
+        if distance <= self._waypoint_reached_threshold_m:
+            next_index = plan.current_waypoint_index + 1
+            if next_index < len(plan.waypoints):
+                plan.current_waypoint_index = next_index
+                if (
+                    vehicle_id == self._active_scout_vehicle_id
+                    and self._state in self._AUTONOMOUS_STATES
+                ):
+                    self._tracking_command_adapter().update_setpoint(
+                        plan.waypoints[next_index]
+                    )
+            if self._is_search_plan_complete(plan):
+                self._set_scout_assignment(
+                    vehicle_id,
+                    "IDLE",
+                    label=f"IDLE:{plan.zone_id}:complete",
+                )
+            return
+
+        step = self._simulated_scout_speed_mps * self._control_loop_period
+        if step <= 0.0:
+            return
+
+        if distance <= step:
+            position["x"] = waypoint["x"]
+            position["z"] = waypoint["z"]
+        else:
+            scale = step / distance
+            position["x"] += delta_x * scale
+            position["z"] += delta_z * scale
+
+    def _all_search_plans_complete(self) -> bool:
+        if not self._scout_plans:
+            return False
+        return all(self._is_search_plan_complete(plan) for plan in self._scout_plans.values())
+
+    def _redistribute_completed_scout_work(self) -> None:
+        if self._state != "SEARCHING":
+            return
+        if len(self._scout_plans) < 2:
+            return
+
+        completed_ids = sorted(
+            vehicle_id
+            for vehicle_id, plan in self._scout_plans.items()
+            if self._is_search_plan_complete(plan)
+        )
+        if not completed_ids:
+            return
+
+        for completed_vehicle_id in completed_ids:
+            donor_candidates: list[tuple[int, str]] = []
+            for vehicle_id, plan in self._scout_plans.items():
+                if vehicle_id == completed_vehicle_id:
+                    continue
+                remaining = len(plan.waypoints) - 1 - plan.current_waypoint_index
+                if remaining > 2:
+                    donor_candidates.append((remaining, vehicle_id))
+            if not donor_candidates:
+                continue
+            donor_candidates.sort(key=lambda item: (-item[0], item[1]))
+            donor_vehicle_id = donor_candidates[0][1]
+            donor_plan = self._scout_plans[donor_vehicle_id]
+            remaining = len(donor_plan.waypoints) - 1 - donor_plan.current_waypoint_index
+            split_offset = max(1, remaining // 2)
+            split_index = donor_plan.current_waypoint_index + split_offset
+            if split_index >= len(donor_plan.waypoints) - 1:
+                continue
+
+            reassigned_tail = [dict(point) for point in donor_plan.waypoints[split_index:]]
+            if len(reassigned_tail) < 2:
+                continue
+
+            donor_plan.waypoints = donor_plan.waypoints[:split_index]
+            if donor_plan.current_waypoint_index >= len(donor_plan.waypoints):
+                donor_plan.current_waypoint_index = max(len(donor_plan.waypoints) - 1, 0)
+
+            new_zone_id = f"{donor_plan.zone_id}-assist-{completed_vehicle_id}"
+            self._scout_plans[completed_vehicle_id] = MissionPlanState(
+                pattern_type=donor_plan.pattern_type,
+                zone_id=new_zone_id,
+                waypoints=reassigned_tail,
+                current_waypoint_index=0,
+                scout_position={
+                    "x": float(reassigned_tail[0]["x"]),
+                    "z": float(reassigned_tail[0]["z"]),
+                },
+            )
+            self._zone_polygons_by_vehicle[completed_vehicle_id] = []
+            self._set_scout_assignment(
+                completed_vehicle_id,
+                "SEARCHING",
+                label=f"SEARCHING:{new_zone_id}",
+            )
+            self.get_logger().info(
+                "Reassigned uncovered work from "
+                f"{donor_vehicle_id} to {completed_vehicle_id} ({new_zone_id})"
+            )
+
+    def _sync_assignments_with_telemetry_freshness(self) -> None:
+        if not self._mission_id:
+            return
+
+        for endpoint in self._scout_endpoints:
+            vehicle_id = endpoint.vehicle_id
+            assignment = self._scout_assignments.get(vehicle_id, "IDLE")
+            if self._is_endpoint_online(endpoint):
+                if assignment == "IDLE" and vehicle_id in self._scout_plans:
+                    label = f"SEARCHING:{self._scout_plans[vehicle_id].zone_id}"
+                    self._set_scout_assignment(vehicle_id, "SEARCHING", label=label)
+                continue
+            if (
+                self._tracking_context.active
+                and vehicle_id == self._tracking_context.assigned_scout_vehicle_id
+            ):
+                continue
+            self._set_scout_assignment(vehicle_id, "IDLE", label="IDLE:offline")
+
+        online_rangers = set(self._online_ranger_vehicle_ids())
+        if self._active_ranger_vehicle_id:
+            if self._active_ranger_vehicle_id in online_rangers:
+                self._set_scout_assignment(
+                    self._active_ranger_vehicle_id,
+                    "OVERWATCH",
+                    label="OVERWATCH",
+                )
+            elif self._active_ranger_vehicle_id in self._scout_assignments:
+                self._set_scout_assignment(
+                    self._active_ranger_vehicle_id,
+                    "IDLE",
+                    label="IDLE:offline",
+                )
+        for endpoint in self._ranger_endpoints:
+            if endpoint.vehicle_id in online_rangers:
+                continue
+            if endpoint.vehicle_id in self._scout_assignments:
+                self._set_scout_assignment(
+                    endpoint.vehicle_id,
+                    "IDLE",
+                    label="IDLE:offline",
+                )
+
+    def _vehicle_progress_snapshot(self) -> dict[str, float]:
+        progress: dict[str, float] = {}
+        for vehicle_id, plan in self._scout_plans.items():
+            progress[vehicle_id] = round(self._search_plan_progress_percent(plan), 2)
+        if (
+            self._tracking_context.active
+            and self._tracking_context.assigned_scout_vehicle_id
+            and self._plan_state.waypoints
+        ):
+            progress[self._tracking_context.assigned_scout_vehicle_id] = round(
+                self._search_plan_progress_percent(self._plan_state), 2
+            )
+        if self._active_ranger_vehicle_id:
+            if self._ranger_orbit_waypoints:
+                progress[self._active_ranger_vehicle_id] = round(
+                    (
+                        (self._ranger_orbit_index % len(self._ranger_orbit_waypoints))
+                        / len(self._ranger_orbit_waypoints)
+                    )
+                    * 100.0,
+                    2,
+                )
+            else:
+                progress[self._active_ranger_vehicle_id] = 0.0
+        return dict(sorted(progress.items()))
+
+    def _vehicle_online_snapshot(self) -> dict[str, bool]:
+        online: dict[str, bool] = {}
+        for endpoint in self._scout_endpoints:
+            online[endpoint.vehicle_id] = self._is_endpoint_online(endpoint)
+        ranger_online = set(self._online_ranger_vehicle_ids())
+        for endpoint in self._ranger_endpoints:
+            online[endpoint.vehicle_id] = endpoint.vehicle_id in ranger_online
+        for ranger_vehicle_id in ranger_online:
+            online[ranger_vehicle_id] = True
+        if self._active_ranger_vehicle_id and self._active_ranger_vehicle_id not in online:
+            online[self._active_ranger_vehicle_id] = (
+                self._active_ranger_vehicle_id in ranger_online
+            )
+        return dict(sorted(online.items()))
+
+    def _polygon_centroid(self, polygon: list[dict[str, float]]) -> dict[str, float]:
+        if not polygon:
+            return {"x": 0.0, "z": 0.0}
+        count = len(polygon)
+        return {
+            "x": sum(float(point.get("x", 0.0)) for point in polygon) / count,
+            "z": sum(float(point.get("z", 0.0)) for point in polygon) / count,
+        }
+
+    def _build_ranger_orbit_waypoints(
+        self, centroid: dict[str, float]
+    ) -> list[dict[str, float]]:
+        count = max(self._ranger_orbit_waypoint_count, 4)
+        radius = max(self._ranger_overwatch_radius_m, 1.0)
+        waypoints: list[dict[str, float]] = []
+        for index in range(count):
+            theta = (2.0 * math.pi * index) / count
+            waypoints.append(
+                {
+                    "x": float(centroid["x"]) + (radius * math.cos(theta)),
+                    "z": float(centroid["z"]) + (radius * math.sin(theta)),
+                    "altitude_m": float(self._ranger_overwatch_altitude_m),
+                }
+            )
+        return waypoints
+
+    def _activate_ranger_overwatch(self, mission_polygon: list[dict[str, float]]) -> None:
+        self._active_ranger_vehicle_id = ""
+        self._ranger_orbit_waypoints = []
+        self._ranger_orbit_index = 0
+
+        online_ranger_vehicle_ids = self._online_ranger_vehicle_ids()
+        if not online_ranger_vehicle_ids:
+            return
+        ranger_vehicle_id = online_ranger_vehicle_ids[0]
+        centroid = self._polygon_centroid(mission_polygon)
+        self._ranger_orbit_waypoints = self._build_ranger_orbit_waypoints(centroid)
+        self._active_ranger_vehicle_id = ranger_vehicle_id
+        self._set_scout_assignment(ranger_vehicle_id, "OVERWATCH", label="OVERWATCH")
+
+    def _update_ranger_overwatch_orbit(self) -> None:
+        if not self._active_ranger_vehicle_id:
+            return
+        if not self._ranger_orbit_waypoints:
+            return
+        current_index = self._ranger_orbit_index % len(self._ranger_orbit_waypoints)
+        current_waypoint = self._ranger_orbit_waypoints[current_index]
+        ranger_position = self._scout_position_snapshot.get(self._active_ranger_vehicle_id)
+        if ranger_position is None:
+            return
+        delta_x = float(current_waypoint["x"]) - float(ranger_position["x"])
+        delta_z = float(current_waypoint["z"]) - float(ranger_position["z"])
+        distance = math.hypot(delta_x, delta_z)
+        if distance <= self._waypoint_reached_threshold_m:
+            self._ranger_orbit_index = (current_index + 1) % len(self._ranger_orbit_waypoints)
 
     def _advance_waypoint_index(self) -> None:
         current = self._plan_state.current_waypoint_index
@@ -1378,10 +1940,18 @@ class MissionNode(Node):
             response.message = f"start_mission rejected while in {self._state}"
             return response
 
-        plan_state, plan_error = self._parse_mission_plan(request.zone_geometry)
-        if plan_state is None:
+        pattern, zone_id, polygon, payload_error = self._parse_mission_payload(
+            request.zone_geometry
+        )
+        if payload_error:
             response.success = False
-            response.message = f"start_mission validation error: {plan_error}"
+            response.message = f"start_mission validation error: {payload_error}"
+            return response
+        assert polygon is not None
+        valid_polygon, polygon_error = validate_polygon(polygon)
+        if not valid_polygon:
+            response.success = False
+            response.message = f"start_mission validation error: invalid zone polygon: {polygon_error}"
             return response
 
         selected_scout = self._select_first_available_scout()
@@ -1391,23 +1961,45 @@ class MissionNode(Node):
                 "start_mission rejected: no scout endpoint reported telemetry recently"
             )
             return response
-        self._active_scout_vehicle_id = selected_scout.vehicle_id
+        online_scouts = self._online_scout_endpoints()
+        scout_plans, zone_polygons, active_vehicle_id, plan_error = (
+            self._build_partitioned_scout_plans(
+                pattern=pattern,
+                zone_id=zone_id,
+                polygon=polygon,
+                online_scouts=online_scouts,
+                preferred_active_vehicle_id=selected_scout.vehicle_id,
+            )
+        )
+        if not scout_plans:
+            response.success = False
+            response.message = f"start_mission validation error: {plan_error}"
+            return response
+
+        self._active_scout_vehicle_id = active_vehicle_id
         self._close_tracking_adapter()
-        self._apply_mavlink_endpoint(selected_scout)
+        active_endpoint = self._resolve_scout_endpoint(self._active_scout_vehicle_id)
+        if active_endpoint is not None:
+            self._apply_mavlink_endpoint(active_endpoint)
         self._reset_vehicle_command_states()
 
         self._mission_id = self._set_default_mission_id_if_needed(request.mission_id)
         self._mission_started_sec = self._now_seconds()
         self._reset_progress()
-        self._initialize_search_assignments(selected_scout.vehicle_id)
-        self._plan_state = plan_state
+        self._active_scout_vehicle_id = active_vehicle_id
+        self._scout_plans = scout_plans
+        self._zone_polygons_by_vehicle = zone_polygons
+        self._plan_state = self._scout_plans[self._active_scout_vehicle_id]
+        self._initialize_search_assignments(self._active_scout_vehicle_id)
+        self._activate_ranger_overwatch(polygon)
         self._planning_countdown = max(self._planning_cycles, 1)
         self._transition_to("PLANNING")
 
         response.success = True
         response.message = (
             f"Mission {self._mission_id} accepted with pattern '{self._plan_state.pattern_type}' "
-            f"({len(self._plan_state.waypoints)} waypoints) on scout '{self._active_scout_vehicle_id}'"
+            f"({len(self._plan_state.waypoints)} waypoints) on scout '{self._active_scout_vehicle_id}' "
+            f"with {len(self._scout_plans)} scout assignments"
         )
         return response
 
@@ -1540,7 +2132,27 @@ class MissionNode(Node):
                 self._transition_to("SEARCHING")
 
         if self._state in self._AUTONOMOUS_STATES:
-            self._update_scout_position_towards_waypoint()
+            if self._state == "SEARCHING" and self._scout_plans:
+                for vehicle_id in sorted(self._scout_plans.keys()):
+                    self._advance_search_plan_for_vehicle(vehicle_id)
+                if self._active_scout_vehicle_id in self._scout_plans:
+                    self._plan_state = self._scout_plans[self._active_scout_vehicle_id]
+                self._redistribute_completed_scout_work()
+                if self._all_search_plans_complete():
+                    self._transition_to("COMPLETE")
+                self._update_ranger_overwatch_orbit()
+            elif self._state == "TRACKING":
+                # Keep non-tracking scout coverage progressing while a dedicated scout
+                # temporarily handles focused tracking.
+                tracked_vehicle_id = self._tracking_context.assigned_scout_vehicle_id
+                for vehicle_id in sorted(self._scout_plans.keys()):
+                    if vehicle_id == tracked_vehicle_id:
+                        continue
+                    self._advance_search_plan_for_vehicle(vehicle_id)
+                self._update_scout_position_towards_waypoint()
+                self._update_ranger_overwatch_orbit()
+            else:
+                self._update_scout_position_towards_waypoint()
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         self._loop_iteration += 1
@@ -1575,6 +2187,7 @@ class MissionNode(Node):
     def _publish_progress_if_active(self) -> None:
         if self._state not in self._ACTIVE_PROGRESS_STATES:
             return
+        self._sync_assignments_with_telemetry_freshness()
 
         self._coverage_percent = min(
             100.0, self._coverage_percent + self._coverage_increment_per_tick
@@ -1585,13 +2198,28 @@ class MissionNode(Node):
             self._coverage_increment_per_tick, 0.01
         )
         estimated_time_remaining = max(0.0, estimated_ticks_remaining * self._progress_period)
+        assignment_items = dict(sorted(self._scout_assignments.items()))
+        assignment_labels = dict(sorted(self._assignment_labels.items()))
+        vehicle_progress = self._vehicle_progress_snapshot()
+        vehicle_online = self._vehicle_online_snapshot()
+        active_drones = sum(
+            1
+            for assignment in assignment_items.values()
+            if assignment not in {"IDLE"}
+        )
+        total_tracked_drones = len(
+            {endpoint.vehicle_id for endpoint in self._scout_endpoints}
+            | {endpoint.vehicle_id for endpoint in self._ranger_endpoints}
+        )
 
         progress_message = MissionProgress()
         progress_message.coverage_percent = float(self._coverage_percent)
         progress_message.search_area_km2 = float(self._search_area_km2)
         progress_message.covered_area_km2 = float(covered_area)
-        progress_message.active_drones = int(self._active_drones)
-        progress_message.total_drones = int(self._total_drones)
+        progress_message.active_drones = int(max(active_drones, 1))
+        progress_message.total_drones = int(
+            max(self._total_drones, total_tracked_drones, len(assignment_items), 1)
+        )
         progress_message.estimated_time_remaining = float(estimated_time_remaining)
         progress_message.grid_completed = int(self._grid_completed)
         progress_message.grid_total = int(self._grid_total)
@@ -1611,10 +2239,14 @@ class MissionNode(Node):
                     "total": progress_message.grid_total,
                 },
                 "activeScoutVehicleId": self._active_scout_vehicle_id,
+                "activeRangerVehicleId": self._active_ranger_vehicle_id,
                 "trackingActive": self._tracking_context.active,
                 "trackingDispatchLatencyMs": self._last_tracking_dispatch_latency_ms,
                 "lastTrackingCompletionReason": self._last_tracking_completion_reason,
-                "vehicleAssignments": dict(sorted(self._scout_assignments.items())),
+                "vehicleAssignments": assignment_items,
+                "vehicleAssignmentLabels": assignment_labels,
+                "vehicleProgress": vehicle_progress,
+                "vehicleOnline": vehicle_online,
                 "trackingPreservedNonTargetVehicles": list(
                     self._tracking_context.preserved_non_target_vehicle_ids
                 ),
