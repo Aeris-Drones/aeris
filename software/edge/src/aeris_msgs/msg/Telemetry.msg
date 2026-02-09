@@ -1,0 +1,6 @@
+string vehicle_id
+string vehicle_type
+builtin_interfaces/Time timestamp
+aeris_msgs/GeoPosition position
+aeris_msgs/VehicleOrientation orientation
+geometry_msgs/Vector3 velocity

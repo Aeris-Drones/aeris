@@ -41,6 +41,7 @@ import { VehicleInfo } from '@/components/sheets/VehicleCard';
 import { LayersPanel } from '@/components/layers/LayersPanel';
 import { LayerVisibilityProvider } from '@/context/LayerVisibilityContext';
 import { ZoneProvider, useZoneContext } from '@/context/ZoneContext';
+import { CoordinateOriginProvider } from '@/context/CoordinateOriginContext';
 import { ZoneToolbar } from '@/components/zones/ZoneToolbar';
 import { PiPVideoFeed } from '@/components/pip/PiPVideoFeed';
 import { AlertToaster, showAlert, dismissAllAlerts, type Alert } from '@/components/alerts';
@@ -90,13 +91,15 @@ const INITIAL_ALERT_COUNT = 2;
 
 export default function V2Page() {
   return (
-    <LayerVisibilityProvider>
-      <ZoneProvider>
-        <V2PageContent />
-        <AlertToaster visibleToasts={5} />
-        <KeyboardShortcutsOverlay />
-      </ZoneProvider>
-    </LayerVisibilityProvider>
+    <CoordinateOriginProvider>
+      <LayerVisibilityProvider>
+        <ZoneProvider>
+          <V2PageContent />
+          <AlertToaster visibleToasts={5} />
+          <KeyboardShortcutsOverlay />
+        </ZoneProvider>
+      </LayerVisibilityProvider>
+    </CoordinateOriginProvider>
   );
 }
 

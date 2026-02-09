@@ -9,49 +9,7 @@ import { DetectionMarker3D, DetectionMarker3DProps } from './DetectionMarker3D';
 import { FlightTrail3D } from './FlightTrail3D';
 import { ZoneOverlay3D, ZoneDrawingPreview } from './ZoneOverlay3D';
 import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
-
-// Mock data for Phase 2 demo
-const mockDrones: Omit<DroneMarker3DProps, 'isSelected' | 'onClick'>[] = [
-  {
-    vehicleId: 'drone-1',
-    vehicleName: 'Alpha',
-    position: [0, 50, 0],
-    heading: 45,
-    status: 'active',
-    showTrail: true,
-    trailPoints: [
-      [-100, 50, 100],
-      [-80, 52, 80],
-      [-60, 48, 60],
-      [-40, 50, 40],
-      [-20, 51, 20],
-      [0, 50, 0],
-    ],
-  },
-  {
-    vehicleId: 'drone-2',
-    vehicleName: 'Bravo',
-    position: [150, 80, -100],
-    heading: 180,
-    status: 'warning',
-    showTrail: true,
-    trailPoints: [
-      [200, 75, -50],
-      [180, 78, -70],
-      [160, 80, -90],
-      [150, 80, -100],
-    ],
-  },
-  {
-    vehicleId: 'drone-3',
-    vehicleName: 'Charlie',
-    position: [-120, 60, 80],
-    heading: -90,
-    status: 'returning',
-    showTrail: false,
-    trailPoints: [],
-  },
-];
+import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 
 const mockDetections: Omit<DetectionMarker3DProps, 'isSelected' | 'onClick'>[] = [
   {
@@ -119,7 +77,26 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     drawingPriority = 1,
     onAddZonePoint,
   }, ref) => {
+    const { vehicles } = useVehicleTelemetry();
     const cameraControlsRef = useRef<CameraControls>(null);
+
+    const telemetryDrones: Omit<DroneMarker3DProps, 'isSelected' | 'onClick'>[] = vehicles.map((vehicle) => {
+      const trailPoints: [number, number, number][] = vehicle.trajectory.map((point) => [
+        point.x,
+        point.y,
+        point.z,
+      ]);
+
+      return {
+        vehicleId: vehicle.id,
+        vehicleName: vehicle.id.replace(/_/g, ' ').toUpperCase(),
+        position: [vehicle.position.x, vehicle.position.y, vehicle.position.z],
+        heading: (vehicle.heading * 180) / Math.PI,
+        status: 'active',
+        showTrail: trailPoints.length > 1,
+        trailPoints,
+      };
+    });
 
     useImperativeHandle(ref, () => ({
       setCameraView: (view: 'wide' | 'tracking' | 'overhead') => {
@@ -134,8 +111,8 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
             controls.setLookAt(0, 600, 0, 0, 0, 0, true);
             break;
           case 'tracking':
-            // Track first active drone
-            const activeDrone = mockDrones.find(d => d.status === 'active');
+            // Track first active telemetry drone.
+            const activeDrone = telemetryDrones.find(d => d.status === 'active');
             if (activeDrone) {
               const [x, y, z] = activeDrone.position;
               controls.setLookAt(x - 80, y + 80, z + 80, x, y, z, true);
@@ -179,7 +156,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
           <pointLight position={[0, 200, 0]} intensity={0.2} color="#4488ff" />
 
           {/* Flight trails (render before drones so trails appear behind) */}
-          {mockDrones.map((drone) =>
+          {telemetryDrones.map((drone) =>
             drone.showTrail && drone.trailPoints.length > 1 ? (
               <FlightTrail3D
                 key={`trail-${drone.vehicleId}`}
@@ -190,7 +167,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
           )}
 
           {/* Drone markers */}
-          {mockDrones.map((drone) => (
+          {telemetryDrones.map((drone) => (
             <DroneMarker3D
               key={drone.vehicleId}
               {...drone}

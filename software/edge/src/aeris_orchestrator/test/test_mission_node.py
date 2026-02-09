@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 
@@ -18,6 +19,22 @@ def _wait_until(predicate, timeout_sec: float = 5.0, sleep_sec: float = 0.02) ->
             return True
         time.sleep(sleep_sec)
     return False
+
+
+VALID_ZONE_GEOMETRY = json.dumps(
+    {
+        "pattern": "lawnmower",
+        "zone": {
+            "id": "zone-alpha",
+            "polygon": [
+                {"x": 0.0, "z": 0.0},
+                {"x": 12.0, "z": 0.0},
+                {"x": 12.0, "z": 12.0},
+                {"x": 0.0, "z": 12.0},
+            ],
+        },
+    }
+)
 
 
 class MissionObserver(Node):
@@ -46,7 +63,7 @@ class MissionObserver(Node):
             self.progress_updates.append(message)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def ros_runtime():
     rclpy.init()
     executor = MultiThreadedExecutor()
@@ -73,8 +90,6 @@ def mission_harness(ros_runtime: MultiThreadedExecutor):
     try:
         yield mission_node, observer
     finally:
-        mission_node._control_timer.cancel()
-        mission_node._progress_timer.cancel()
         ros_runtime.remove_node(observer)
         ros_runtime.remove_node(mission_node)
         observer.destroy_node()
@@ -87,7 +102,7 @@ def test_start_mission_transitions_to_planning_then_searching(mission_harness) -
     request = MissionCommand.Request()
     request.command = "START"
     request.mission_id = "integration-start"
-    request.zone_geometry = "{}"
+    request.zone_geometry = VALID_ZONE_GEOMETRY
     result_future = observer.start_client.call_async(request)
 
     assert _wait_until(lambda: result_future.done())
@@ -112,7 +127,7 @@ def test_start_mission_rejects_invalid_command(mission_harness) -> None:
     request = MissionCommand.Request()
     request.command = "ABORT"
     request.mission_id = "invalid-start-command"
-    request.zone_geometry = "{}"
+    request.zone_geometry = VALID_ZONE_GEOMETRY
     result_future = observer.start_client.call_async(request)
 
     assert _wait_until(lambda: result_future.done())
@@ -123,12 +138,12 @@ def test_start_mission_rejects_invalid_command(mission_harness) -> None:
 
 
 def test_abort_mission_transitions_to_aborted(mission_harness) -> None:
-    _, observer = mission_harness
+    mission_node, observer = mission_harness
 
     start_request = MissionCommand.Request()
     start_request.command = "START"
     start_request.mission_id = "integration-abort"
-    start_request.zone_geometry = "{}"
+    start_request.zone_geometry = VALID_ZONE_GEOMETRY
     start_future = observer.start_client.call_async(start_request)
 
     assert _wait_until(lambda: start_future.done())
@@ -146,6 +161,7 @@ def test_abort_mission_transitions_to_aborted(mission_harness) -> None:
     assert abort_future.result() is not None
     assert abort_future.result().success
     assert _wait_until(lambda: "ABORTED" in observer.states)
+    assert not mission_node._mavlink_adapter.is_streaming
 
 
 def test_abort_mission_rejects_invalid_command(mission_harness) -> None:
@@ -154,7 +170,7 @@ def test_abort_mission_rejects_invalid_command(mission_harness) -> None:
     start_request = MissionCommand.Request()
     start_request.command = "START"
     start_request.mission_id = "invalid-abort-command"
-    start_request.zone_geometry = "{}"
+    start_request.zone_geometry = VALID_ZONE_GEOMETRY
     start_future = observer.start_client.call_async(start_request)
 
     assert _wait_until(lambda: start_future.done())
@@ -173,3 +189,47 @@ def test_abort_mission_rejects_invalid_command(mission_harness) -> None:
     assert response is not None
     assert not response.success
     assert "unsupported command" in response.message
+
+
+def test_start_mission_rejects_missing_zone_geometry(mission_harness) -> None:
+    _, observer = mission_harness
+
+    request = MissionCommand.Request()
+    request.command = "START"
+    request.mission_id = "missing-zone-geometry"
+    request.zone_geometry = ""
+    result_future = observer.start_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert not response.success
+    assert "zone_geometry is required" in response.message
+
+
+def test_start_mission_rejects_unsupported_pattern(mission_harness) -> None:
+    _, observer = mission_harness
+
+    request = MissionCommand.Request()
+    request.command = "START"
+    request.mission_id = "bad-pattern"
+    request.zone_geometry = json.dumps(
+        {
+            "pattern": "figure8",
+            "zone": {
+                "id": "zone-bad-pattern",
+                "polygon": [
+                    {"x": 0.0, "z": 0.0},
+                    {"x": 3.0, "z": 0.0},
+                    {"x": 3.0, "z": 3.0},
+                ],
+            },
+        }
+    )
+    result_future = observer.start_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert not response.success
+    assert "unsupported pattern" in response.message

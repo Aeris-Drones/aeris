@@ -10,6 +10,9 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(geometry_msgs REQUIRED)
 
 set(interface_files
+  "msg/GeoPosition.msg"
+  "msg/VehicleOrientation.msg"
+  "msg/Telemetry.msg"
   "msg/MapTile.msg"
   "msg/ThermalHotspot.msg"
   "msg/AcousticBearing.msg"

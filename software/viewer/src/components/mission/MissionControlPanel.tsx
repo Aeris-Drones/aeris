@@ -136,6 +136,10 @@ export function MissionControlPanel({
     canPause,
     canResume,
     canAbort,
+    hasValidStartZone,
+    selectedPattern,
+    setSelectedPattern,
+    startMissionError,
     startMission,
     pauseMission,
     resumeMission,
@@ -204,6 +208,37 @@ export function MissionControlPanel({
         }
       >
         <div className="space-y-4">
+          {/* Pattern Selection */}
+          <div className="space-y-2">
+            <label
+              htmlFor="mission-pattern"
+              className="text-xs text-muted-foreground uppercase tracking-wider"
+            >
+              Pattern
+            </label>
+            <select
+              id="mission-pattern"
+              value={selectedPattern}
+              onChange={event => setSelectedPattern(event.target.value as 'lawnmower' | 'spiral')}
+              className={cn(
+                'w-full rounded-lg border border-glass-border bg-surface-1/60',
+                'px-3 py-2 text-sm text-foreground outline-none',
+                'focus:ring-2 focus:ring-primary/40'
+              )}
+            >
+              <option value="lawnmower">Lawnmower</option>
+              <option value="spiral">Spiral</option>
+            </select>
+            {!hasValidStartZone && (
+              <p className="text-xs text-warning">
+                Select an active zone with at least 3 points to enable mission start.
+              </p>
+            )}
+            {startMissionError && (
+              <p className="text-xs text-danger">{startMissionError}</p>
+            )}
+          </div>
+
           {/* Status Section */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -227,7 +262,7 @@ export function MissionControlPanel({
             {/* Start / Resume / Pause row */}
             <div className="flex gap-2">
               <AnimatePresence mode="wait">
-                {canStart && (
+                {phase === 'IDLE' && (
                   <motion.div
                     key="start"
                     initial={{ opacity: 0, x: -10 }}
@@ -239,6 +274,7 @@ export function MissionControlPanel({
                     <ControlButton
                       variant="start"
                       onClick={startMission}
+                      disabled={!canStart}
                       className="w-full"
                     >
                       <Play className="w-4 h-4" />
