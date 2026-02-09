@@ -22,6 +22,7 @@ setup(
     entry_points={
         "console_scripts": [
             "heartbeat = aeris_orchestrator.heartbeat_node:main",
+            "mission = aeris_orchestrator.mission_node:main",
         ],
     },
 )

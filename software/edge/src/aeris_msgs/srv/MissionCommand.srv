@@ -1,0 +1,6 @@
+string command
+string mission_id
+string zone_geometry
+---
+bool success
+string message

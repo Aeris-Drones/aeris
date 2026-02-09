@@ -76,7 +76,10 @@ export function useMissionControl(): MissionControlState {
     resumeMission: contextResume,
     abortMission: contextAbort,
     completeMission: contextComplete,
+    setPhase,
+    updateProgress,
     updateStats,
+    markExternalUpdate,
   } = useMissionContext();
   
   const { ros, isConnected: rosConnected } = useROSConnection();
@@ -143,12 +146,38 @@ export function useMissionControl(): MissionControlState {
       name: '/mission/progress',
       messageType: 'std_msgs/String',
     });
+
+    const missionPhases: MissionPhase[] = [
+      'IDLE',
+      'PLANNING',
+      'SEARCHING',
+      'TRACKING',
+      'COMPLETE',
+      'ABORTED',
+    ];
+
+    const isMissionPhase = (value: string): value is MissionPhase =>
+      missionPhases.includes(value as MissionPhase);
     
     const handleStateMessage = (message: ROSLIB.Message) => {
       try {
-        const data = JSON.parse((message as { data: string }).data);
-        // Could update phase from external source
-        void data;
+        const rawData = (message as { data: string }).data;
+        const rawState = rawData.trim();
+        let stateFromPayload: string | undefined;
+
+        if (rawState.startsWith('{')) {
+          const payload = JSON.parse(rawState) as { phase?: string; state?: string };
+          stateFromPayload = payload.phase ?? payload.state;
+        } else {
+          stateFromPayload = rawState;
+        }
+
+        if (stateFromPayload && isMissionPhase(stateFromPayload)) {
+          markExternalUpdate();
+          setPhase(stateFromPayload);
+        } else {
+          console.warn('[MissionControl] Ignoring unknown mission phase:', rawState);
+        }
       } catch (error) {
         console.warn('[MissionControl] Failed to parse state message:', error);
       }
@@ -156,9 +185,45 @@ export function useMissionControl(): MissionControlState {
 
     const handleProgressMessage = (message: ROSLIB.Message) => {
       try {
-        const data = JSON.parse((message as { data: string }).data);
-        // Could update progress from external source
-        void data;
+        const data = JSON.parse((message as { data: string }).data) as {
+          coveragePercent?: number;
+          coverage_percent?: number;
+          searchAreaKm2?: number;
+          search_area_km2?: number;
+          coveredAreaKm2?: number;
+          covered_area_km2?: number;
+          activeDrones?: number;
+          active_drones?: number;
+          totalDrones?: number;
+          total_drones?: number;
+          estimatedTimeRemaining?: number;
+          estimated_time_remaining?: number;
+          gridProgress?: { completed?: number; total?: number };
+          grid_completed?: number;
+          grid_total?: number;
+        };
+
+        updateProgress({
+          coveragePercent: data.coveragePercent ?? data.coverage_percent,
+          searchAreaKm2: data.searchAreaKm2 ?? data.search_area_km2,
+          coveredAreaKm2: data.coveredAreaKm2 ?? data.covered_area_km2,
+          activeDrones: data.activeDrones ?? data.active_drones,
+          totalDrones: data.totalDrones ?? data.total_drones,
+          estimatedTimeRemaining:
+            data.estimatedTimeRemaining ?? data.estimated_time_remaining,
+          gridProgress: data.gridProgress
+            ? {
+                completed: data.gridProgress.completed ?? 0,
+                total: data.gridProgress.total ?? 0,
+              }
+            : data.grid_completed !== undefined || data.grid_total !== undefined
+              ? {
+                  completed: data.grid_completed ?? 0,
+                  total: data.grid_total ?? 0,
+                }
+              : undefined,
+        });
+        markExternalUpdate();
       } catch (error) {
         console.warn('[MissionControl] Failed to parse progress message:', error);
       }
@@ -171,7 +236,7 @@ export function useMissionControl(): MissionControlState {
       stateTopic.unsubscribe();
       progressTopic.unsubscribe();
     };
-  }, [ros, rosConnected]);
+  }, [ros, rosConnected, setPhase, updateProgress, markExternalUpdate]);
   
   // ============================================================================
   // Actions with ROS publishing
