@@ -85,7 +85,7 @@ def test_partition_polygon_for_scouts_is_deterministic_and_stably_ordered() -> N
     second = partition_polygon_for_scouts(polygon, ["scout2", "scout1"])
 
     assert first == second
-    assert [part["vehicle_id"] for part in first] == ["scout1", "scout2"]
+    assert [part["vehicle_id"] for part in first] == ["scout_1", "scout_2"]
 
 
 def test_partition_polygon_for_scouts_non_overlap_and_area_coverage() -> None:
@@ -105,3 +105,12 @@ def test_partition_polygon_for_scouts_non_overlap_and_area_coverage() -> None:
 
     total_area = _polygon_area(left) + _polygon_area(right)
     assert total_area == pytest.approx(_polygon_area(polygon), rel=1e-3)
+
+
+def test_partition_polygon_normalizes_trailing_numeric_vehicle_ids() -> None:
+    polygon = _rectangle_polygon()
+    partitions = partition_polygon_for_scouts(
+        polygon, ["scout1", "scout-2", "scout_2"]
+    )
+
+    assert [part["vehicle_id"] for part in partitions] == ["scout_1", "scout_2"]
