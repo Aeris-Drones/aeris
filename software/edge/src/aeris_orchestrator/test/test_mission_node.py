@@ -21,7 +21,7 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from std_msgs.msg import String
 
-from aeris_orchestrator.mission_node import MissionNode, ScoutEndpoint
+from aeris_orchestrator.mission_node import MissionNode, MissionPlanState, ScoutEndpoint
 
 
 def _wait_until(predicate, timeout_sec: float = 5.0, sleep_sec: float = 0.02) -> bool:
@@ -111,6 +111,27 @@ def _publish_scout_telemetry(
     normalized_id = mission_node._normalize_vehicle_id(vehicle_id)
     assert _wait_until(
         lambda: normalized_id in mission_node._scout_last_seen_monotonic
+    )
+
+
+def _publish_ranger_telemetry(
+    observer: MissionObserver,
+    mission_node: MissionNode,
+    vehicle_id: str = "ranger1",
+    *,
+    latitude: float = 0.0,
+    longitude: float = 0.0,
+) -> None:
+    telemetry = Telemetry()
+    telemetry.vehicle_id = vehicle_id
+    telemetry.vehicle_type = "ranger"
+    telemetry.position.latitude = latitude
+    telemetry.position.longitude = longitude
+    telemetry.timestamp = observer.get_clock().now().to_msg()
+    observer.telemetry_publisher.publish(telemetry)
+    normalized_id = mission_node._normalize_vehicle_id(vehicle_id)
+    assert _wait_until(
+        lambda: normalized_id in mission_node._ranger_last_seen_monotonic
     )
 
 
@@ -464,6 +485,32 @@ def mission_harness_detection(ros_runtime: MultiThreadedExecutor):
         mission_node.destroy_node()
 
 
+@pytest.fixture
+def mission_harness_multi_vehicle(ros_runtime: MultiThreadedExecutor):
+    mission_node = MissionNode(
+        parameter_overrides=[
+            Parameter(
+                "ranger_endpoints_json",
+                value='[{"vehicle_id":"ranger1","host":"127.0.0.1","port":14543}]',
+            ),
+        ]
+    )
+    observer = MissionObserver()
+    ros_runtime.add_node(mission_node)
+    ros_runtime.add_node(observer)
+
+    assert observer.start_client.wait_for_service(timeout_sec=2.0)
+    assert observer.abort_client.wait_for_service(timeout_sec=2.0)
+
+    try:
+        yield mission_node, observer
+    finally:
+        ros_runtime.remove_node(observer)
+        ros_runtime.remove_node(mission_node)
+        observer.destroy_node()
+        mission_node.destroy_node()
+
+
 def _start_searching_mission(
     mission_node: MissionNode,
     observer: MissionObserver,
@@ -654,15 +701,15 @@ def test_detection_dispatch_preserves_non_target_vehicle_assignments(
     assert mission_node._tracking_context.uses_dedicated_adapter
     assert mission_node._tracking_context.assigned_scout_vehicle_id == "scout_2"
     assert "scout_1" in mission_node._tracking_context.preserved_non_target_vehicle_ids
-    assert mission_node._scout_assignments.get("scout_1") == "SEARCHING"
-    assert mission_node._scout_assignments.get("scout_2") == "TRACKING"
+    assert mission_node._vehicle_assignments.get("scout_1") == "SEARCHING"
+    assert mission_node._vehicle_assignments.get("scout_2") == "TRACKING"
     assert ("127.0.0.1", 14541) not in endpoint_calls
 
     signal = String()
     signal.data = "resolved"
     observer.tracking_resolution_publisher.publish(signal)
     assert _wait_until(lambda: mission_node._state == "SEARCHING")
-    assert mission_node._scout_assignments.get("scout_2") == "SEARCHING"
+    assert mission_node._vehicle_assignments.get("scout_2") == "SEARCHING"
 
 
 def test_detection_latency_uses_adapter_dispatch_timestamp(
@@ -683,6 +730,7 @@ def test_detection_latency_uses_adapter_dispatch_timestamp(
 
     _publish_thermal(observer, confidence=0.98)
     assert _wait_until(lambda: mission_node._state == "TRACKING")
+    assert _wait_until(lambda: mission_node._last_tracking_dispatch_latency_ms > 0.0)
     assert mission_node._last_tracking_dispatch_latency_ms == pytest.approx(150.0, abs=10.0)
 
 
@@ -698,6 +746,305 @@ def test_detection_selection_falls_back_to_most_recent_seen_without_positions(
     selected = mission_node._select_tracking_scout_endpoint({"x": 0.0, "z": 0.0})
     assert selected is not None
     assert selected.vehicle_id == "scout_2"
+
+
+def test_start_mission_creates_distinct_scout_zone_assignments(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
+
+    request = MissionCommand.Request()
+    request.command = "START"
+    request.mission_id = "multi-zone-assignments"
+    request.zone_geometry = VALID_ZONE_GEOMETRY
+    result_future = observer.start_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert response.success
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
+    assert len(mission_node._scout_plans) == 2
+    assert mission_node._assignment_labels["scout_1"].startswith("SEARCHING:zone-")
+    assert mission_node._assignment_labels["scout_2"].startswith("SEARCHING:zone-")
+    assert mission_node._assignment_labels["scout_1"] != mission_node._assignment_labels["scout_2"]
+
+
+def test_start_mission_falls_back_to_single_scout_plan(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+
+    request = MissionCommand.Request()
+    request.command = "START"
+    request.mission_id = "single-scout-fallback"
+    request.zone_geometry = VALID_ZONE_GEOMETRY
+    result_future = observer.start_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert response.success
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
+    assert len(mission_node._scout_plans) == 1
+    assert "scout_1" in mission_node._scout_plans
+
+
+def test_completed_scout_is_reassigned_to_remaining_work(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "reassignment"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-1",
+            waypoints=[
+                {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+                {"x": 1.0, "z": 0.0, "altitude_m": 20.0},
+            ],
+            current_waypoint_index=2,
+            scout_position={"x": 1.0, "z": 0.0},
+        ),
+        "scout_2": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-2",
+            waypoints=[
+                {"x": 0.0, "z": 1.0, "altitude_m": 20.0},
+                {"x": 1.0, "z": 1.0, "altitude_m": 20.0},
+                {"x": 2.0, "z": 1.0, "altitude_m": 20.0},
+                {"x": 3.0, "z": 1.0, "altitude_m": 20.0},
+                {"x": 4.0, "z": 1.0, "altitude_m": 20.0},
+            ],
+            current_waypoint_index=0,
+            scout_position={"x": 0.0, "z": 1.0},
+        ),
+    }
+    mission_node._set_scout_assignment("scout_1", "IDLE", label="IDLE:zone-1:complete")
+    mission_node._set_scout_assignment("scout_2", "SEARCHING", label="SEARCHING:zone-2")
+
+    mission_node._redistribute_completed_scout_work()
+
+    assert mission_node._vehicle_assignments.get("scout_1") == "SEARCHING"
+    assert mission_node._assignment_labels.get("scout_1", "").startswith("SEARCHING:")
+    assert len(mission_node._scout_plans["scout_1"].waypoints) >= 2
+    assert len(mission_node._scout_plans["scout_2"].waypoints) < 5
+
+
+def test_search_plan_completion_waits_for_final_waypoint_arrival(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    plan = MissionPlanState(
+        pattern_type="lawnmower",
+        zone_id="zone-1",
+        waypoints=[
+            {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+            {"x": 10.0, "z": 0.0, "altitude_m": 20.0},
+        ],
+        current_waypoint_index=1,
+        scout_position={"x": 0.0, "z": 0.0},
+    )
+    mission_node._scout_plans = {"scout_1": plan}
+
+    assert not mission_node._is_search_plan_complete(plan)
+    assert mission_node._search_plan_progress_percent(plan) == pytest.approx(50.0)
+
+    plan.scout_position = {"x": 10.0, "z": 0.0}
+    mission_node._advance_search_plan_for_vehicle("scout_1")
+
+    assert mission_node._is_search_plan_complete(plan)
+    assert plan.current_waypoint_index == len(plan.waypoints)
+    assert mission_node._search_plan_progress_percent(plan) == pytest.approx(100.0)
+
+
+def test_start_mission_enables_ranger_overwatch_from_role_data(
+    mission_harness_multi_vehicle,
+) -> None:
+    mission_node, observer = mission_harness_multi_vehicle
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
+    _publish_ranger_telemetry(observer, mission_node, vehicle_id="ranger1")
+
+    request = MissionCommand.Request()
+    request.command = "START"
+    request.mission_id = "ranger-overwatch"
+    request.zone_geometry = VALID_ZONE_GEOMETRY
+    result_future = observer.start_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert response.success
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
+    assert mission_node._active_ranger_vehicle_id == "ranger_1"
+    assert mission_node._vehicle_assignments.get("ranger_1") == "OVERWATCH"
+    assert len(mission_node._ranger_orbit_waypoints) >= 4
+
+
+def test_start_mission_dispatches_ranger_overwatch_stream_when_endpoint_is_configured(
+    mission_harness_multi_vehicle, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_multi_vehicle
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
+    _publish_ranger_telemetry(observer, mission_node, vehicle_id="ranger1")
+
+    calls: dict[str, list] = {"upload": [], "start": [], "update": [], "close": []}
+
+    class _FakeRangerAdapter:
+        def __init__(self) -> None:
+            self.is_streaming = False
+
+        def upload_mission_items_int(
+            self, mission_id: str, waypoints: list[dict[str, float]]
+        ) -> None:
+            calls["upload"].append((mission_id, len(waypoints)))
+
+        def start_stream(self, mission_id: str, initial_setpoint: dict[str, float]) -> None:
+            self.is_streaming = True
+            calls["start"].append((mission_id, dict(initial_setpoint)))
+
+        def update_setpoint(self, setpoint: dict[str, float]) -> None:
+            calls["update"].append(dict(setpoint))
+
+        def close(self) -> None:
+            self.is_streaming = False
+            calls["close"].append(True)
+
+    fake_adapter = _FakeRangerAdapter()
+    monkeypatch.setattr(
+        MissionNode,
+        "_build_ranger_adapter",
+        lambda self, endpoint: fake_adapter,
+    )
+
+    request = MissionCommand.Request()
+    request.command = "START"
+    request.mission_id = "ranger-overwatch-dispatch"
+    request.zone_geometry = VALID_ZONE_GEOMETRY
+    result_future = observer.start_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert response.success
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
+    assert _wait_until(lambda: bool(calls["upload"]))
+    assert _wait_until(lambda: bool(calls["start"]))
+    assert calls["start"][-1][0] == "ranger-overwatch-dispatch"
+    assert calls["start"][-1][1]["altitude_m"] == pytest.approx(
+        mission_node._ranger_overwatch_altitude_m
+    )
+
+
+def test_sync_assignments_reassigns_active_ranger_when_current_goes_offline(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._mission_id = "ranger-failover"
+    mission_node._state = "SEARCHING"
+    mission_node._active_ranger_vehicle_id = "ranger_1"
+    mission_node._ranger_endpoints = [
+        ScoutEndpoint(vehicle_id="ranger_1", host="127.0.0.1", port=14543),
+        ScoutEndpoint(vehicle_id="ranger_2", host="127.0.0.1", port=14544),
+    ]
+    mission_node._ranger_orbit_waypoints = [{"x": 0.0, "z": 0.0, "altitude_m": 20.0}]
+    mission_node._set_scout_assignment("ranger_1", "OVERWATCH", label="OVERWATCH")
+    mission_node._set_scout_assignment("ranger_2", "IDLE", label="IDLE")
+    now = time.monotonic()
+    mission_node._ranger_last_seen_monotonic = {
+        "ranger_1": now - 10.0,
+        "ranger_2": now,
+    }
+
+    dispatch_calls: list[bool] = []
+    monkeypatch.setattr(
+        mission_node,
+        "_start_ranger_overwatch_execution",
+        lambda: dispatch_calls.append(True),
+    )
+
+    mission_node._sync_assignments_with_telemetry_freshness()
+
+    assert mission_node._active_ranger_vehicle_id == "ranger_2"
+    assert mission_node._vehicle_assignments["ranger_1"] == "IDLE"
+    assert mission_node._assignment_labels["ranger_1"] == "IDLE:offline"
+    assert mission_node._vehicle_assignments["ranger_2"] == "OVERWATCH"
+    assert dispatch_calls == [True]
+
+
+def test_sync_assignments_preserves_completed_idle_label_for_online_scout(
+    mission_harness,
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._mission_id = "sync-complete-label"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-1",
+            waypoints=[
+                {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+                {"x": 1.0, "z": 0.0, "altitude_m": 20.0},
+            ],
+            current_waypoint_index=2,
+            scout_position={"x": 1.0, "z": 0.0},
+        )
+    }
+    mission_node._set_scout_assignment("scout_1", "IDLE", label="IDLE:zone-1:complete")
+    mission_node._scout_last_seen_monotonic["scout_1"] = time.monotonic()
+
+    mission_node._sync_assignments_with_telemetry_freshness()
+
+    assert mission_node._vehicle_assignments["scout_1"] == "IDLE"
+    assert mission_node._assignment_labels["scout_1"] == "IDLE:zone-1:complete"
+
+
+def test_progress_payload_includes_vehicle_assignment_labels_and_progress(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "progress-payload"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-1",
+            waypoints=[
+                {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+                {"x": 1.0, "z": 0.0, "altitude_m": 20.0},
+            ],
+            current_waypoint_index=2,
+            scout_position={"x": 1.0, "z": 0.0},
+        )
+    }
+    mission_node._set_scout_assignment("scout_1", "SEARCHING", label="SEARCHING:zone-1")
+    mission_node._scout_last_seen_monotonic["scout_1"] = time.monotonic()
+
+    captured: list[str] = []
+
+    def _capture_publish(message: String) -> None:
+        captured.append(message.data)
+
+    monkeypatch.setattr(mission_node._progress_string_pub, "publish", _capture_publish)
+    monkeypatch.setattr(mission_node._progress_pub, "publish", lambda _: None)
+
+    mission_node._publish_progress_if_active()
+
+    assert captured
+    payload = json.loads(captured[-1])
+    assert payload["vehicleAssignments"]["scout_1"] == "SEARCHING"
+    assert payload["vehicleAssignmentLabels"]["scout_1"] == "SEARCHING:zone-1"
+    assert payload["vehicleProgress"]["scout_1"] == pytest.approx(100.0, abs=1e-3)
+    assert "vehicleOnline" in payload
 
 def test_vehicle_command_targets_only_requested_endpoint(
     mission_harness, monkeypatch
@@ -1104,3 +1451,26 @@ def test_vehicle_command_pauses_stream_when_switching_endpoints(
         ("127.0.0.1", 14541, 14581),
     ]
     assert target_calls == [(3, 1), (2, 1)]
+
+
+def test_reset_vehicle_command_states_includes_ranger_endpoints(
+    mission_harness_multi_vehicle,
+) -> None:
+    mission_node, observer = mission_harness_multi_vehicle
+    del observer
+
+    mission_node._scout_endpoints = [
+        ScoutEndpoint(vehicle_id="scout_1", host="127.0.0.1", port=14541),
+        ScoutEndpoint(vehicle_id="scout_2", host="127.0.0.1", port=14542),
+    ]
+    mission_node._ranger_endpoints = [
+        ScoutEndpoint(vehicle_id="ranger_1", host="127.0.0.1", port=14543),
+    ]
+
+    mission_node._reset_vehicle_command_states()
+
+    assert mission_node._vehicle_command_states == {
+        "ranger_1": mission_node._VEHICLE_COMMAND_STATE_ACTIVE,
+        "scout_1": mission_node._VEHICLE_COMMAND_STATE_ACTIVE,
+        "scout_2": mission_node._VEHICLE_COMMAND_STATE_ACTIVE,
+    }

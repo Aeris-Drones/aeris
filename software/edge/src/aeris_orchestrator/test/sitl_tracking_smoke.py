@@ -98,6 +98,18 @@ def _publish_scout_telemetry(
     node.telemetry_pub.publish(msg)
 
 
+def _publish_ranger_telemetry(
+    node: TrackingSmokeNode, vehicle_id: str, *, latitude: float, longitude: float
+) -> None:
+    msg = Telemetry()
+    msg.vehicle_id = vehicle_id
+    msg.vehicle_type = "ranger"
+    msg.position.latitude = float(latitude)
+    msg.position.longitude = float(longitude)
+    msg.timestamp = node.get_clock().now().to_msg()
+    node.telemetry_pub.publish(msg)
+
+
 def _publish_gas_detection(node: TrackingSmokeNode, *, x: float, y: float) -> None:
     msg = GasIsopleth()
     now = node.get_clock().now().nanoseconds / 1e9
@@ -158,12 +170,35 @@ def run_smoke() -> int:
         _publish_scout_telemetry(
             node, "scout2", latitude=0.00045, longitude=0.00045
         )
+        _publish_ranger_telemetry(node, "ranger1", latitude=0.0002, longitude=0.0001)
         if not _wait_until(node, lambda: node.latest_progress is not None, timeout_sec=2.0):
             node.get_logger().info("No mission progress yet; continuing after telemetry warmup")
 
         _start_mission(node, mission_id)
         if not _wait_until(node, lambda: "SEARCHING" in node.state_history, timeout_sec=8.0):
             raise RuntimeError("Mission never reached SEARCHING")
+
+        if not _wait_until(
+            node,
+            lambda: node.latest_progress is not None
+            and isinstance(node.latest_progress.payload.get("vehicleAssignmentLabels"), dict),
+            timeout_sec=8.0,
+        ):
+            raise RuntimeError("Mission progress is missing vehicle assignment labels")
+
+        labels = (
+            node.latest_progress.payload.get("vehicleAssignmentLabels", {})
+            if node.latest_progress
+            else {}
+        )
+        if not str(labels.get("scout_1", "")).startswith("SEARCHING:"):
+            raise RuntimeError("scout_1 did not receive partition assignment label")
+        if not str(labels.get("scout_2", "")).startswith("SEARCHING:"):
+            raise RuntimeError("scout_2 did not receive partition assignment label")
+        if labels.get("scout_1") == labels.get("scout_2"):
+            raise RuntimeError("scout partition labels are not distinct")
+        if labels.get("ranger_1") != "OVERWATCH":
+            raise RuntimeError("ranger_1 did not receive OVERWATCH assignment label")
 
         _publish_gas_detection(node, x=50.0, y=50.0)
         if not _wait_until(
@@ -187,6 +222,9 @@ def run_smoke() -> int:
             raise RuntimeError("Non-target scout_1 was not reported as preserved")
         if assignments.get("scout_1") != "SEARCHING":
             raise RuntimeError("Non-target scout_1 assignment changed unexpectedly")
+        labels = progress_payload.get("vehicleAssignmentLabels", {})
+        if labels.get("ranger_1") != "OVERWATCH":
+            raise RuntimeError("Ranger overwatch assignment did not persist through tracking")
 
         resolution = String()
         resolution.data = "resolved"

@@ -116,6 +116,16 @@ export function VehicleCard({
             </span>
           </div>
           <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+            {vehicle.assignment && (
+              <span className="truncate max-w-[140px] text-info">
+                {vehicle.assignment}
+              </span>
+            )}
+            {typeof vehicle.missionProgressPercent === 'number' && (
+              <span className="font-mono text-foreground">
+                {vehicle.missionProgressPercent.toFixed(0)}%
+              </span>
+            )}
             <span className={getBatteryColor(vehicle.batteryPercent)}>
               {vehicle.batteryPercent.toFixed(0)}%
             </span>
@@ -198,6 +208,16 @@ export function VehicleCard({
               )}
               {statusConfig.label}
             </span>
+            {vehicle.assignment && (
+              <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-info/10 text-info max-w-[180px] truncate">
+                {vehicle.assignment}
+              </span>
+            )}
+            {typeof vehicle.missionProgressPercent === 'number' && (
+              <span className="text-xs font-mono text-foreground">
+                {vehicle.missionProgressPercent.toFixed(0)}%
+              </span>
+            )}
           </div>
         </div>
         
