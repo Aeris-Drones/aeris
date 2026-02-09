@@ -32,6 +32,19 @@ def test_validate_polygon_rejects_zero_area() -> None:
     assert "greater than zero" in reason
 
 
+def test_validate_polygon_rejects_non_finite_points() -> None:
+    valid, reason = validate_polygon(
+        [
+            {"x": 0.0, "z": 0.0},
+            {"x": 10.0, "z": 0.0},
+            {"x": float("nan"), "z": 5.0},
+            {"x": float("inf"), "z": 1.0},
+        ]
+    )
+    assert not valid
+    assert "at least 3 points" in reason
+
+
 def test_lawnmower_waypoints_stay_inside_polygon() -> None:
     polygon = _rectangle_polygon()
     waypoints = generate_waypoints("lawnmower", polygon, lawnmower_track_spacing_m=2.5)

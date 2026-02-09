@@ -2,21 +2,19 @@
 
 from __future__ import annotations
 
-import json
-import socket
 import threading
 import time
 from typing import Callable
 
+from pymavlink import mavutil
+
 Setpoint = dict[str, float]
+
+_METERS_TO_CENTIMETERS = 100.0
 
 
 class MavlinkAdapter:
-    """Best-effort MAVLink transport adapter over UDP.
-
-    This keeps the orchestrator transport isolated and testable. It provides
-    the required continuous proof-of-life stream while a mission is active.
-    """
+    """MAVLink transport adapter over UDP using pymavlink."""
 
     def __init__(
         self,
@@ -24,15 +22,23 @@ class MavlinkAdapter:
         host: str = "127.0.0.1",
         port: int = 14540,
         stream_hz: float = 10.0,
+        target_system: int = 1,
+        target_component: int = 1,
+        source_system: int = 245,
+        source_component: int = 190,
         logger: Callable[[str], None] | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._stream_hz = max(stream_hz, 2.1)
+        self._target_system = target_system
+        self._target_component = target_component
+        self._source_system = source_system
+        self._source_component = source_component
         self._logger = logger or (lambda _: None)
 
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._socket.setblocking(False)
+        self._mav_connection = self._new_connection()
+        self._connection_lock = threading.Lock()
 
         self._running = False
         self._stream_thread: threading.Thread | None = None
@@ -44,16 +50,64 @@ class MavlinkAdapter:
     def is_streaming(self) -> bool:
         return self._running
 
+    @property
+    def endpoint(self) -> tuple[str, int]:
+        return self._host, self._port
+
+    def set_endpoint(self, host: str, port: int) -> None:
+        host_clean = host.strip() or "127.0.0.1"
+        port_clean = int(port)
+        if host_clean == self._host and port_clean == self._port:
+            return
+
+        with self._connection_lock:
+            previous = self._mav_connection
+            self._host = host_clean
+            self._port = port_clean
+            self._mav_connection = self._new_connection()
+            try:
+                previous.close()
+            except OSError:
+                pass
+        self._logger(f"MAVLink endpoint set to {self._host}:{self._port}")
+
     def upload_mission_items_int(self, mission_id: str, waypoints: list[Setpoint]) -> None:
-        payload = {
-            "protocol": "MISSION_ITEM_INT",
-            "type": "MISSION_UPLOAD",
-            "mission_id": mission_id,
-            "count": len(waypoints),
-            "waypoints": waypoints,
-            "timestamp": time.time(),
-        }
-        self._send_payload(payload)
+        if not waypoints:
+            return
+        try:
+            with self._connection_lock:
+                mav = self._mav_connection.mav
+                mav.mission_count_send(
+                    self._target_system,
+                    self._target_component,
+                    len(waypoints),
+                )
+                for index, waypoint in enumerate(waypoints):
+                    north_m = float(waypoint.get("z", 0.0))
+                    east_m = float(waypoint.get("x", 0.0))
+                    altitude_m = float(waypoint.get("altitude_m", 0.0))
+
+                    mav.mission_item_int_send(
+                        self._target_system,
+                        self._target_component,
+                        index,
+                        mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                        mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+                        1 if index == 0 else 0,
+                        1,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        int(round(north_m * _METERS_TO_CENTIMETERS)),
+                        int(round(east_m * _METERS_TO_CENTIMETERS)),
+                        -altitude_m,
+                    )
+            self._logger(
+                f"Uploaded {len(waypoints)} MISSION_ITEM_INT waypoints for {mission_id}"
+            )
+        except OSError as error:
+            self._logger(f"MAVLink mission upload failed: {error}")
 
     def start_stream(self, mission_id: str, initial_setpoint: Setpoint) -> None:
         self.stop_stream()
@@ -94,7 +148,8 @@ class MavlinkAdapter:
 
     def close(self) -> None:
         self.stop_stream()
-        self._socket.close()
+        with self._connection_lock:
+            self._mav_connection.close()
 
     def _stream_loop(self) -> None:
         period = 1.0 / self._stream_hz
@@ -103,21 +158,13 @@ class MavlinkAdapter:
         while True:
             with self._state_lock:
                 running = self._running
-                mission_id = self._mission_id
                 setpoint = dict(self._latest_setpoint) if self._latest_setpoint else None
 
             if not running:
                 return
 
             if setpoint is not None:
-                payload = {
-                    "protocol": "MAVLINK",
-                    "type": "SET_POSITION_TARGET_LOCAL_NED",
-                    "mission_id": mission_id,
-                    "setpoint": setpoint,
-                    "timestamp": time.time(),
-                }
-                self._send_payload(payload)
+                self._send_local_ned_setpoint(setpoint)
 
             next_tick += period
             sleep_for = next_tick - time.perf_counter()
@@ -127,9 +174,52 @@ class MavlinkAdapter:
                 # Keep timing stable even if a cycle overruns.
                 next_tick = time.perf_counter()
 
-    def _send_payload(self, payload: dict[str, object]) -> None:
+    def _new_connection(self):
+        return mavutil.mavlink_connection(
+            f"udpout:{self._host}:{self._port}",
+            source_system=self._source_system,
+            source_component=self._source_component,
+        )
+
+    def _send_local_ned_setpoint(self, setpoint: Setpoint) -> None:
+        # Our mission plan uses x/east and z/north in meters. MAVLink local NED expects
+        # x=north, y=east, z=down.
+        north_m = float(setpoint.get("z", 0.0))
+        east_m = float(setpoint.get("x", 0.0))
+        altitude_m = float(setpoint.get("altitude_m", 0.0))
+        down_m = -altitude_m
+
+        type_mask = (
+            mavutil.mavlink.POSITION_TARGET_TYPEMASK_VX_IGNORE
+            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_VY_IGNORE
+            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_VZ_IGNORE
+            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AX_IGNORE
+            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AY_IGNORE
+            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE
+            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_IGNORE
+            | mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_RATE_IGNORE
+        )
+
+        time_boot_ms = int(time.time() * 1000.0) & 0xFFFFFFFF
         try:
-            encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-            self._socket.sendto(encoded, (self._host, self._port))
+            with self._connection_lock:
+                self._mav_connection.mav.set_position_target_local_ned_send(
+                    time_boot_ms,
+                    self._target_system,
+                    self._target_component,
+                    mavutil.mavlink.MAV_FRAME_LOCAL_NED,
+                    type_mask,
+                    north_m,
+                    east_m,
+                    down_m,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
         except OSError as error:
-            self._logger(f"MAVLink UDP send failed: {error}")
+            self._logger(f"MAVLink setpoint send failed: {error}")

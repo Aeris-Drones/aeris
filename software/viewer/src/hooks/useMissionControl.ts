@@ -12,7 +12,12 @@ import { useMissionContext } from '@/context/MissionContext';
 import { DetectionContext } from '@/context/DetectionContext';
 import { useZoneContext } from '@/context/ZoneContext';
 import { useROSConnection } from './useROSConnection';
-import type { MissionPhase, MissionCommand, MissionProgress } from '@/types/mission';
+import {
+  generateMissionId,
+  type MissionPhase,
+  type MissionCommand,
+  type MissionProgress,
+} from '@/types/mission';
 import ROSLIB from 'roslib';
 
 type SearchPattern = 'lawnmower' | 'spiral';
@@ -93,6 +98,8 @@ export function useMissionControl(): MissionControlState {
   const { ros, isConnected: rosConnected } = useROSConnection();
   const [selectedPattern, setSelectedPattern] = useState<SearchPattern>('lawnmower');
   const [startMissionError, setStartMissionError] = useState<string | null>(null);
+  const hasValidStartZone =
+    !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
   const updateSelectedPattern = useCallback((pattern: SearchPattern) => {
     setSelectedPattern(pattern);
     setStartMissionError(null);
@@ -326,10 +333,11 @@ export function useMissionControl(): MissionControlState {
   
   const startMission = useCallback(() => {
     const zone = selectedZone;
-    if (!zone || zone.status !== 'active' || zone.polygon.length < 3) {
+    if (!zone || !hasValidStartZone) {
       setStartMissionError('Select an active zone with at least 3 points before starting.');
       return;
     }
+    const missionId = state.missionId?.trim() || generateMissionId();
 
     const payload = JSON.stringify({
       pattern: selectedPattern,
@@ -340,7 +348,7 @@ export function useMissionControl(): MissionControlState {
     });
     callMissionService('start_mission', {
       command: 'START',
-      mission_id: '',
+      mission_id: missionId,
       zone_geometry: payload,
     })
       .then(response => {
@@ -349,10 +357,9 @@ export function useMissionControl(): MissionControlState {
           return;
         }
         setStartMissionError(null);
-        contextStart();
+        contextStart(missionId);
         setPhase('PLANNING');
         markExternalUpdate();
-        publishCommand('START');
       })
       .catch(error => {
         console.error('[MissionControl] Failed to call start_mission:', error);
@@ -363,10 +370,11 @@ export function useMissionControl(): MissionControlState {
   }, [
     callMissionService,
     contextStart,
+    state.missionId,
     markExternalUpdate,
-    publishCommand,
     selectedPattern,
     selectedZone,
+    hasValidStartZone,
     setPhase,
   ]);
   
@@ -383,13 +391,18 @@ export function useMissionControl(): MissionControlState {
   const abortMission = useCallback(() => {
     if (!rosConnected || !ros) {
       contextAbort();
-      publishCommand('ABORT');
+      return;
+    }
+    const missionId = state.missionId?.trim();
+    if (!missionId) {
+      console.warn('[MissionControl] abort_mission called without a missionId');
+      contextAbort();
       return;
     }
 
     callMissionService('abort_mission', {
       command: 'ABORT',
-      mission_id: '',
+      mission_id: missionId,
       zone_geometry: '',
     })
       .then(response => {
@@ -398,7 +411,6 @@ export function useMissionControl(): MissionControlState {
           return;
         }
         contextAbort();
-        publishCommand('ABORT');
       })
       .catch(error => {
         console.error('[MissionControl] Failed to call abort_mission:', error);
@@ -406,9 +418,9 @@ export function useMissionControl(): MissionControlState {
   }, [
     callMissionService,
     contextAbort,
-    publishCommand,
     ros,
     rosConnected,
+    state.missionId,
   ]);
   
   const completeMission = useCallback(() => {
@@ -438,9 +450,6 @@ export function useMissionControl(): MissionControlState {
     const isComplete = state.phase === 'COMPLETE';
     const isIdle = state.phase === 'IDLE';
     
-    const hasValidStartZone =
-      !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
-
     return {
       phase: state.phase,
       isActive,
@@ -455,7 +464,7 @@ export function useMissionControl(): MissionControlState {
       canAbort: isActive || isPaused,
       hasValidStartZone,
     };
-  }, [rosConnected, selectedZone, state.phase, state.pausedAt, state.missionId]);
+  }, [rosConnected, hasValidStartZone, state.phase, state.pausedAt, state.missionId]);
   
   // ============================================================================
   // Return Value
@@ -488,7 +497,7 @@ export function useMissionControl(): MissionControlState {
     
     selectedPattern,
     setSelectedPattern: updateSelectedPattern,
-    startMissionError,
+    startMissionError: hasValidStartZone ? null : startMissionError,
 
     // ROS status
     rosConnected,

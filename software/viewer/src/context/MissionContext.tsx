@@ -43,7 +43,7 @@ interface MissionContextValue {
   stats: MissionStats;
   
   // Actions
-  startMission: () => void;
+  startMission: (missionId?: string) => void;
   pauseMission: () => void;
   resumeMission: () => void;
   abortMission: () => void;
@@ -257,8 +257,8 @@ export function MissionProvider({
   // Mission Actions
   // ============================================================================
   
-  const startMission = useCallback(() => {
-    const missionId = generateMissionId();
+  const startMission = useCallback((missionIdOverride?: string) => {
+    const missionId = missionIdOverride?.trim() || generateMissionId();
     
     setState({
       phase: 'SEARCHING',

@@ -110,7 +110,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
           case 'overhead':
             controls.setLookAt(0, 600, 0, 0, 0, 0, true);
             break;
-          case 'tracking':
+          case 'tracking': {
             // Track first active telemetry drone.
             const activeDrone = telemetryDrones.find(d => d.status === 'active');
             if (activeDrone) {
@@ -118,6 +118,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
               controls.setLookAt(x - 80, y + 80, z + 80, x, y, z, true);
             }
             break;
+          }
         }
       },
       teleportTo: (x: number, z: number) => {

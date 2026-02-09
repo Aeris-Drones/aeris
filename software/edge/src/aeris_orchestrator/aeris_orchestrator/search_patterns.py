@@ -51,11 +51,11 @@ def generate_lawnmower_waypoints(
     if track_spacing_m <= 0:
         track_spacing_m = 5.0
 
-    min_x, max_x, min_z, max_z = _bounding_box(normalized)
+    _min_x, _max_x, min_z, max_z = _bounding_box(normalized)
     z = min_z
     row_index = 0
     waypoints: list[Waypoint] = []
-    row_limit = int(math.ceil((max_z - min_z) / track_spacing_m)) + 2
+    row_limit = math.ceil((max_z - min_z) / track_spacing_m) + 2
 
     for _ in range(max(row_limit, 1)):
         intersections = _line_intersections_with_polygon(
@@ -148,7 +148,11 @@ def _normalize_polygon(polygon: Iterable[dict[str, float]]) -> list[Waypoint]:
         x = point.get("x")
         z = point.get("z")
         if isinstance(x, (int, float)) and isinstance(z, (int, float)):
-            normalized.append({"x": float(x), "z": float(z)})
+            x_value = float(x)
+            z_value = float(z)
+            if not math.isfinite(x_value) or not math.isfinite(z_value):
+                continue
+            normalized.append({"x": x_value, "z": z_value})
 
     if len(normalized) >= 2:
         first = normalized[0]

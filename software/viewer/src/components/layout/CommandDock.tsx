@@ -30,11 +30,11 @@ export function CommandDock({
   return (
     <div 
       className="flex items-stretch justify-center gap-4 p-4 pb-6"
-      style={{ height: '140px' }}
+      style={{ minHeight: '170px' }}
     >
-      <div className="w-[280px] h-full">{fleetCard}</div>
-      <div className="w-[280px] h-full">{detectionsCard}</div>
-      <div className="w-[280px] h-full">{controlsCard}</div>
+      <div className="w-[280px] min-h-[140px]">{fleetCard}</div>
+      <div className="w-[280px] min-h-[140px]">{detectionsCard}</div>
+      <div className="w-[280px] min-h-[140px]">{controlsCard}</div>
     </div>
   );
 }

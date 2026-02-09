@@ -12,7 +12,13 @@ import { Zap, AlertTriangle, XCircle, Bell } from 'lucide-react';
  * Per spec Section 9.1: StatusPill = Badge (custom layout, pulsing dot)
  */
 
-export type MissionPhase = 'IDLE' | 'SEARCHING' | 'TRACKING' | 'COMPLETE' | 'ABORTED';
+export type MissionPhase =
+  | 'IDLE'
+  | 'PLANNING'
+  | 'SEARCHING'
+  | 'TRACKING'
+  | 'COMPLETE'
+  | 'ABORTED';
 export type ConnectionStatus = 'connected' | 'degraded' | 'disconnected';
 
 export interface StatusPillProps {
@@ -34,6 +40,7 @@ const phaseConfig: Record<MissionPhase, {
   icon?: string;
 }> = {
   IDLE: { label: 'IDLE', variant: 'secondary', pulse: false },
+  PLANNING: { label: 'PLANNING', variant: 'default', pulse: true },
   SEARCHING: { label: 'SEARCHING', variant: 'success', pulse: true },
   TRACKING: { label: 'TRACKING', variant: 'info', pulse: true },
   COMPLETE: { label: 'COMPLETE', variant: 'info', pulse: false, icon: '✓' },

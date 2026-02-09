@@ -1,11 +1,12 @@
 import json
 import math
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Final
 
 import rclpy
-from aeris_msgs.msg import MissionProgress, MissionState
+from aeris_msgs.msg import MissionProgress, MissionState, Telemetry
 from aeris_msgs.srv import MissionCommand
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
@@ -24,6 +25,13 @@ class MissionPlanState:
     scout_position: dict[str, float] = field(
         default_factory=lambda: {"x": 0.0, "z": 0.0}
     )
+
+
+@dataclass(frozen=True)
+class ScoutEndpoint:
+    vehicle_id: str
+    host: str
+    port: int
 
 
 class MissionNode(Node):
@@ -91,6 +99,16 @@ class MissionNode(Node):
         self._setpoint_stream_hz = float(
             self.declare_parameter("setpoint_stream_hz", 10.0).value
         )
+        self._scout_online_window_sec = float(
+            self.declare_parameter("scout_online_window_sec", 5.0).value
+        )
+        self._scout_endpoints_json = str(
+            self.declare_parameter(
+                "scout_endpoints_json",
+                '[{"vehicle_id":"scout1","host":"127.0.0.1","port":14540},'
+                '{"vehicle_id":"scout2","host":"127.0.0.1","port":14541}]',
+            ).value
+        )
 
         self._state = "IDLE"
         self._mission_id = ""
@@ -105,6 +123,9 @@ class MissionNode(Node):
         self._loop_elapsed_max_ms = 0.0
         self._last_timing_log_monotonic = time.perf_counter()
         self._plan_state = MissionPlanState()
+        self._scout_last_seen_monotonic: dict[str, float] = {}
+        self._active_scout_vehicle_id = ""
+        self._scout_endpoints = self._parse_scout_endpoints()
 
         self._mavlink_adapter = MavlinkAdapter(
             host=self._scout_mavlink_host,
@@ -126,6 +147,12 @@ class MissionNode(Node):
             String, "/mission/progress", queue_depth
         )
         self._serialized_callback_group = MutuallyExclusiveCallbackGroup()
+        self._telemetry_subscription = self.create_subscription(
+            Telemetry,
+            "/vehicle/telemetry",
+            self._handle_vehicle_telemetry,
+            queue_depth,
+        )
 
         self._start_service = self.create_service(
             MissionCommand,
@@ -156,7 +183,8 @@ class MissionNode(Node):
             "Mission node ready: state topic=/orchestrator/mission_state, "
             "progress topic=/orchestrator/mission_progress, "
             f"loop={self._control_loop_period:.3f}s budget={self._loop_budget_ms:.2f}ms, "
-            f"mavlink={self._scout_mavlink_host}:{self._scout_mavlink_udp_port}"
+            f"mavlink={self._scout_mavlink_host}:{self._scout_mavlink_udp_port}, "
+            f"scout_endpoints={len(self._scout_endpoints)}"
         )
 
     def destroy_node(self) -> bool:
@@ -174,11 +202,13 @@ class MissionNode(Node):
         self._publish_state(previous_state=previous)
         self.get_logger().info(f"Mission state transition: {previous} -> {new_state}")
 
-        if new_state == "SEARCHING" and self._plan_state.waypoints:
+        if new_state in self._AUTONOMOUS_STATES and self._plan_state.waypoints:
             self._start_autonomous_execution()
 
         if new_state in {"ABORTED", "COMPLETE", "IDLE"}:
             self._mavlink_adapter.stop_stream()
+            if new_state in {"ABORTED", "IDLE"}:
+                self._active_scout_vehicle_id = ""
 
     def _publish_state(self, previous_state: str) -> None:
         state_message = MissionState()
@@ -203,6 +233,76 @@ class MissionNode(Node):
 
     def _normalized_command(self, command: str) -> str:
         return command.strip().upper()
+
+    def _normalize_vehicle_id(self, value: str) -> str:
+        normalized = value.strip().lower().replace("-", "_")
+        match = re.fullmatch(r"([a-z]+)(\d+)", normalized)
+        if match:
+            normalized = f"{match.group(1)}_{match.group(2)}"
+        return normalized
+
+    def _parse_scout_endpoints(self) -> list[ScoutEndpoint]:
+        endpoints: list[ScoutEndpoint] = []
+        raw_json = self._scout_endpoints_json.strip()
+        if raw_json:
+            try:
+                payload = json.loads(raw_json)
+                if isinstance(payload, list):
+                    for item in payload:
+                        if not isinstance(item, dict):
+                            continue
+                        vehicle_id_raw = str(item.get("vehicle_id", "")).strip()
+                        host = str(item.get("host", "127.0.0.1")).strip() or "127.0.0.1"
+                        try:
+                            port = int(item.get("port", 0))
+                        except (TypeError, ValueError):
+                            continue
+                        if not vehicle_id_raw or port <= 0:
+                            continue
+                        endpoints.append(
+                            ScoutEndpoint(
+                                vehicle_id=self._normalize_vehicle_id(vehicle_id_raw),
+                                host=host,
+                                port=port,
+                            )
+                        )
+            except json.JSONDecodeError:
+                self.get_logger().warning(
+                    "Invalid scout_endpoints_json; falling back to single scout endpoint"
+                )
+
+        if not endpoints:
+            endpoints.append(
+                ScoutEndpoint(
+                    vehicle_id="scout_1",
+                    host=self._scout_mavlink_host,
+                    port=self._scout_mavlink_udp_port,
+                )
+            )
+        return endpoints
+
+    def _handle_vehicle_telemetry(self, message: Telemetry) -> None:
+        vehicle_type = str(message.vehicle_type).strip().lower()
+        vehicle_id = self._normalize_vehicle_id(message.vehicle_id)
+        if not vehicle_id:
+            return
+        if vehicle_type and vehicle_type != "scout" and not vehicle_id.startswith("scout"):
+            return
+        self._scout_last_seen_monotonic[vehicle_id] = time.monotonic()
+
+    def _select_first_available_scout(self) -> ScoutEndpoint | None:
+        if not self._scout_endpoints:
+            return None
+
+        now = time.monotonic()
+        availability_cutoff = max(self._scout_online_window_sec, 0.0)
+        for endpoint in self._scout_endpoints:
+            last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id)
+            if last_seen is None:
+                continue
+            if now - last_seen <= availability_cutoff:
+                return endpoint
+        return self._scout_endpoints[0]
 
     def _set_default_mission_id_if_needed(self, mission_id: str) -> str:
         stripped = mission_id.strip()
@@ -365,6 +465,14 @@ class MissionNode(Node):
             response.message = f"start_mission validation error: {plan_error}"
             return response
 
+        selected_scout = self._select_first_available_scout()
+        if selected_scout is None:
+            response.success = False
+            response.message = "start_mission rejected: no scout endpoints configured"
+            return response
+        self._active_scout_vehicle_id = selected_scout.vehicle_id
+        self._mavlink_adapter.set_endpoint(selected_scout.host, selected_scout.port)
+
         self._mission_id = self._set_default_mission_id_if_needed(request.mission_id)
         self._reset_progress()
         self._plan_state = plan_state
@@ -374,7 +482,7 @@ class MissionNode(Node):
         response.success = True
         response.message = (
             f"Mission {self._mission_id} accepted with pattern '{self._plan_state.pattern_type}' "
-            f"({len(self._plan_state.waypoints)} waypoints)"
+            f"({len(self._plan_state.waypoints)} waypoints) on scout '{self._active_scout_vehicle_id}'"
         )
         return response
 
@@ -500,10 +608,6 @@ class MissionNode(Node):
             }
         )
         self._progress_string_pub.publish(legacy_progress_message)
-
-        if self._coverage_percent >= 100.0:
-            self._transition_to("COMPLETE")
-
 
 def main(args=None) -> None:
     rclpy.init(args=args)
