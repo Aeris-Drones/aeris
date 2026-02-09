@@ -13,13 +13,52 @@ PIDS=()
 trap cleanup EXIT
 
 WORLD_PATH=${WORLD_PATH:-software/sim/worlds/basic_world.sdf}
-BRIDGE_TOPICS=${BRIDGE_TOPICS:-"/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"}
+WORLD_NAME=${WORLD_NAME:-$(basename "${WORLD_PATH}")}
+WORLD_NAME=${WORLD_NAME%.*}
+SCOUT_MODEL_NAME=${SCOUT_MODEL_NAME:-scout1}
 
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 MODEL_PATH="${REPO_ROOT}/software/sim/models"
 PLUGIN_PATH="${REPO_ROOT}/install/aeris_camera_controller/lib"
 RECORD_SCRIPT="${SCRIPT_DIR}/record_sim_session.py"
+
+GZ_SCOUT_TOPIC_ROOT=${GZ_SCOUT_TOPIC_ROOT:-"/world/${WORLD_NAME}/model/${SCOUT_MODEL_NAME}"}
+
+LEFT_IMAGE_TOPIC_GZ=${LEFT_IMAGE_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo_left_link/sensor/stereo_left_camera/image"}
+RIGHT_IMAGE_TOPIC_GZ=${RIGHT_IMAGE_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo_right_link/sensor/stereo_right_camera/image"}
+LEFT_INFO_TOPIC_GZ=${LEFT_INFO_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo_left_link/sensor/stereo_left_camera/camera_info"}
+RIGHT_INFO_TOPIC_GZ=${RIGHT_INFO_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo_right_link/sensor/stereo_right_camera/camera_info"}
+IMU_TOPIC_GZ=${IMU_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/imu_link/sensor/imu_sensor/imu"}
+
+LEFT_IMAGE_TOPIC_ROS=${LEFT_IMAGE_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/left/image_raw"}
+RIGHT_IMAGE_TOPIC_ROS=${RIGHT_IMAGE_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/right/image_raw"}
+LEFT_INFO_TOPIC_ROS=${LEFT_INFO_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/left/camera_info"}
+RIGHT_INFO_TOPIC_ROS=${RIGHT_INFO_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/right/camera_info"}
+IMU_TOPIC_ROS=${IMU_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/imu/data"}
+
+if [[ -n "${BRIDGE_TOPICS:-}" ]]; then
+  # shellcheck disable=SC2206
+  BRIDGE_TOPIC_ARGS=(${BRIDGE_TOPICS})
+else
+  BRIDGE_TOPIC_ARGS=(
+    "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
+    "${LEFT_IMAGE_TOPIC_GZ}@sensor_msgs/msg/Image[gz.msgs.Image"
+    "${RIGHT_IMAGE_TOPIC_GZ}@sensor_msgs/msg/Image[gz.msgs.Image"
+    "${LEFT_INFO_TOPIC_GZ}@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"
+    "${RIGHT_INFO_TOPIC_GZ}@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"
+    "${IMU_TOPIC_GZ}@sensor_msgs/msg/Imu[gz.msgs.IMU"
+  )
+fi
+
+BRIDGE_REMAP_ARGS=(
+  "--ros-args"
+  "-r" "${LEFT_IMAGE_TOPIC_GZ}:=${LEFT_IMAGE_TOPIC_ROS}"
+  "-r" "${RIGHT_IMAGE_TOPIC_GZ}:=${RIGHT_IMAGE_TOPIC_ROS}"
+  "-r" "${LEFT_INFO_TOPIC_GZ}:=${LEFT_INFO_TOPIC_ROS}"
+  "-r" "${RIGHT_INFO_TOPIC_GZ}:=${RIGHT_INFO_TOPIC_ROS}"
+  "-r" "${IMU_TOPIC_GZ}:=${IMU_TOPIC_ROS}"
+)
 
 if [[ -d "${MODEL_PATH}" ]]; then
   if [[ -z "${IGN_GAZEBO_RESOURCE_PATH:-}" ]]; then
@@ -69,8 +108,9 @@ PIDS+=("${GZ_PID}")
 
 sleep 5
 
-echo "Starting ros_gz_bridge parameter_bridge for topics: ${BRIDGE_TOPICS}"
-ros2 run ros_gz_bridge parameter_bridge ${BRIDGE_TOPICS} &
+echo "Starting ros_gz_bridge parameter_bridge for topics:"
+printf '  %s\n' "${BRIDGE_TOPIC_ARGS[@]}"
+ros2 run ros_gz_bridge parameter_bridge "${BRIDGE_TOPIC_ARGS[@]}" "${BRIDGE_REMAP_ARGS[@]}" &
 BRIDGE_PID=$!
 PIDS+=("${BRIDGE_PID}")
 
@@ -110,7 +150,7 @@ if [[ -n "${RECORDING_PROFILE:-}" ]]; then
 fi
 
 echo "Use a separate terminal to spawn the test model:"
-echo "  ros2 service call /world/basic_world/create ros_gz_interfaces/srv/SpawnEntity '{name: test_box, xml: \"$(cat software/sim/models/test_box/model.sdf | sed 's/"/\\\"/g')\"}'"
+echo "  ros2 service call /world/${WORLD_NAME}/create ros_gz_interfaces/srv/SpawnEntity '{name: test_box, xml: \"$(cat software/sim/models/test_box/model.sdf | sed 's/"/\\\"/g')\"}'"
 echo "Then drive it via ROS 2: bridge /model/test_box/cmd_vel and publish geometry_msgs/msg/Twist as documented in docs/specs/sim_setup.md."
 
 wait ${GZ_PID}

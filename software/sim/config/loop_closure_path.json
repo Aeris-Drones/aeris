@@ -1,0 +1,13 @@
+{
+  "description": "Repeatable loop trajectory for Story 2.1 validation",
+  "world": "disaster_scene",
+  "vehicle": "scout1",
+  "waypoints": [
+    {"time": 0.0, "x": -35.0, "y": 0.0, "z": 8.0, "yaw": 0.0},
+    {"time": 20.0, "x": -5.0, "y": 15.0, "z": 10.0, "yaw": 0.8},
+    {"time": 40.0, "x": 20.0, "y": 5.0, "z": 10.0, "yaw": -0.4},
+    {"time": 60.0, "x": 0.0, "y": -15.0, "z": 9.0, "yaw": -1.4},
+    {"time": 80.0, "x": -35.0, "y": 0.0, "z": 8.0, "yaw": 0.0}
+  ],
+  "acceptance_signal": "rtabmap info stream reports at least one loop-closure update"
+}

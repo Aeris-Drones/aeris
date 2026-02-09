@@ -10,6 +10,12 @@
 
   <depend>rclcpp</depend>
   <depend>aeris_msgs</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>ov_msckf</exec_depend>
+  <exec_depend>rtabmap_slam</exec_depend>
+  <exec_depend>rtabmap_util</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

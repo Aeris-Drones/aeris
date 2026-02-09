@@ -6,10 +6,15 @@ from launch.substitutions import LaunchConfiguration
 def launch_setup(context):
     world = LaunchConfiguration('world').perform(context)
     config = LaunchConfiguration('vehicles_config').perform(context)
+    scout_model_name = LaunchConfiguration('scout_model_name').perform(context)
 
     return [
         ExecuteProcess(
-            cmd=['bash', '-lc', f'WORLD_PATH={world} ./software/sim/tools/run_basic_sim.sh'],
+            cmd=[
+                'bash',
+                '-lc',
+                f'WORLD_PATH={world} SCOUT_MODEL_NAME={scout_model_name} ./software/sim/tools/run_basic_sim.sh',
+            ],
             output='screen',
         ),
         ExecuteProcess(
@@ -31,6 +36,10 @@ def generate_launch_description():
             default_value='software/sim/config/multi_drone.yaml',
             description='Vehicle config describing poses and MAVLink ports',
         ),
+        DeclareLaunchArgument(
+            'scout_model_name',
+            default_value='scout1',
+            description='Scout model name used for stereo/IMU bridge remaps',
+        ),
         OpaqueFunction(function=launch_setup),
     ])
-
