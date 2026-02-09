@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Iterable
 
 Waypoint = dict[str, float]
@@ -246,6 +247,9 @@ def _normalize_vehicle_id(value: str) -> str:
     normalized = value.strip().lower().replace("-", "_")
     if not normalized:
         return ""
+    match = re.fullmatch(r"([a-z]+)(\d+)", normalized)
+    if match:
+        normalized = f"{match.group(1)}_{match.group(2)}"
     return normalized
 
 
