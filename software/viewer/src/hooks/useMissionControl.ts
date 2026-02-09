@@ -18,9 +18,17 @@ import {
   type MissionCommand,
   type MissionProgress,
 } from '@/types/mission';
+import {
+  computeMissionControlFlags,
+  getAbortMissionValidationError,
+  withServiceTimeout,
+} from '@/lib/missionControlBehavior';
 import ROSLIB from 'roslib';
 
 type SearchPattern = 'lawnmower' | 'spiral';
+const MISSION_SERVICE_TIMEOUT_MS = 8000;
+const INVALID_START_ZONE_ERROR =
+  'Select an active zone with at least 3 points before starting.';
 
 // ============================================================================
 // Hook Return Type
@@ -62,6 +70,7 @@ export interface MissionControlState {
   selectedPattern: SearchPattern;
   setSelectedPattern: (pattern: SearchPattern) => void;
   startMissionError: string | null;
+  abortMissionError: string | null;
   
   // Actions
   startMission: () => void;
@@ -86,7 +95,6 @@ export function useMissionControl(): MissionControlState {
     startMission: contextStart,
     pauseMission: contextPause,
     resumeMission: contextResume,
-    abortMission: contextAbort,
     completeMission: contextComplete,
     setPhase,
     updateProgress,
@@ -98,12 +106,19 @@ export function useMissionControl(): MissionControlState {
   const { ros, isConnected: rosConnected } = useROSConnection();
   const [selectedPattern, setSelectedPattern] = useState<SearchPattern>('lawnmower');
   const [startMissionError, setStartMissionError] = useState<string | null>(null);
+  const [abortMissionError, setAbortMissionError] = useState<string | null>(null);
   const hasValidStartZone =
     !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
   const updateSelectedPattern = useCallback((pattern: SearchPattern) => {
     setSelectedPattern(pattern);
     setStartMissionError(null);
   }, []);
+
+  useEffect(() => {
+    if (hasValidStartZone && startMissionError === INVALID_START_ZONE_ERROR) {
+      setStartMissionError(null);
+    }
+  }, [hasValidStartZone, startMissionError]);
 
   // Get detection stats from DetectionContext if available
   let detectionStats = stats.detectionCounts;
@@ -161,32 +176,36 @@ export function useMissionControl(): MissionControlState {
         zone_geometry: string;
       }
     ): Promise<{ success: boolean; message: string }> => {
-      return new Promise((resolve, reject) => {
-        if (!ros || !rosConnected) {
-          reject(new Error('ROS is not connected'));
-          return;
-        }
-
-        const service = new ROSLIB.Service({
-          ros,
-          name: serviceName,
-          serviceType: 'aeris_msgs/srv/MissionCommand',
-        });
-        const serviceRequest = new ROSLIB.ServiceRequest(request);
-        service.callService(
-          serviceRequest,
-          response => {
-            const typed = response as { success?: boolean; message?: string };
-            resolve({
-              success: Boolean(typed.success),
-              message: typed.message ?? '',
-            });
-          },
-          error => {
-            reject(new Error(String(error)));
+      return withServiceTimeout(
+        (resolve, reject) => {
+          if (!ros || !rosConnected) {
+            reject(new Error('ROS is not connected'));
+            return;
           }
-        );
-      });
+
+          const service = new ROSLIB.Service({
+            ros,
+            name: serviceName,
+            serviceType: 'aeris_msgs/srv/MissionCommand',
+          });
+          const serviceRequest = new ROSLIB.ServiceRequest(request);
+          service.callService(
+            serviceRequest,
+            response => {
+              const typed = response as { success?: boolean; message?: string };
+              resolve({
+                success: Boolean(typed.success),
+                message: typed.message ?? '',
+              });
+            },
+            error => {
+              reject(new Error(String(error)));
+            }
+          );
+        },
+        MISSION_SERVICE_TIMEOUT_MS,
+        serviceName
+      );
     },
     [ros, rosConnected]
   );
@@ -235,6 +254,9 @@ export function useMissionControl(): MissionControlState {
         if (stateFromPayload && isMissionPhase(stateFromPayload)) {
           markExternalUpdate();
           setPhase(stateFromPayload);
+          if (stateFromPayload === 'ABORTED' || stateFromPayload === 'IDLE') {
+            setAbortMissionError(null);
+          }
         } else {
           console.warn('[MissionControl] Ignoring unknown mission phase:', rawState);
         }
@@ -334,7 +356,7 @@ export function useMissionControl(): MissionControlState {
   const startMission = useCallback(() => {
     const zone = selectedZone;
     if (!zone || !hasValidStartZone) {
-      setStartMissionError('Select an active zone with at least 3 points before starting.');
+      setStartMissionError(INVALID_START_ZONE_ERROR);
       return;
     }
     const missionId = state.missionId?.trim() || generateMissionId();
@@ -389,40 +411,49 @@ export function useMissionControl(): MissionControlState {
   }, [contextResume, publishCommand]);
   
   const abortMission = useCallback(() => {
-    if (!rosConnected || !ros) {
-      contextAbort();
-      return;
-    }
-    const missionId = state.missionId?.trim();
-    if (!missionId) {
-      console.warn('[MissionControl] abort_mission called without a missionId');
-      contextAbort();
+    setAbortMissionError(null);
+
+    const missionId = state.missionId;
+    const validationError = getAbortMissionValidationError({
+      rosConnected: rosConnected && !!ros,
+      missionId,
+    });
+    if (validationError) {
+      if (!missionId?.trim()) {
+        console.warn('[MissionControl] abort_mission called without a missionId');
+      }
+      setAbortMissionError(validationError);
       return;
     }
 
     callMissionService('abort_mission', {
       command: 'ABORT',
-      mission_id: missionId,
+      mission_id: missionId.trim(),
       zone_geometry: '',
     })
       .then(response => {
         if (!response.success) {
           console.warn('[MissionControl] abort_mission rejected:', response.message);
+          setAbortMissionError(
+            response.message || 'Mission abort was rejected by orchestrator.'
+          );
           return;
         }
-        contextAbort();
+        setAbortMissionError(null);
       })
       .catch(error => {
         console.error('[MissionControl] Failed to call abort_mission:', error);
+        setAbortMissionError(
+          error instanceof Error ? error.message : 'Failed to call abort_mission'
+        );
       });
   }, [
     callMissionService,
-    contextAbort,
     ros,
     rosConnected,
     state.missionId,
   ]);
-  
+
   const completeMission = useCallback(() => {
     contextComplete();
     publishCommand('COMPLETE');
@@ -445,23 +476,25 @@ export function useMissionControl(): MissionControlState {
   // ============================================================================
   
   const computedState = useMemo(() => {
-    const isActive = state.phase === 'SEARCHING' || state.phase === 'TRACKING';
-    const isPaused = state.pausedAt !== undefined;
-    const isComplete = state.phase === 'COMPLETE';
-    const isIdle = state.phase === 'IDLE';
+    const controlFlags = computeMissionControlFlags({
+      phase: state.phase,
+      pausedAt: state.pausedAt,
+      hasValidStartZone,
+      rosConnected,
+    });
     
     return {
       phase: state.phase,
-      isActive,
-      isPaused,
-      isComplete,
+      isActive: controlFlags.isActive,
+      isPaused: controlFlags.isPaused,
+      isComplete: controlFlags.isComplete,
       missionId: state.missionId,
       
       // Control flags
-      canStart: isIdle && !isPaused && hasValidStartZone && rosConnected,
-      canPause: isActive && !isPaused,
-      canResume: isPaused,
-      canAbort: isActive || isPaused,
+      canStart: controlFlags.canStart,
+      canPause: controlFlags.canPause,
+      canResume: controlFlags.canResume,
+      canAbort: controlFlags.canAbort,
       hasValidStartZone,
     };
   }, [rosConnected, hasValidStartZone, state.phase, state.pausedAt, state.missionId]);
@@ -497,7 +530,8 @@ export function useMissionControl(): MissionControlState {
     
     selectedPattern,
     setSelectedPattern: updateSelectedPattern,
-    startMissionError: hasValidStartZone ? null : startMissionError,
+    startMissionError,
+    abortMissionError,
 
     // ROS status
     rosConnected,

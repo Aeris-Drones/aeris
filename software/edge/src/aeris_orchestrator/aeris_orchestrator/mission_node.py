@@ -302,13 +302,66 @@ class MissionNode(Node):
                 continue
             if now - last_seen <= availability_cutoff:
                 return endpoint
-        return self._scout_endpoints[0]
+        return None
 
     def _set_default_mission_id_if_needed(self, mission_id: str) -> str:
         stripped = mission_id.strip()
         if stripped:
             return stripped
         return f"mission-{int(time.time())}"
+
+    def _active_abort_endpoints(self) -> list[ScoutEndpoint]:
+        if not self._scout_endpoints:
+            return []
+
+        now = time.monotonic()
+        online_window = max(self._scout_online_window_sec, 0.0)
+        selected: list[ScoutEndpoint] = []
+        selected_ids: set[str] = set()
+
+        for endpoint in self._scout_endpoints:
+            last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id)
+            if last_seen is None:
+                continue
+            if now - last_seen <= online_window:
+                selected.append(endpoint)
+                selected_ids.add(endpoint.vehicle_id)
+
+        if self._active_scout_vehicle_id:
+            for endpoint in self._scout_endpoints:
+                if endpoint.vehicle_id != self._active_scout_vehicle_id:
+                    continue
+                if endpoint.vehicle_id not in selected_ids:
+                    selected.append(endpoint)
+                    selected_ids.add(endpoint.vehicle_id)
+                break
+
+        if selected:
+            return selected
+        return list(self._scout_endpoints)
+
+    def _dispatch_abort_rtl(self, endpoints: list[ScoutEndpoint]) -> tuple[int, int]:
+        success_count = 0
+        total_count = len(endpoints)
+
+        for endpoint in endpoints:
+            try:
+                self._mavlink_adapter.set_endpoint(endpoint.host, endpoint.port)
+                sent = self._mavlink_adapter.send_return_to_launch()
+                if sent:
+                    success_count += 1
+                else:
+                    self.get_logger().warning(
+                        "Abort RTL dispatch was not acknowledged for "
+                        f"{endpoint.vehicle_id} ({endpoint.host}:{endpoint.port})"
+                    )
+            except OSError as error:
+                self.get_logger().warning(
+                    "Abort RTL dispatch failed for "
+                    f"{endpoint.vehicle_id} ({endpoint.host}:{endpoint.port}): {error}"
+                )
+
+        return success_count, total_count
 
     def _parse_mission_plan(
         self, zone_geometry: str
@@ -468,7 +521,9 @@ class MissionNode(Node):
         selected_scout = self._select_first_available_scout()
         if selected_scout is None:
             response.success = False
-            response.message = "start_mission rejected: no scout endpoints configured"
+            response.message = (
+                "start_mission rejected: no scout endpoint reported telemetry recently"
+            )
             return response
         self._active_scout_vehicle_id = selected_scout.vehicle_id
         self._mavlink_adapter.set_endpoint(selected_scout.host, selected_scout.port)
@@ -506,10 +561,18 @@ class MissionNode(Node):
             response.message = "abort_mission rejected due to mission_id mismatch"
             return response
 
+        # Pause setpoint streaming before switching MAVLink endpoints for RTL fan-out.
+        self._mavlink_adapter.stop_stream()
+        target_endpoints = self._active_abort_endpoints()
+        successful_dispatches, total_dispatches = self._dispatch_abort_rtl(target_endpoints)
+
         self._transition_to("ABORTED")
         self._reset_plan_state()
         response.success = True
-        response.message = f"Mission {self._mission_id} aborted"
+        response.message = (
+            f"Mission {self._mission_id} aborted; RTL dispatches "
+            f"{successful_dispatches}/{total_dispatches}"
+        )
         return response
 
     def _control_loop(self) -> None:
