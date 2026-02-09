@@ -11,7 +11,7 @@ import { useEffect, useMemo, useCallback, useContext } from 'react';
 import { useMissionContext } from '@/context/MissionContext';
 import { DetectionContext } from '@/context/DetectionContext';
 import { useROSConnection } from './useROSConnection';
-import type { MissionPhase, MissionCommand } from '@/types/mission';
+import type { MissionPhase, MissionCommand, MissionProgress } from '@/types/mission';
 import ROSLIB from 'roslib';
 
 // ============================================================================
@@ -202,27 +202,56 @@ export function useMissionControl(): MissionControlState {
           grid_completed?: number;
           grid_total?: number;
         };
+        const progressPayload: Partial<MissionProgress> = {};
 
-        updateProgress({
-          coveragePercent: data.coveragePercent ?? data.coverage_percent,
-          searchAreaKm2: data.searchAreaKm2 ?? data.search_area_km2,
-          coveredAreaKm2: data.coveredAreaKm2 ?? data.covered_area_km2,
-          activeDrones: data.activeDrones ?? data.active_drones,
-          totalDrones: data.totalDrones ?? data.total_drones,
-          estimatedTimeRemaining:
-            data.estimatedTimeRemaining ?? data.estimated_time_remaining,
-          gridProgress: data.gridProgress
-            ? {
-                completed: data.gridProgress.completed ?? 0,
-                total: data.gridProgress.total ?? 0,
-              }
-            : data.grid_completed !== undefined || data.grid_total !== undefined
-              ? {
-                  completed: data.grid_completed ?? 0,
-                  total: data.grid_total ?? 0,
-                }
-              : undefined,
-        });
+        const coveragePercent = data.coveragePercent ?? data.coverage_percent;
+        if (coveragePercent !== undefined) {
+          progressPayload.coveragePercent = coveragePercent;
+        }
+
+        const searchAreaKm2 = data.searchAreaKm2 ?? data.search_area_km2;
+        if (searchAreaKm2 !== undefined) {
+          progressPayload.searchAreaKm2 = searchAreaKm2;
+        }
+
+        const coveredAreaKm2 = data.coveredAreaKm2 ?? data.covered_area_km2;
+        if (coveredAreaKm2 !== undefined) {
+          progressPayload.coveredAreaKm2 = coveredAreaKm2;
+        }
+
+        const activeDrones = data.activeDrones ?? data.active_drones;
+        if (activeDrones !== undefined) {
+          progressPayload.activeDrones = activeDrones;
+        }
+
+        const totalDrones = data.totalDrones ?? data.total_drones;
+        if (totalDrones !== undefined) {
+          progressPayload.totalDrones = totalDrones;
+        }
+
+        const estimatedTimeRemaining =
+          data.estimatedTimeRemaining ?? data.estimated_time_remaining;
+        if (estimatedTimeRemaining !== undefined) {
+          progressPayload.estimatedTimeRemaining = estimatedTimeRemaining;
+        }
+
+        if (data.gridProgress) {
+          const completed = data.gridProgress.completed;
+          const total = data.gridProgress.total;
+          if (completed !== undefined || total !== undefined) {
+            progressPayload.gridProgress = {
+              completed: completed ?? 0,
+              total: total ?? 0,
+            };
+          }
+        } else if (data.grid_completed !== undefined || data.grid_total !== undefined) {
+          progressPayload.gridProgress = {
+            completed: data.grid_completed ?? 0,
+            total: data.grid_total ?? 0,
+          };
+        }
+
+        updateProgress(progressPayload);
         markExternalUpdate();
       } catch (error) {
         console.warn('[MissionControl] Failed to parse progress message:', error);

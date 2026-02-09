@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import ROSLIB from 'roslib';
+import type { MissionPhase } from '@/types/mission';
 import { useROSConnection } from './useROSConnection';
 
 const MISSION_PHASES = [
@@ -10,7 +11,6 @@ const MISSION_PHASES = [
   'COMPLETE',
   'ABORTED',
 ] as const;
-export type MissionPhase = typeof MISSION_PHASES[number];
 
 export function useMissionState() {
   const { ros, isConnected } = useROSConnection();

@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import { useMissionState, MissionPhase } from '../../hooks/useMissionState';
+import { useMissionState } from '../../hooks/useMissionState';
+import type { MissionPhase } from '../../types/mission';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Activity } from 'lucide-react';

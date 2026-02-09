@@ -5,6 +5,7 @@ from typing import Final
 import rclpy
 from aeris_msgs.msg import MissionProgress, MissionState
 from aeris_msgs.srv import MissionCommand
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -72,19 +73,30 @@ class MissionNode(Node):
         self._progress_string_pub = self.create_publisher(
             String, "/mission/progress", queue_depth
         )
+        self._serialized_callback_group = MutuallyExclusiveCallbackGroup()
 
         self._start_service = self.create_service(
-            MissionCommand, "start_mission", self._handle_start_mission
+            MissionCommand,
+            "start_mission",
+            self._handle_start_mission,
+            callback_group=self._serialized_callback_group,
         )
         self._abort_service = self.create_service(
-            MissionCommand, "abort_mission", self._handle_abort_mission
+            MissionCommand,
+            "abort_mission",
+            self._handle_abort_mission,
+            callback_group=self._serialized_callback_group,
         )
 
         self._control_timer = self.create_timer(
-            self._control_loop_period, self._control_loop
+            self._control_loop_period,
+            self._control_loop,
+            callback_group=self._serialized_callback_group,
         )
         self._progress_timer = self.create_timer(
-            self._progress_period, self._publish_progress_if_active
+            self._progress_period,
+            self._publish_progress_if_active,
+            callback_group=self._serialized_callback_group,
         )
 
         self._publish_state(previous_state="")
@@ -228,7 +240,7 @@ class MissionNode(Node):
             self._last_timing_log_monotonic = now
 
         if elapsed_ms > self._loop_budget_ms:
-            self.get_logger().warn(
+            self.get_logger().warning(
                 f"control_loop budget exceeded: {elapsed_ms:.3f}ms > "
                 f"{self._loop_budget_ms:.3f}ms"
             )

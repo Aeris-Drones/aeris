@@ -73,6 +73,8 @@ def mission_harness(ros_runtime: MultiThreadedExecutor):
     try:
         yield mission_node, observer
     finally:
+        mission_node._control_timer.cancel()
+        mission_node._progress_timer.cancel()
         ros_runtime.remove_node(observer)
         ros_runtime.remove_node(mission_node)
         observer.destroy_node()
