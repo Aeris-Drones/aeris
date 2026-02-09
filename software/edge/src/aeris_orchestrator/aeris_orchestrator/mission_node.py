@@ -1,6 +1,5 @@
 import json
 import math
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Final
@@ -26,6 +25,7 @@ from .search_patterns import (
     partition_polygon_for_scouts,
     validate_polygon,
 )
+from .vehicle_ids import normalize_vehicle_id
 
 
 @dataclass
@@ -232,6 +232,8 @@ class MissionNode(Node):
         self._scout_last_seen_monotonic: dict[str, float] = {}
         self._scout_position_snapshot: dict[str, dict[str, float]] = {}
         self._scout_geodetic_snapshot: dict[str, dict[str, float]] = {}
+        self._ranger_position_snapshot: dict[str, dict[str, float]] = {}
+        self._ranger_geodetic_snapshot: dict[str, dict[str, float]] = {}
         self._telemetry_geodetic_origin: dict[str, float] | None = None
         self._active_scout_vehicle_id = ""
         self._vehicle_assignments: dict[str, str] = {}
@@ -474,11 +476,7 @@ class MissionNode(Node):
         return command.strip().upper()
 
     def _normalize_vehicle_id(self, value: str) -> str:
-        normalized = value.strip().lower().replace("-", "_")
-        match = re.fullmatch(r"([a-z]+)(\d+)", normalized)
-        if match:
-            normalized = f"{match.group(1)}_{match.group(2)}"
-        return normalized
+        return normalize_vehicle_id(value)
 
     def _parse_scout_endpoints(self) -> list[ScoutEndpoint]:
         endpoints: list[ScoutEndpoint] = []
@@ -608,17 +606,29 @@ class MissionNode(Node):
         elif is_ranger:
             self._ranger_last_seen_monotonic[vehicle_id] = now_monotonic
         if math.isfinite(latitude) and math.isfinite(longitude):
-            self._scout_geodetic_snapshot[vehicle_id] = {
-                "latitude": latitude,
-                "longitude": longitude,
-            }
+            if is_scout:
+                self._scout_geodetic_snapshot[vehicle_id] = {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                }
+            elif is_ranger:
+                self._ranger_geodetic_snapshot[vehicle_id] = {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                }
         local_position = self._telemetry_to_local_position(latitude, longitude)
-        self._scout_position_snapshot[vehicle_id] = local_position
+        if is_scout:
+            self._scout_position_snapshot[vehicle_id] = local_position
+        elif is_ranger:
+            self._ranger_position_snapshot[vehicle_id] = local_position
         if not self._mission_id:
             return
 
         if is_ranger:
-            self._set_scout_assignment(vehicle_id, "OVERWATCH", label="OVERWATCH")
+            if self._active_ranger_vehicle_id and vehicle_id == self._active_ranger_vehicle_id:
+                self._set_scout_assignment(vehicle_id, "OVERWATCH", label="OVERWATCH")
+            else:
+                self._set_scout_assignment(vehicle_id, "IDLE", label="IDLE")
             return
 
         if vehicle_id in self._vehicle_assignments:
@@ -1051,7 +1061,10 @@ class MissionNode(Node):
         )
 
     def _select_endpoint_by_vehicle_id(self, vehicle_id: str) -> ScoutEndpoint | None:
-        return self._resolve_scout_endpoint(vehicle_id)
+        scout_endpoint = self._resolve_scout_endpoint(vehicle_id)
+        if scout_endpoint is not None:
+            return scout_endpoint
+        return self._resolve_ranger_endpoint(vehicle_id)
 
     def _tracking_command_adapter(self) -> MavlinkAdapter:
         if (
@@ -1304,6 +1317,8 @@ class MissionNode(Node):
         if self._scout_online_window_sec < 0:
             return False
         last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id)
+        if last_seen is None:
+            last_seen = self._ranger_last_seen_monotonic.get(endpoint.vehicle_id)
         if last_seen is None:
             return False
         return (time.monotonic() - last_seen) <= self._scout_online_window_sec
@@ -1752,9 +1767,14 @@ class MissionNode(Node):
             if len(reassigned_tail) < 2:
                 continue
 
-            donor_plan.waypoints = donor_plan.waypoints[:split_index]
+            donor_plan.waypoints = [dict(point) for point in donor_plan.waypoints[:split_index]]
             if donor_plan.current_waypoint_index >= len(donor_plan.waypoints):
                 donor_plan.current_waypoint_index = len(donor_plan.waypoints)
+                self._set_scout_assignment(
+                    donor_vehicle_id,
+                    "IDLE",
+                    label=f"IDLE:{donor_plan.zone_id}:complete",
+                )
 
             new_zone_id = f"{donor_plan.zone_id}-assist-{completed_vehicle_id}"
             self._scout_plans[completed_vehicle_id] = MissionPlanState(
@@ -1961,7 +1981,7 @@ class MissionNode(Node):
         self._start_ranger_overwatch_execution()
         current_index = self._ranger_orbit_index % len(self._ranger_orbit_waypoints)
         current_waypoint = self._ranger_orbit_waypoints[current_index]
-        ranger_position = self._scout_position_snapshot.get(self._active_ranger_vehicle_id)
+        ranger_position = self._ranger_position_snapshot.get(self._active_ranger_vehicle_id)
         if ranger_position is None:
             return
         delta_x = float(current_waypoint["x"]) - float(ranger_position["x"])
@@ -2159,7 +2179,7 @@ class MissionNode(Node):
             response.message = "vehicle_command rejected due to missing vehicle_id"
             return response
 
-        endpoint = self._resolve_scout_endpoint(normalized_vehicle_id)
+        endpoint = self._select_endpoint_by_vehicle_id(normalized_vehicle_id)
         if endpoint is None:
             response.success = False
             response.message = (
@@ -2306,7 +2326,7 @@ class MissionNode(Node):
         progress_message.coverage_percent = float(self._coverage_percent)
         progress_message.search_area_km2 = float(self._search_area_km2)
         progress_message.covered_area_km2 = float(covered_area)
-        progress_message.active_drones = int(max(active_drones, 1))
+        progress_message.active_drones = int(active_drones)
         progress_message.total_drones = int(
             max(self._total_drones, total_tracked_drones, len(assignment_items), 1)
         )

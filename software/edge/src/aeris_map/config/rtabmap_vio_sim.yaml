@@ -1,0 +1,43 @@
+/rtabmap:
+  ros__parameters:
+    use_sim_time: true
+
+    # Frame chain required by downstream navigation and validation tests.
+    map_frame_id: map
+    odom_frame_id: odom
+    frame_id: base_link
+
+    # Sensor subscriptions.
+    subscribe_stereo: true
+    subscribe_depth: false
+    subscribe_rgbd: false
+    subscribe_scan: false
+    subscribe_odom: true
+    subscribe_odom_info: true
+    subscribe_imu: true
+    approx_sync: false
+    queue_size: 50
+
+    # Map outputs consumed by downstream map-tile stories.
+    publish_tf: true
+    publish_map: true
+    publish_cloud_map: true
+
+    # Loop-closure and optimization settings tuned for repeated sim loops.
+    Mem/IncrementalMemory: true
+    Mem/InitWMWithAllNodes: false
+    RGBD/ProximityBySpace: true
+    RGBD/NeighborLinkRefining: true
+    RGBD/OptimizeFromGraphEnd: false
+    RGBD/OptimizeMaxError: 3.0
+    Vis/MinInliers: 20
+    Reg/Strategy: 1
+    GFTT/QualityLevel: 0.001
+
+    # Occupancy grid configuration.
+    Grid/FromDepth: true
+    Grid/CellSize: 0.2
+    Grid/RangeMax: 50.0
+
+    # Deterministic output path for Story 2.2 analysis.
+    Rtabmap/DatabasePath: /tmp/aeris/rtabmap/scout1.db

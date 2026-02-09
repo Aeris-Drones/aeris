@@ -7,7 +7,19 @@
       "mavlink_udp_port": 14540,
       "px4_instance": 1,
       "px4_sys_autostart": 4001,
-      "px4_sim_model": "gz_scout"
+      "px4_sim_model": "gz_scout",
+      "sensor_bridge": {
+        "left_image_topic": "/scout1/stereo/left/image_raw",
+        "right_image_topic": "/scout1/stereo/right/image_raw",
+        "left_camera_info_topic": "/scout1/stereo/left/camera_info",
+        "right_camera_info_topic": "/scout1/stereo/right/camera_info",
+        "imu_topic": "/scout1/imu/data",
+        "frames": {
+          "map": "map",
+          "odom": "odom",
+          "base_link": "base_link"
+        }
+      }
     },
     {
       "name": "scout2",
@@ -16,7 +28,19 @@
       "mavlink_udp_port": 14541,
       "px4_instance": 2,
       "px4_sys_autostart": 4001,
-      "px4_sim_model": "gz_scout"
+      "px4_sim_model": "gz_scout",
+      "sensor_bridge": {
+        "left_image_topic": "/scout2/stereo/left/image_raw",
+        "right_image_topic": "/scout2/stereo/right/image_raw",
+        "left_camera_info_topic": "/scout2/stereo/left/camera_info",
+        "right_camera_info_topic": "/scout2/stereo/right/camera_info",
+        "imu_topic": "/scout2/imu/data",
+        "frames": {
+          "map": "map",
+          "odom": "odom",
+          "base_link": "base_link"
+        }
+      }
     },
     {
       "name": "ranger1",

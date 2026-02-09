@@ -58,6 +58,15 @@ test("applyVehicleMissionMeta forces offline when telemetry marks vehicle offlin
   assert.equal(projected.status, "offline");
 });
 
+test("applyVehicleMissionMeta keeps offline status when command hint arrives", () => {
+  const projected = applyVehicleMissionMeta(baseVehicle({ status: "offline" }), {
+    commandStatusHint: "holding",
+    online: true,
+  });
+
+  assert.equal(projected.status, "offline");
+});
+
 test("applyVehicleMissionMeta ignores non-finite progress", () => {
   const projected = applyVehicleMissionMeta(baseVehicle(), {
     progress: Number.NaN,
