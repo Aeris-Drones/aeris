@@ -69,6 +69,9 @@ class TrackingContext:
     timeout_deadline_monotonic: float = 0.0
     previous_plan: MissionPlanState | None = None
     previous_active_scout_vehicle_id: str = ""
+    selected_scout_previous_assignment: str = "SEARCHING"
+    preserved_non_target_vehicle_ids: list[str] = field(default_factory=list)
+    uses_dedicated_adapter: bool = False
 
 
 class MissionNode(Node):
@@ -78,6 +81,7 @@ class MissionNode(Node):
     _AUTONOMOUS_STATES: Final[set[str]] = {"SEARCHING", "TRACKING"}
     _ABORTABLE_STATES: Final[set[str]] = {"SEARCHING", "TRACKING"}
     _SUPPORTED_PATTERNS: Final[set[str]] = {"lawnmower", "spiral"}
+    _EARTH_RADIUS_M: Final[float] = 6_378_137.0
 
     def __init__(self, *, parameter_overrides: list[Parameter] | None = None) -> None:
         super().__init__(
@@ -93,15 +97,10 @@ class MissionNode(Node):
         )
         self._loop_budget_ms = float(self.declare_parameter("loop_budget_ms", 20.0).value)
         self._planning_cycles = int(self.declare_parameter("planning_cycles", 1).value)
-        self._enable_tracking_simulation = bool(
-            self.declare_parameter("enable_tracking_simulation", True).value
-        )
-        self._tracking_trigger_coverage_percent = float(
-            self.declare_parameter("tracking_trigger_coverage_percent", 1.0).value
-        )
-        self._tracking_hold_cycles = int(
-            self.declare_parameter("tracking_hold_cycles", 50).value
-        )
+        # Kept for backward compatibility with older launch configs.
+        self.declare_parameter("enable_tracking_simulation", False)
+        self.declare_parameter("tracking_trigger_coverage_percent", 1.0)
+        self.declare_parameter("tracking_hold_cycles", 50)
         self._search_area_km2 = float(self.declare_parameter("search_area_km2", 1.5).value)
         self._total_drones = int(self.declare_parameter("total_drones", 3).value)
         self._active_drones = int(self.declare_parameter("active_drones", 3).value)
@@ -140,6 +139,9 @@ class MissionNode(Node):
         )
         self._scout_online_window_sec = float(
             self.declare_parameter("scout_online_window_sec", 5.0).value
+        )
+        self._telemetry_geodetic_to_local_enabled = bool(
+            self.declare_parameter("telemetry_geodetic_to_local_enabled", True).value
         )
         self._scout_endpoints_json = str(
             self.declare_parameter(
@@ -192,7 +194,6 @@ class MissionNode(Node):
         self._mission_id = ""
         self._mission_started_sec = 0.0
         self._planning_countdown = 0
-        self._tracking_countdown = 0
         self._tracking_seen_this_mission = False
         self._coverage_percent = 0.0
         self._grid_completed = 0
@@ -204,11 +205,15 @@ class MissionNode(Node):
         self._plan_state = MissionPlanState()
         self._scout_last_seen_monotonic: dict[str, float] = {}
         self._scout_position_snapshot: dict[str, dict[str, float]] = {}
+        self._scout_geodetic_snapshot: dict[str, dict[str, float]] = {}
+        self._telemetry_geodetic_origin: dict[str, float] | None = None
         self._active_scout_vehicle_id = ""
+        self._scout_assignments: dict[str, str] = {}
         self._scout_endpoints = self._parse_scout_endpoints()
         self._tracking_context = TrackingContext()
         self._last_detection_event: DetectionEvent | None = None
         self._last_detection_rejection_reason = ""
+        self._last_tracking_completion_reason = ""
         self._last_detection_accept_monotonic = -math.inf
         self._last_tracking_dispatch_latency_ms = 0.0
 
@@ -218,6 +223,7 @@ class MissionNode(Node):
             stream_hz=self._setpoint_stream_hz,
             logger=lambda message: self.get_logger().info(message),
         )
+        self._tracking_mavlink_adapter: MavlinkAdapter | None = None
 
         self._state_pub = self.create_publisher(
             MissionState, "/orchestrator/mission_state", queue_depth
@@ -301,6 +307,7 @@ class MissionNode(Node):
         )
 
     def destroy_node(self) -> bool:
+        self._close_tracking_adapter()
         self._mavlink_adapter.close()
         return super().destroy_node()
 
@@ -319,10 +326,12 @@ class MissionNode(Node):
             self._start_autonomous_execution()
 
         if new_state in {"ABORTED", "COMPLETE", "IDLE"}:
+            self._close_tracking_adapter()
             self._mavlink_adapter.stop_stream()
             self._mission_started_sec = 0.0
             if new_state in {"ABORTED", "IDLE"}:
                 self._active_scout_vehicle_id = ""
+            self._scout_assignments.clear()
             self._reset_tracking_context()
 
     def _publish_state(self, previous_state: str) -> None:
@@ -340,12 +349,13 @@ class MissionNode(Node):
     def _reset_progress(self) -> None:
         self._coverage_percent = 0.0
         self._grid_completed = 0
-        self._tracking_countdown = 0
         self._tracking_seen_this_mission = False
         self._last_tracking_dispatch_latency_ms = 0.0
         self._last_detection_accept_monotonic = -math.inf
         self._last_detection_rejection_reason = ""
+        self._last_tracking_completion_reason = ""
         self._last_detection_event = None
+        self._scout_assignments.clear()
         self._reset_tracking_context()
 
     def _reset_plan_state(self) -> None:
@@ -353,6 +363,25 @@ class MissionNode(Node):
 
     def _reset_tracking_context(self) -> None:
         self._tracking_context = TrackingContext()
+
+    def _close_tracking_adapter(self) -> None:
+        if self._tracking_mavlink_adapter is None:
+            return
+        self._tracking_mavlink_adapter.close()
+        self._tracking_mavlink_adapter = None
+
+    def _set_scout_assignment(self, vehicle_id: str, assignment: str) -> None:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        if not normalized_vehicle_id:
+            return
+        self._scout_assignments[normalized_vehicle_id] = assignment
+
+    def _initialize_search_assignments(self, active_scout_vehicle_id: str) -> None:
+        for endpoint in self._scout_endpoints:
+            self._set_scout_assignment(endpoint.vehicle_id, "SEARCHING")
+        for vehicle_id in self._scout_last_seen_monotonic:
+            self._set_scout_assignment(vehicle_id, "SEARCHING")
+        self._set_scout_assignment(active_scout_vehicle_id, "SEARCHING")
 
     def _clone_plan_state(self, plan: MissionPlanState) -> MissionPlanState:
         return MissionPlanState(
@@ -423,11 +452,26 @@ class MissionNode(Node):
             return
         if vehicle_type and vehicle_type != "scout" and not vehicle_id.startswith("scout"):
             return
+
+        latitude = float(message.position.latitude)
+        longitude = float(message.position.longitude)
+
         self._scout_last_seen_monotonic[vehicle_id] = time.monotonic()
-        self._scout_position_snapshot[vehicle_id] = {
-            "x": float(message.position.longitude),
-            "z": float(message.position.latitude),
-        }
+        if math.isfinite(latitude) and math.isfinite(longitude):
+            self._scout_geodetic_snapshot[vehicle_id] = {
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        local_position = self._telemetry_to_local_position(latitude, longitude)
+        self._scout_position_snapshot[vehicle_id] = local_position
+        if self._mission_id and vehicle_id not in self._scout_assignments:
+            if (
+                self._tracking_context.active
+                and vehicle_id == self._tracking_context.assigned_scout_vehicle_id
+            ):
+                self._set_scout_assignment(vehicle_id, "TRACKING")
+            else:
+                self._set_scout_assignment(vehicle_id, "SEARCHING")
 
     def _handle_thermal_hotspot(self, message: ThermalHotspot) -> None:
         event = self._normalize_thermal_hotspot(message)
@@ -454,6 +498,31 @@ class MissionNode(Node):
         sec = float(getattr(stamp, "sec", 0))
         nanosec = float(getattr(stamp, "nanosec", 0))
         return sec + (nanosec / 1e9)
+
+    def _telemetry_to_local_position(
+        self, latitude: float, longitude: float
+    ) -> dict[str, float]:
+        # Some simulation environments may already provide local coordinates in
+        # GeoPosition fields. If values are outside valid geodetic bounds, keep
+        # legacy passthrough behavior.
+        if not math.isfinite(latitude) or not math.isfinite(longitude):
+            return {"x": 0.0, "z": 0.0}
+        if not (-90.0 <= latitude <= 90.0 and -180.0 <= longitude <= 180.0):
+            return {"x": longitude, "z": latitude}
+        if not self._telemetry_geodetic_to_local_enabled:
+            return {"x": longitude, "z": latitude}
+
+        if self._telemetry_geodetic_origin is None:
+            self._telemetry_geodetic_origin = {
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        origin_lat = float(self._telemetry_geodetic_origin["latitude"])
+        origin_lon = float(self._telemetry_geodetic_origin["longitude"])
+        north_m = math.radians(latitude - origin_lat) * self._EARTH_RADIUS_M
+        east_scale = math.cos(math.radians(origin_lat))
+        east_m = math.radians(longitude - origin_lon) * self._EARTH_RADIUS_M * east_scale
+        return {"x": east_m, "z": north_m}
 
     def _active_scout_position(self) -> dict[str, float]:
         if self._active_scout_vehicle_id:
@@ -587,20 +656,6 @@ class MissionNode(Node):
 
         without_position.sort(key=lambda item: (item[0], item[1]))
         return without_position[0][2]
-
-    def _select_first_available_scout(self) -> ScoutEndpoint | None:
-        if not self._scout_endpoints:
-            return None
-
-        now = time.monotonic()
-        availability_cutoff = max(self._scout_online_window_sec, 0.0)
-        for endpoint in self._scout_endpoints:
-            last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id)
-            if last_seen is None:
-                continue
-            if now - last_seen <= availability_cutoff:
-                return endpoint
-        return None
 
     def _set_default_mission_id_if_needed(self, mission_id: str) -> str:
         stripped = mission_id.strip()
@@ -766,6 +821,23 @@ class MissionNode(Node):
                 return endpoint
         return None
 
+    def _tracking_command_adapter(self) -> MavlinkAdapter:
+        if (
+            self._tracking_context.active
+            and self._tracking_context.uses_dedicated_adapter
+            and self._tracking_mavlink_adapter is not None
+        ):
+            return self._tracking_mavlink_adapter
+        return self._mavlink_adapter
+
+    def _build_tracking_adapter(self, endpoint: ScoutEndpoint) -> MavlinkAdapter:
+        return MavlinkAdapter(
+            host=endpoint.host,
+            port=endpoint.port,
+            stream_hz=self._setpoint_stream_hz,
+            logger=lambda message: self.get_logger().info(message),
+        )
+
     def _process_detection_event(self, event: DetectionEvent) -> bool:
         is_valid, reason = self._validate_detection_event(event)
         if not is_valid:
@@ -793,6 +865,16 @@ class MissionNode(Node):
             )
             return False
 
+        selected_scout_previous_assignment = self._scout_assignments.get(
+            selected_endpoint.vehicle_id, "SEARCHING"
+        )
+        preserved_non_target_vehicle_ids = sorted(
+            vehicle_id
+            for vehicle_id, assignment in self._scout_assignments.items()
+            if vehicle_id != selected_endpoint.vehicle_id
+            and assignment in {"SEARCHING", "TRACKING"}
+        )
+
         accepted_monotonic = time.monotonic()
         self._tracking_seen_this_mission = True
         previous_plan = self._tracking_context.previous_plan
@@ -802,12 +884,24 @@ class MissionNode(Node):
         if not previous_scout_vehicle_id:
             previous_scout_vehicle_id = self._active_scout_vehicle_id
 
+        use_dedicated_adapter = (
+            bool(previous_scout_vehicle_id)
+            and selected_endpoint.vehicle_id != previous_scout_vehicle_id
+            and self._mavlink_adapter.is_streaming
+        )
+        if use_dedicated_adapter:
+            self._close_tracking_adapter()
+            self._tracking_mavlink_adapter = self._build_tracking_adapter(selected_endpoint)
+        else:
+            self._close_tracking_adapter()
+            self._mavlink_adapter.set_endpoint(selected_endpoint.host, selected_endpoint.port)
+
         self._last_detection_accept_monotonic = accepted_monotonic
         self._last_detection_event = event
         self._last_detection_rejection_reason = ""
 
         self._active_scout_vehicle_id = selected_endpoint.vehicle_id
-        self._mavlink_adapter.set_endpoint(selected_endpoint.host, selected_endpoint.port)
+        self._set_scout_assignment(selected_endpoint.vehicle_id, "TRACKING")
         self._plan_state = tracking_plan
 
         self._tracking_context = TrackingContext(
@@ -823,14 +917,39 @@ class MissionNode(Node):
             + max(self._tracking_timeout_sec, 0.1),
             previous_plan=previous_plan,
             previous_active_scout_vehicle_id=previous_scout_vehicle_id,
+            selected_scout_previous_assignment=selected_scout_previous_assignment,
+            preserved_non_target_vehicle_ids=preserved_non_target_vehicle_ids,
+            uses_dedicated_adapter=use_dedicated_adapter,
         )
 
+        # Transition first so the execution path starts/adapts streaming; latency
+        # measurement below intentionally times the first adapter-level setpoint emit.
         if self._state != "TRACKING":
             self._transition_to("TRACKING")
         else:
             self._start_autonomous_execution()
 
-        dispatch_monotonic = time.monotonic()
+        dispatch_adapter = self._tracking_command_adapter()
+        dispatch_timeout_sec = max(self._tracking_dispatch_budget_ms / 1000.0, 0.001)
+        dispatch_monotonic = dispatch_adapter.wait_for_setpoint_dispatch(
+            after_monotonic=accepted_monotonic,
+            timeout_sec=dispatch_timeout_sec,
+        )
+        if dispatch_monotonic is None:
+            dispatch_monotonic = time.monotonic()
+            dispatch_latency_ms = (dispatch_monotonic - accepted_monotonic) * 1000.0
+            self._tracking_context.dispatch_monotonic = dispatch_monotonic
+            self._tracking_context.dispatch_latency_ms = dispatch_latency_ms
+            self._last_tracking_dispatch_latency_ms = dispatch_latency_ms
+            reason = (
+                "tracking dispatch failed to emit adapter setpoint before latency budget "
+                f"({dispatch_latency_ms:.3f}ms > {self._tracking_dispatch_budget_ms:.3f}ms)"
+            )
+            self._last_detection_rejection_reason = reason
+            self.get_logger().warning(reason)
+            self._complete_tracking("latency budget exceeded")
+            return False
+
         dispatch_latency_ms = (dispatch_monotonic - accepted_monotonic) * 1000.0
         self._tracking_context.dispatch_monotonic = dispatch_monotonic
         self._tracking_context.dispatch_latency_ms = dispatch_latency_ms
@@ -848,7 +967,8 @@ class MissionNode(Node):
         self.get_logger().info(
             f"Detection accepted ({event.sensor_type}) confidence={event.confidence:.3f}, "
             f"assigned_scout={selected_endpoint.vehicle_id}, "
-            f"dispatch_latency_ms={dispatch_latency_ms:.3f}"
+            f"dispatch_latency_ms={dispatch_latency_ms:.3f}, "
+            f"preserved_non_targets={len(preserved_non_target_vehicle_ids)}"
         )
         return True
 
@@ -858,21 +978,31 @@ class MissionNode(Node):
 
         previous_plan = self._tracking_context.previous_plan
         previous_scout_vehicle_id = self._tracking_context.previous_active_scout_vehicle_id
+        assigned_scout_vehicle_id = self._tracking_context.assigned_scout_vehicle_id
+        selected_scout_previous_assignment = (
+            self._tracking_context.selected_scout_previous_assignment or "SEARCHING"
+        )
+        if selected_scout_previous_assignment == "TRACKING":
+            selected_scout_previous_assignment = "SEARCHING"
         self.get_logger().info(f"Tracking completed: {reason}")
 
         if previous_plan is not None:
             self._plan_state = self._clone_plan_state(previous_plan)
 
-        self._tracking_context.completion_reason = reason
+        self._last_tracking_completion_reason = reason
         self._reset_tracking_context()
+        self._close_tracking_adapter()
+
+        if assigned_scout_vehicle_id:
+            self._set_scout_assignment(
+                assigned_scout_vehicle_id, selected_scout_previous_assignment
+            )
 
         if previous_scout_vehicle_id:
             self._active_scout_vehicle_id = previous_scout_vehicle_id
             endpoint = self._select_endpoint_by_vehicle_id(previous_scout_vehicle_id)
             if endpoint is not None:
                 self._mavlink_adapter.set_endpoint(endpoint.host, endpoint.port)
-
-        self._tracking_countdown = 0
         if self._state != "SEARCHING":
             self._transition_to("SEARCHING")
         else:
@@ -963,14 +1093,13 @@ class MissionNode(Node):
         waypoint = self._current_waypoint()
         if waypoint is None:
             return
-        if self._mavlink_adapter.is_streaming:
-            self._mavlink_adapter.update_setpoint(waypoint)
+        adapter = self._tracking_command_adapter()
+        if adapter.is_streaming:
+            adapter.update_setpoint(waypoint)
             return
 
-        self._mavlink_adapter.upload_mission_items_int(
-            self._mission_id, self._plan_state.waypoints
-        )
-        self._mavlink_adapter.start_stream(self._mission_id, waypoint)
+        adapter.upload_mission_items_int(self._mission_id, self._plan_state.waypoints)
+        adapter.start_stream(self._mission_id, waypoint)
 
     def _advance_waypoint_index(self) -> None:
         current = self._plan_state.current_waypoint_index
@@ -984,7 +1113,7 @@ class MissionNode(Node):
 
         self._plan_state.current_waypoint_index = next_index
         next_waypoint = self._plan_state.waypoints[next_index]
-        self._mavlink_adapter.update_setpoint(next_waypoint)
+        self._tracking_command_adapter().update_setpoint(next_waypoint)
         self.get_logger().info(
             f"Advancing to waypoint {next_index + 1}/{len(self._plan_state.waypoints)}"
         )
@@ -1044,11 +1173,13 @@ class MissionNode(Node):
             )
             return response
         self._active_scout_vehicle_id = selected_scout.vehicle_id
+        self._close_tracking_adapter()
         self._mavlink_adapter.set_endpoint(selected_scout.host, selected_scout.port)
 
         self._mission_id = self._set_default_mission_id_if_needed(request.mission_id)
         self._mission_started_sec = self._now_seconds()
         self._reset_progress()
+        self._initialize_search_assignments(selected_scout.vehicle_id)
         self._plan_state = plan_state
         self._planning_countdown = max(self._planning_cycles, 1)
         self._transition_to("PLANNING")
@@ -1081,6 +1212,7 @@ class MissionNode(Node):
             return response
 
         # Pause setpoint streaming before switching MAVLink endpoints for RTL fan-out.
+        self._close_tracking_adapter()
         self._mavlink_adapter.stop_stream()
         target_endpoints = self._active_abort_endpoints()
         successful_dispatches, total_dispatches = self._dispatch_abort_rtl(target_endpoints)
@@ -1101,17 +1233,6 @@ class MissionNode(Node):
             self._planning_countdown -= 1
             if self._planning_countdown <= 0:
                 self._transition_to("SEARCHING")
-        elif self._state == "SEARCHING":
-            should_enter_tracking = (
-                self._enable_tracking_simulation
-                and not self._tracking_seen_this_mission
-                and not self._tracking_context.active
-                and self._coverage_percent >= self._tracking_trigger_coverage_percent
-            )
-            if should_enter_tracking:
-                self._tracking_seen_this_mission = True
-                self._tracking_countdown = max(self._tracking_hold_cycles, 1)
-                self._transition_to("TRACKING")
         elif self._state == "TRACKING":
             if self._tracking_context.active:
                 if (
@@ -1122,9 +1243,11 @@ class MissionNode(Node):
                 elif time.monotonic() >= self._tracking_context.timeout_deadline_monotonic:
                     self._complete_tracking("tracking timeout reached")
             else:
-                self._tracking_countdown -= 1
-                if self._tracking_countdown <= 0 and self._coverage_percent < 100.0:
-                    self._transition_to("SEARCHING")
+                self.get_logger().warning(
+                    "TRACKING state observed without active tracking context; "
+                    "returning to SEARCHING"
+                )
+                self._transition_to("SEARCHING")
 
         if self._state in self._AUTONOMOUS_STATES:
             self._update_scout_position_towards_waypoint()
@@ -1200,6 +1323,11 @@ class MissionNode(Node):
                 "activeScoutVehicleId": self._active_scout_vehicle_id,
                 "trackingActive": self._tracking_context.active,
                 "trackingDispatchLatencyMs": self._last_tracking_dispatch_latency_ms,
+                "lastTrackingCompletionReason": self._last_tracking_completion_reason,
+                "vehicleAssignments": dict(sorted(self._scout_assignments.items())),
+                "trackingPreservedNonTargetVehicles": list(
+                    self._tracking_context.preserved_non_target_vehicle_ids
+                ),
                 "lastDetectionRejection": self._last_detection_rejection_reason,
             }
         )

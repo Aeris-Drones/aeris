@@ -166,8 +166,8 @@ def test_start_mission_transitions_to_planning_then_searching(mission_harness) -
     assert planning_index < searching_index
 
     assert _wait_until(lambda: len(observer.progress_updates) > 0)
-    assert _wait_until(lambda: "TRACKING" in observer.states)
-    assert _wait_until(lambda: mission_node._mavlink_adapter.is_streaming)  # noqa: SLF001
+    assert not _wait_until(lambda: "TRACKING" in observer.states, timeout_sec=1.5)
+    assert _wait_until(lambda: mission_node._mavlink_adapter.is_streaming)
 
 
 def test_start_mission_rejects_invalid_command(mission_harness) -> None:
@@ -359,7 +359,7 @@ def test_start_mission_prefers_recently_seen_scout_endpoint(mission_harness) -> 
     assert response is not None
     assert response.success
     assert "scout 'scout_2'" in response.message
-    assert mission_node._active_scout_vehicle_id == "scout_2"  # noqa: SLF001
+    assert mission_node._active_scout_vehicle_id == "scout_2"
 
 
 def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
@@ -393,8 +393,8 @@ def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
             raise OSError("simulated endpoint write failure")
         return True
 
-    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
-    monkeypatch.setattr(  # noqa: SLF001
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(
         mission_node._mavlink_adapter, "send_return_to_launch", _record_rtl_attempt
     )
 
@@ -456,8 +456,14 @@ def mission_harness_detection(ros_runtime: MultiThreadedExecutor):
         mission_node.destroy_node()
 
 
-def _start_searching_mission(mission_node: MissionNode, observer: MissionObserver) -> None:
-    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+def _start_searching_mission(
+    mission_node: MissionNode,
+    observer: MissionObserver,
+    *,
+    publish_telemetry: bool = True,
+) -> None:
+    if publish_telemetry:
+        _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
     request = MissionCommand.Request()
     request.command = "START"
     request.mission_id = "detection-mission"
@@ -467,7 +473,7 @@ def _start_searching_mission(mission_node: MissionNode, observer: MissionObserve
     response = future.result()
     assert response is not None
     assert response.success
-    assert _wait_until(lambda: mission_node._state == "SEARCHING")  # noqa: SLF001
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
 
 
 def _publish_thermal(
@@ -548,43 +554,44 @@ def test_detection_acceptance_transitions_to_tracking_and_resumes_searching(
 
     _publish_thermal(observer, confidence=0.95)
     assert _wait_until(lambda: "TRACKING" in observer.states)
-    assert mission_node._state == "TRACKING"  # noqa: SLF001
+    assert mission_node._state == "TRACKING"
 
     signal = String()
     signal.data = "resolved"
     observer.tracking_resolution_publisher.publish(signal)
-    assert _wait_until(lambda: mission_node._state == "SEARCHING")  # noqa: SLF001
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
+    assert mission_node._last_tracking_completion_reason == "resolution signal"
 
 
 def test_detection_rejects_low_confidence_stale_and_cooldown(mission_harness_detection) -> None:
     mission_node, observer = mission_harness_detection
     _start_searching_mission(mission_node, observer)
-    mission_node._thermal_confidence_min = 0.9  # noqa: SLF001
+    mission_node._thermal_confidence_min = 0.9
 
     _publish_thermal(observer, confidence=0.5)
     assert _wait_until(
-        lambda: "below threshold" in mission_node._last_detection_rejection_reason  # noqa: SLF001
+        lambda: "below threshold" in mission_node._last_detection_rejection_reason
     )
-    assert mission_node._state == "SEARCHING"  # noqa: SLF001
+    assert mission_node._state == "SEARCHING"
 
     _publish_acoustic(observer, confidence=0.95, stamp_offset_sec=-10.0)
     assert _wait_until(
-        lambda: "stale" in mission_node._last_detection_rejection_reason  # noqa: SLF001
+        lambda: "stale" in mission_node._last_detection_rejection_reason
     )
-    assert mission_node._state == "SEARCHING"  # noqa: SLF001
+    assert mission_node._state == "SEARCHING"
 
     _publish_thermal(observer, confidence=0.99)
-    assert _wait_until(lambda: mission_node._state == "TRACKING")  # noqa: SLF001
+    assert _wait_until(lambda: mission_node._state == "TRACKING")
     signal = String()
     signal.data = "resolved"
     observer.tracking_resolution_publisher.publish(signal)
-    assert _wait_until(lambda: mission_node._state == "SEARCHING")  # noqa: SLF001
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
 
     _publish_gas(observer, x=1.0, y=1.0)
     assert _wait_until(
-        lambda: "cooldown active" in mission_node._last_detection_rejection_reason  # noqa: SLF001
+        lambda: "cooldown active" in mission_node._last_detection_rejection_reason
     )
-    assert mission_node._state == "SEARCHING"  # noqa: SLF001
+    assert mission_node._state == "SEARCHING"
 
 
 def test_detection_selects_nearest_online_scout_and_records_dispatch_latency(
@@ -595,18 +602,77 @@ def test_detection_selects_nearest_online_scout_and_records_dispatch_latency(
         observer, mission_node, vehicle_id="scout1", latitude=0.0, longitude=0.0
     )
     _publish_scout_telemetry(
-        observer, mission_node, vehicle_id="scout2", latitude=50.0, longitude=50.0
+        observer, mission_node, vehicle_id="scout2", latitude=0.00045, longitude=0.00045
     )
+    _start_searching_mission(mission_node, observer, publish_telemetry=False)
+
+    _publish_gas(observer, x=50.0, y=50.0)
+    assert _wait_until(lambda: mission_node._state == "TRACKING")
+    assert mission_node._active_scout_vehicle_id == "scout_2"
+    assert mission_node._last_tracking_dispatch_latency_ms >= 0.0
+    assert (
+        mission_node._last_tracking_dispatch_latency_ms
+        <= mission_node._tracking_dispatch_budget_ms
+    )
+
+
+def test_detection_dispatch_preserves_non_target_vehicle_assignments(
+    mission_harness_detection, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_detection
+    _publish_scout_telemetry(
+        observer, mission_node, vehicle_id="scout1", latitude=0.0, longitude=0.0
+    )
+    _publish_scout_telemetry(
+        observer, mission_node, vehicle_id="scout2", latitude=0.00045, longitude=0.00045
+    )
+    _start_searching_mission(mission_node, observer, publish_telemetry=False)
+    assert mission_node._active_scout_vehicle_id == "scout_1"
+
+    endpoint_calls: list[tuple[str, int]] = []
+    original_set_endpoint = mission_node._mavlink_adapter.set_endpoint
+
+    def _record_endpoint(host: str, port: int) -> None:
+        endpoint_calls.append((host, int(port)))
+        original_set_endpoint(host, port)
+
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+
+    _publish_gas(observer, x=50.0, y=50.0)
+    assert _wait_until(lambda: mission_node._state == "TRACKING")
+    assert mission_node._tracking_context.uses_dedicated_adapter
+    assert mission_node._tracking_context.assigned_scout_vehicle_id == "scout_2"
+    assert "scout_1" in mission_node._tracking_context.preserved_non_target_vehicle_ids
+    assert mission_node._scout_assignments.get("scout_1") == "SEARCHING"
+    assert mission_node._scout_assignments.get("scout_2") == "TRACKING"
+    assert ("127.0.0.1", 14541) not in endpoint_calls
+
+    signal = String()
+    signal.data = "resolved"
+    observer.tracking_resolution_publisher.publish(signal)
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
+    assert mission_node._scout_assignments.get("scout_2") == "SEARCHING"
+
+
+def test_detection_latency_uses_adapter_dispatch_timestamp(
+    mission_harness_detection, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_detection
     _start_searching_mission(mission_node, observer)
 
-    _publish_gas(observer, x=49.8, y=50.2)
-    assert _wait_until(lambda: mission_node._state == "TRACKING")  # noqa: SLF001
-    assert mission_node._active_scout_vehicle_id == "scout_2"  # noqa: SLF001
-    assert mission_node._last_tracking_dispatch_latency_ms >= 0.0  # noqa: SLF001
-    assert (
-        mission_node._last_tracking_dispatch_latency_ms  # noqa: SLF001
-        <= mission_node._tracking_dispatch_budget_ms  # noqa: SLF001
+    def _fake_wait_for_setpoint_dispatch(*, after_monotonic: float, timeout_sec: float):
+        del timeout_sec
+        return after_monotonic + 0.150
+
+    monkeypatch.setattr(
+        mission_node._mavlink_adapter,
+        "wait_for_setpoint_dispatch",
+        _fake_wait_for_setpoint_dispatch,
     )
+
+    _publish_thermal(observer, confidence=0.98)
+    assert _wait_until(lambda: mission_node._state == "TRACKING")
+    assert mission_node._last_tracking_dispatch_latency_ms == pytest.approx(150.0, abs=10.0)
 
 
 def test_detection_selection_falls_back_to_most_recent_seen_without_positions(
@@ -617,7 +683,7 @@ def test_detection_selection_falls_back_to_most_recent_seen_without_positions(
     time.sleep(0.02)
     _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
 
-    mission_node._scout_position_snapshot.clear()  # noqa: SLF001
-    selected = mission_node._select_tracking_scout_endpoint({"x": 0.0, "z": 0.0})  # noqa: SLF001
+    mission_node._scout_position_snapshot.clear()
+    selected = mission_node._select_tracking_scout_endpoint({"x": 0.0, "z": 0.0})
     assert selected is not None
     assert selected.vehicle_id == "scout_2"
