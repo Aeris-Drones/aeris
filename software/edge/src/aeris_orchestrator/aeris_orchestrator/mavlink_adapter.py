@@ -11,6 +11,11 @@ from pymavlink import mavutil
 Setpoint = dict[str, float]
 
 _METERS_TO_CENTIMETERS = 100.0
+_COMMAND_ACK_TIMEOUT_SEC = 1.0
+_COMMAND_ACK_RETRIES = 1
+_RTL_ACK_TIMEOUT_SEC = 1.0
+_RTL_HEARTBEAT_TIMEOUT_SEC = 2.0
+_RTL_ACK_RETRIES = 1
 
 
 class MavlinkAdapter:
@@ -150,6 +155,189 @@ class MavlinkAdapter:
         self.stop_stream()
         with self._connection_lock:
             self._mav_connection.close()
+
+    def send_return_to_launch(self) -> bool:
+        """Send an explicit RTL command to the currently selected endpoint."""
+        return self._send_command_with_ack(
+            command_id=mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+            params=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ack_timeout_sec=_RTL_ACK_TIMEOUT_SEC,
+            ack_retries=_RTL_ACK_RETRIES,
+            require_rtl_heartbeat=True,
+            heartbeat_timeout_sec=_RTL_HEARTBEAT_TIMEOUT_SEC,
+            label="RTL",
+        )
+
+    def send_hold_position(self) -> bool:
+        """Pause autonomous progression for the currently selected endpoint."""
+        return self._send_command_with_ack(
+            command_id=mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE,
+            params=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ack_timeout_sec=_COMMAND_ACK_TIMEOUT_SEC,
+            ack_retries=_COMMAND_ACK_RETRIES,
+            require_rtl_heartbeat=False,
+            heartbeat_timeout_sec=0.0,
+            label="HOLD",
+        )
+
+    def send_resume_mission(self) -> bool:
+        """Resume autonomous progression for the currently selected endpoint."""
+        return self._send_command_with_ack(
+            command_id=mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE,
+            params=(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ack_timeout_sec=_COMMAND_ACK_TIMEOUT_SEC,
+            ack_retries=_COMMAND_ACK_RETRIES,
+            require_rtl_heartbeat=False,
+            heartbeat_timeout_sec=0.0,
+            label="RESUME",
+        )
+
+    def _send_command_with_ack(
+        self,
+        *,
+        command_id: int,
+        params: tuple[float, float, float, float, float, float, float],
+        ack_timeout_sec: float,
+        ack_retries: int,
+        require_rtl_heartbeat: bool,
+        heartbeat_timeout_sec: float,
+        label: str,
+    ) -> bool:
+        accepted_results = {
+            mavutil.mavlink.MAV_RESULT_ACCEPTED,
+            mavutil.mavlink.MAV_RESULT_IN_PROGRESS,
+        }
+
+        for attempt in range(1, ack_retries + 2):
+            confirmation = attempt - 1
+            try:
+                with self._connection_lock:
+                    self._mav_connection.mav.command_long_send(
+                        self._target_system,
+                        self._target_component,
+                        command_id,
+                        confirmation,
+                        params[0],
+                        params[1],
+                        params[2],
+                        params[3],
+                        params[4],
+                        params[5],
+                        params[6],
+                    )
+                self._logger(
+                    f"Sent command {command_id} ({label}) to "
+                    f"{self._host}:{self._port} (attempt {attempt}, confirmation={confirmation})"
+                )
+            except OSError as error:
+                self._logger(f"MAVLink {label} command send failed: {error}")
+                return False
+
+            ack = self._wait_for_command_ack(command_id, ack_timeout_sec)
+            if ack is None:
+                if attempt <= ack_retries:
+                    self._logger(
+                        f"No COMMAND_ACK received for {label} command; retrying "
+                        f"({attempt}/{ack_retries + 1})"
+                    )
+                    continue
+                self._logger(f"No COMMAND_ACK received for {label} command")
+                return False
+
+            result = int(getattr(ack, "result", -1))
+            if result in accepted_results:
+                if require_rtl_heartbeat and not self._wait_for_heartbeat_rtl(
+                    heartbeat_timeout_sec
+                ):
+                    self._logger(
+                        "COMMAND_ACK accepted but RTL mode was not observed via HEARTBEAT "
+                        f"for {self._host}:{self._port}"
+                    )
+                    if attempt <= ack_retries:
+                        continue
+                    return False
+                return True
+
+            self._logger(
+                f"{label} command rejected with COMMAND_ACK result="
+                f"{result} on {self._host}:{self._port}"
+            )
+            if attempt <= ack_retries:
+                continue
+            return False
+
+        return False
+
+    def _wait_for_command_ack(self, command_id: int, timeout_sec: float):
+        deadline = time.monotonic() + max(timeout_sec, 0.0)
+        while time.monotonic() < deadline:
+            remaining = max(deadline - time.monotonic(), 0.0)
+            with self._connection_lock:
+                ack = self._mav_connection.recv_match(
+                    type="COMMAND_ACK",
+                    blocking=True,
+                    timeout=remaining,
+                )
+            if ack is None:
+                return None
+            if not self._message_matches_target(ack):
+                continue
+            if int(getattr(ack, "command", -1)) != command_id:
+                continue
+            return ack
+        return None
+
+    def _wait_for_heartbeat_rtl(self, timeout_sec: float) -> bool:
+        deadline = time.monotonic() + max(timeout_sec, 0.0)
+        while time.monotonic() < deadline:
+            remaining = max(deadline - time.monotonic(), 0.0)
+            with self._connection_lock:
+                heartbeat = self._mav_connection.recv_match(
+                    type="HEARTBEAT",
+                    blocking=True,
+                    timeout=remaining,
+                )
+            if heartbeat is None:
+                return False
+            if not self._message_matches_target(heartbeat):
+                continue
+            if self._heartbeat_indicates_rtl(heartbeat):
+                return True
+        return False
+
+    def _message_matches_target(self, message) -> bool:
+        get_system = getattr(message, "get_srcSystem", None)
+        if callable(get_system):
+            try:
+                if int(get_system()) != int(self._target_system):
+                    return False
+            except (TypeError, ValueError):
+                return False
+
+        get_component = getattr(message, "get_srcComponent", None)
+        if callable(get_component):
+            try:
+                if int(self._target_component) > 0 and int(get_component()) != int(
+                    self._target_component
+                ):
+                    return False
+            except (TypeError, ValueError):
+                return False
+
+        return True
+
+    def _heartbeat_indicates_rtl(self, heartbeat) -> bool:
+        # PX4 encodes main/sub mode in custom_mode.
+        custom_mode = int(getattr(heartbeat, "custom_mode", -1))
+        if custom_mode >= 0:
+            px4_main_mode = (custom_mode >> 16) & 0xFF
+            px4_sub_mode = (custom_mode >> 24) & 0xFF
+            if px4_main_mode == 4 and px4_sub_mode == 5:
+                return True
+            # ArduPilot Copter/Plane RTL custom mode values.
+            if custom_mode in {6, 11}:
+                return True
+        return False
 
     def _stream_loop(self) -> None:
         period = 1.0 / self._stream_hz

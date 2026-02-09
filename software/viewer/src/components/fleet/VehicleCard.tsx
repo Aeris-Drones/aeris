@@ -60,11 +60,19 @@ export function VehicleCard({
   onFocus,
 }: VehicleCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { selectVehicle, recallVehicle, holdVehicle, resumeVehicle, selectedVehicleId } = useFleetContext();
+  const {
+    selectVehicle,
+    recallVehicle,
+    holdVehicle,
+    resumeVehicle,
+    selectedVehicleId,
+    commandErrors,
+  } = useFleetContext();
   
   const isSelected = selectedVehicleId === vehicle.id;
   const statusConfig = getVehicleStatusConfig(vehicle.status);
   const typeColor = getVehicleTypeColor(vehicle.type);
+  const commandError = commandErrors[vehicle.id];
   
   const handleSelect = () => {
     selectVehicle(isSelected ? null : vehicle.id);
@@ -323,6 +331,12 @@ export function VehicleCard({
                 <Target className="w-4 h-4" />
                 Focus on Map
               </button>
+
+              {commandError && (
+                <p className="text-xs text-danger bg-danger/10 border border-danger/30 rounded-md px-2 py-1">
+                  {commandError}
+                </p>
+              )}
             </div>
           </motion.div>
         )}

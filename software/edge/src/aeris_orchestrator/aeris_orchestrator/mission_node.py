@@ -3,11 +3,11 @@ import math
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Callable, Final
 
 import rclpy
 from aeris_msgs.msg import MissionProgress, MissionState, Telemetry
-from aeris_msgs.srv import MissionCommand
+from aeris_msgs.srv import MissionCommand, VehicleCommand
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -41,6 +41,7 @@ class MissionNode(Node):
     _AUTONOMOUS_STATES: Final[set[str]] = {"SEARCHING", "TRACKING"}
     _ABORTABLE_STATES: Final[set[str]] = {"SEARCHING", "TRACKING"}
     _SUPPORTED_PATTERNS: Final[set[str]] = {"lawnmower", "spiral"}
+    _SUPPORTED_VEHICLE_COMMANDS: Final[set[str]] = {"HOLD", "RESUME", "RECALL"}
 
     def __init__(self) -> None:
         super().__init__("aeris_mission_orchestrator")
@@ -164,6 +165,12 @@ class MissionNode(Node):
             MissionCommand,
             "abort_mission",
             self._handle_abort_mission,
+            callback_group=self._serialized_callback_group,
+        )
+        self._vehicle_command_service = self.create_service(
+            VehicleCommand,
+            "vehicle_command",
+            self._handle_vehicle_command,
             callback_group=self._serialized_callback_group,
         )
 
@@ -302,13 +309,109 @@ class MissionNode(Node):
                 continue
             if now - last_seen <= availability_cutoff:
                 return endpoint
-        return self._scout_endpoints[0]
+        return None
 
     def _set_default_mission_id_if_needed(self, mission_id: str) -> str:
         stripped = mission_id.strip()
         if stripped:
             return stripped
         return f"mission-{int(time.time())}"
+
+    def _active_abort_endpoints(self) -> list[ScoutEndpoint]:
+        if not self._scout_endpoints:
+            return []
+
+        now = time.monotonic()
+        online_window = max(self._scout_online_window_sec, 0.0)
+        selected: list[ScoutEndpoint] = []
+        selected_ids: set[str] = set()
+
+        for endpoint in self._scout_endpoints:
+            last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id)
+            if last_seen is None:
+                continue
+            if now - last_seen <= online_window:
+                selected.append(endpoint)
+                selected_ids.add(endpoint.vehicle_id)
+
+        if self._active_scout_vehicle_id:
+            for endpoint in self._scout_endpoints:
+                if endpoint.vehicle_id != self._active_scout_vehicle_id:
+                    continue
+                if endpoint.vehicle_id not in selected_ids:
+                    selected.append(endpoint)
+                    selected_ids.add(endpoint.vehicle_id)
+                break
+
+        if selected:
+            return selected
+        return list(self._scout_endpoints)
+
+    def _dispatch_abort_rtl(self, endpoints: list[ScoutEndpoint]) -> tuple[int, int]:
+        success_count = 0
+        total_count = len(endpoints)
+
+        for endpoint in endpoints:
+            try:
+                self._mavlink_adapter.set_endpoint(endpoint.host, endpoint.port)
+                sent = self._mavlink_adapter.send_return_to_launch()
+                if sent:
+                    success_count += 1
+                else:
+                    self.get_logger().warning(
+                        "Abort RTL dispatch was not acknowledged for "
+                        f"{endpoint.vehicle_id} ({endpoint.host}:{endpoint.port})"
+                    )
+            except OSError as error:
+                self.get_logger().warning(
+                    "Abort RTL dispatch failed for "
+                    f"{endpoint.vehicle_id} ({endpoint.host}:{endpoint.port}): {error}"
+                )
+
+        return success_count, total_count
+
+    def _resolve_scout_endpoint(self, vehicle_id: str) -> ScoutEndpoint | None:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        for endpoint in self._scout_endpoints:
+            if endpoint.vehicle_id == normalized_vehicle_id:
+                return endpoint
+        return None
+
+    def _is_endpoint_online(self, endpoint: ScoutEndpoint) -> bool:
+        if self._scout_online_window_sec < 0:
+            return False
+        last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id)
+        if last_seen is None:
+            return False
+        return (time.monotonic() - last_seen) <= self._scout_online_window_sec
+
+    def _dispatch_vehicle_command(
+        self, endpoint: ScoutEndpoint, command: str
+    ) -> tuple[bool, str]:
+        dispatchers: dict[str, Callable[[], bool]] = {
+            "HOLD": self._mavlink_adapter.send_hold_position,
+            "RESUME": self._mavlink_adapter.send_resume_mission,
+            "RECALL": self._mavlink_adapter.send_return_to_launch,
+        }
+        dispatch = dispatchers.get(command)
+        if dispatch is None:
+            return False, f"unsupported command '{command}'"
+
+        try:
+            self._mavlink_adapter.set_endpoint(endpoint.host, endpoint.port)
+        except OSError as error:
+            return (
+                False,
+                f"vehicle_command dispatch failed for '{endpoint.vehicle_id}': {error}",
+            )
+
+        sent = dispatch()
+        if not sent:
+            return (
+                False,
+                f"vehicle_command '{command}' was not acknowledged by '{endpoint.vehicle_id}'",
+            )
+        return True, ""
 
     def _parse_mission_plan(
         self, zone_geometry: str
@@ -468,7 +571,9 @@ class MissionNode(Node):
         selected_scout = self._select_first_available_scout()
         if selected_scout is None:
             response.success = False
-            response.message = "start_mission rejected: no scout endpoints configured"
+            response.message = (
+                "start_mission rejected: no scout endpoint reported telemetry recently"
+            )
             return response
         self._active_scout_vehicle_id = selected_scout.vehicle_id
         self._mavlink_adapter.set_endpoint(selected_scout.host, selected_scout.port)
@@ -506,10 +611,72 @@ class MissionNode(Node):
             response.message = "abort_mission rejected due to mission_id mismatch"
             return response
 
+        # Pause setpoint streaming before switching MAVLink endpoints for RTL fan-out.
+        self._mavlink_adapter.stop_stream()
+        target_endpoints = self._active_abort_endpoints()
+        successful_dispatches, total_dispatches = self._dispatch_abort_rtl(target_endpoints)
+
         self._transition_to("ABORTED")
         self._reset_plan_state()
         response.success = True
-        response.message = f"Mission {self._mission_id} aborted"
+        response.message = (
+            f"Mission {self._mission_id} aborted; RTL dispatches "
+            f"{successful_dispatches}/{total_dispatches}"
+        )
+        return response
+
+    def _handle_vehicle_command(
+        self, request: VehicleCommand.Request, response: VehicleCommand.Response
+    ) -> VehicleCommand.Response:
+        command = self._normalized_command(request.command)
+        if command not in self._SUPPORTED_VEHICLE_COMMANDS:
+            response.success = False
+            response.message = (
+                f"vehicle_command rejected due to unsupported command '{request.command}'"
+            )
+            return response
+
+        if self._state not in self._AUTONOMOUS_STATES:
+            response.success = False
+            response.message = f"vehicle_command '{command}' rejected while in {self._state}"
+            return response
+
+        if request.mission_id.strip() and request.mission_id.strip() != self._mission_id:
+            response.success = False
+            response.message = "vehicle_command rejected due to mission_id mismatch"
+            return response
+
+        normalized_vehicle_id = self._normalize_vehicle_id(request.vehicle_id)
+        if not normalized_vehicle_id:
+            response.success = False
+            response.message = "vehicle_command rejected due to missing vehicle_id"
+            return response
+
+        endpoint = self._resolve_scout_endpoint(normalized_vehicle_id)
+        if endpoint is None:
+            response.success = False
+            response.message = (
+                f"vehicle_command rejected due to unknown vehicle_id '{request.vehicle_id}'"
+            )
+            return response
+
+        if not self._is_endpoint_online(endpoint):
+            response.success = False
+            response.message = (
+                f"vehicle_command rejected due to offline vehicle_id '{request.vehicle_id}'"
+            )
+            return response
+
+        command_sent, command_error = self._dispatch_vehicle_command(endpoint, command)
+        if not command_sent:
+            response.success = False
+            response.message = command_error
+            return response
+
+        response.success = True
+        response.message = (
+            f"vehicle_command '{command}' accepted for target '{endpoint.vehicle_id}'"
+        )
         return response
 
     def _control_loop(self) -> None:
