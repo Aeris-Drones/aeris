@@ -11,6 +11,8 @@ from pymavlink import mavutil
 Setpoint = dict[str, float]
 
 _METERS_TO_CENTIMETERS = 100.0
+_COMMAND_ACK_TIMEOUT_SEC = 1.0
+_COMMAND_ACK_RETRIES = 1
 _RTL_ACK_TIMEOUT_SEC = 1.0
 _RTL_HEARTBEAT_TIMEOUT_SEC = 2.0
 _RTL_ACK_RETRIES = 1
@@ -156,13 +158,57 @@ class MavlinkAdapter:
 
     def send_return_to_launch(self) -> bool:
         """Send an explicit RTL command to the currently selected endpoint."""
-        command_id = mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH
+        return self._send_command_with_ack(
+            command_id=mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+            params=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ack_timeout_sec=_RTL_ACK_TIMEOUT_SEC,
+            ack_retries=_RTL_ACK_RETRIES,
+            require_rtl_heartbeat=True,
+            heartbeat_timeout_sec=_RTL_HEARTBEAT_TIMEOUT_SEC,
+            label="RTL",
+        )
+
+    def send_hold_position(self) -> bool:
+        """Pause autonomous progression for the currently selected endpoint."""
+        return self._send_command_with_ack(
+            command_id=mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE,
+            params=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ack_timeout_sec=_COMMAND_ACK_TIMEOUT_SEC,
+            ack_retries=_COMMAND_ACK_RETRIES,
+            require_rtl_heartbeat=False,
+            heartbeat_timeout_sec=0.0,
+            label="HOLD",
+        )
+
+    def send_resume_mission(self) -> bool:
+        """Resume autonomous progression for the currently selected endpoint."""
+        return self._send_command_with_ack(
+            command_id=mavutil.mavlink.MAV_CMD_DO_PAUSE_CONTINUE,
+            params=(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ack_timeout_sec=_COMMAND_ACK_TIMEOUT_SEC,
+            ack_retries=_COMMAND_ACK_RETRIES,
+            require_rtl_heartbeat=False,
+            heartbeat_timeout_sec=0.0,
+            label="RESUME",
+        )
+
+    def _send_command_with_ack(
+        self,
+        *,
+        command_id: int,
+        params: tuple[float, float, float, float, float, float, float],
+        ack_timeout_sec: float,
+        ack_retries: int,
+        require_rtl_heartbeat: bool,
+        heartbeat_timeout_sec: float,
+        label: str,
+    ) -> bool:
         accepted_results = {
             mavutil.mavlink.MAV_RESULT_ACCEPTED,
             mavutil.mavlink.MAV_RESULT_IN_PROGRESS,
         }
 
-        for attempt in range(1, _RTL_ACK_RETRIES + 2):
+        for attempt in range(1, ack_retries + 2):
             confirmation = attempt - 1
             try:
                 with self._connection_lock:
@@ -171,50 +217,52 @@ class MavlinkAdapter:
                         self._target_component,
                         command_id,
                         confirmation,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
+                        params[0],
+                        params[1],
+                        params[2],
+                        params[3],
+                        params[4],
+                        params[5],
+                        params[6],
                     )
                 self._logger(
-                    "Sent MAV_CMD_NAV_RETURN_TO_LAUNCH to "
+                    f"Sent command {command_id} ({label}) to "
                     f"{self._host}:{self._port} (attempt {attempt}, confirmation={confirmation})"
                 )
             except OSError as error:
-                self._logger(f"MAVLink RTL command send failed: {error}")
+                self._logger(f"MAVLink {label} command send failed: {error}")
                 return False
 
-            ack = self._wait_for_command_ack(command_id, _RTL_ACK_TIMEOUT_SEC)
+            ack = self._wait_for_command_ack(command_id, ack_timeout_sec)
             if ack is None:
-                if attempt <= _RTL_ACK_RETRIES:
+                if attempt <= ack_retries:
                     self._logger(
-                        "No COMMAND_ACK received for RTL command; retrying "
-                        f"({attempt}/{_RTL_ACK_RETRIES + 1})"
+                        f"No COMMAND_ACK received for {label} command; retrying "
+                        f"({attempt}/{ack_retries + 1})"
                     )
                     continue
-                self._logger("No COMMAND_ACK received for RTL command")
+                self._logger(f"No COMMAND_ACK received for {label} command")
                 return False
 
             result = int(getattr(ack, "result", -1))
             if result in accepted_results:
-                if not self._wait_for_heartbeat_rtl(_RTL_HEARTBEAT_TIMEOUT_SEC):
+                if require_rtl_heartbeat and not self._wait_for_heartbeat_rtl(
+                    heartbeat_timeout_sec
+                ):
                     self._logger(
                         "COMMAND_ACK accepted but RTL mode was not observed via HEARTBEAT "
                         f"for {self._host}:{self._port}"
                     )
-                    if attempt <= _RTL_ACK_RETRIES:
+                    if attempt <= ack_retries:
                         continue
                     return False
                 return True
 
             self._logger(
-                "RTL command rejected with COMMAND_ACK result="
+                f"{label} command rejected with COMMAND_ACK result="
                 f"{result} on {self._host}:{self._port}"
             )
-            if attempt <= _RTL_ACK_RETRIES:
+            if attempt <= ack_retries:
                 continue
             return False
 

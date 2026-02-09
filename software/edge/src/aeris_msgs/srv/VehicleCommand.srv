@@ -1,0 +1,6 @@
+string vehicle_id
+string command
+string mission_id
+---
+bool success
+string message
