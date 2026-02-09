@@ -802,7 +802,7 @@ def test_completed_scout_is_reassigned_to_remaining_work(mission_harness) -> Non
                 {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
                 {"x": 1.0, "z": 0.0, "altitude_m": 20.0},
             ],
-            current_waypoint_index=1,
+            current_waypoint_index=2,
             scout_position={"x": 1.0, "z": 0.0},
         ),
         "scout_2": MissionPlanState(
@@ -830,6 +830,35 @@ def test_completed_scout_is_reassigned_to_remaining_work(mission_harness) -> Non
     assert len(mission_node._scout_plans["scout_2"].waypoints) < 5
 
 
+def test_search_plan_completion_waits_for_final_waypoint_arrival(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    plan = MissionPlanState(
+        pattern_type="lawnmower",
+        zone_id="zone-1",
+        waypoints=[
+            {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+            {"x": 10.0, "z": 0.0, "altitude_m": 20.0},
+        ],
+        current_waypoint_index=1,
+        scout_position={"x": 0.0, "z": 0.0},
+    )
+    mission_node._scout_plans = {"scout_1": plan}
+
+    assert not mission_node._is_search_plan_complete(plan)
+    assert mission_node._search_plan_progress_percent(plan) == pytest.approx(50.0)
+
+    plan.scout_position = {"x": 10.0, "z": 0.0}
+    mission_node._advance_search_plan_for_vehicle("scout_1")
+
+    assert mission_node._is_search_plan_complete(plan)
+    assert plan.current_waypoint_index == len(plan.waypoints)
+    assert mission_node._search_plan_progress_percent(plan) == pytest.approx(100.0)
+
+
 def test_start_mission_enables_ranger_overwatch_from_role_data(
     mission_harness_multi_vehicle,
 ) -> None:
@@ -854,6 +883,90 @@ def test_start_mission_enables_ranger_overwatch_from_role_data(
     assert len(mission_node._ranger_orbit_waypoints) >= 4
 
 
+def test_start_mission_dispatches_ranger_overwatch_stream_when_endpoint_is_configured(
+    mission_harness_multi_vehicle, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_multi_vehicle
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
+    _publish_ranger_telemetry(observer, mission_node, vehicle_id="ranger1")
+
+    calls: dict[str, list] = {"upload": [], "start": [], "update": [], "close": []}
+
+    class _FakeRangerAdapter:
+        def __init__(self) -> None:
+            self.is_streaming = False
+
+        def upload_mission_items_int(
+            self, mission_id: str, waypoints: list[dict[str, float]]
+        ) -> None:
+            calls["upload"].append((mission_id, len(waypoints)))
+
+        def start_stream(self, mission_id: str, initial_setpoint: dict[str, float]) -> None:
+            self.is_streaming = True
+            calls["start"].append((mission_id, dict(initial_setpoint)))
+
+        def update_setpoint(self, setpoint: dict[str, float]) -> None:
+            calls["update"].append(dict(setpoint))
+
+        def close(self) -> None:
+            self.is_streaming = False
+            calls["close"].append(True)
+
+    fake_adapter = _FakeRangerAdapter()
+    monkeypatch.setattr(
+        MissionNode,
+        "_build_ranger_adapter",
+        lambda self, endpoint: fake_adapter,
+    )
+
+    request = MissionCommand.Request()
+    request.command = "START"
+    request.mission_id = "ranger-overwatch-dispatch"
+    request.zone_geometry = VALID_ZONE_GEOMETRY
+    result_future = observer.start_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert response.success
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
+    assert _wait_until(lambda: bool(calls["upload"]))
+    assert _wait_until(lambda: bool(calls["start"]))
+    assert calls["start"][-1][0] == "ranger-overwatch-dispatch"
+    assert calls["start"][-1][1]["altitude_m"] == pytest.approx(
+        mission_node._ranger_overwatch_altitude_m
+    )
+
+
+def test_sync_assignments_preserves_completed_idle_label_for_online_scout(
+    mission_harness,
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._mission_id = "sync-complete-label"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-1",
+            waypoints=[
+                {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+                {"x": 1.0, "z": 0.0, "altitude_m": 20.0},
+            ],
+            current_waypoint_index=2,
+            scout_position={"x": 1.0, "z": 0.0},
+        )
+    }
+    mission_node._set_scout_assignment("scout_1", "IDLE", label="IDLE:zone-1:complete")
+    mission_node._scout_last_seen_monotonic["scout_1"] = time.monotonic()
+
+    mission_node._sync_assignments_with_telemetry_freshness()
+
+    assert mission_node._scout_assignments["scout_1"] == "IDLE"
+    assert mission_node._assignment_labels["scout_1"] == "IDLE:zone-1:complete"
+
+
 def test_progress_payload_includes_vehicle_assignment_labels_and_progress(
     mission_harness, monkeypatch
 ) -> None:
@@ -871,7 +984,7 @@ def test_progress_payload_includes_vehicle_assignment_labels_and_progress(
                 {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
                 {"x": 1.0, "z": 0.0, "altitude_m": 20.0},
             ],
-            current_waypoint_index=1,
+            current_waypoint_index=2,
             scout_position={"x": 1.0, "z": 0.0},
         )
     }

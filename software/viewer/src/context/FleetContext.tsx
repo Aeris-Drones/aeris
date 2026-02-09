@@ -35,6 +35,7 @@ import {
   extractVehicleMissionMetaFromProgressPayload,
   normalizeVehicleId,
 } from '@/lib/missionProgressVehicleMeta';
+import { applyVehicleMissionMeta } from '@/lib/fleetVehicleProjection';
 import ROSLIB from 'roslib';
 
 type FleetCommandResult = {
@@ -116,23 +117,13 @@ export function FleetProvider({ children }: FleetProviderProps) {
     return rawVehicles.map(v => {
       const vehicleInfo = vehicleStateToInfo(v, v.id === selectedVehicleId);
       const normalizedId = normalizeVehicleId(v.id);
-      const hintedStatus = commandStatusHints[v.id];
-      if (vehicleInfo.status !== 'offline' && hintedStatus) {
-        vehicleInfo.status = hintedStatus;
-      }
-      if (vehicleOnline[normalizedId] === false) {
-        vehicleInfo.status = 'offline';
-      }
-      const assignmentLabel =
-        vehicleAssignmentLabels[normalizedId] ?? vehicleAssignments[normalizedId];
-      if (assignmentLabel) {
-        vehicleInfo.assignment = assignmentLabel;
-      }
-      const missionProgressPercent = vehicleProgress[normalizedId];
-      if (typeof missionProgressPercent === 'number' && Number.isFinite(missionProgressPercent)) {
-        vehicleInfo.missionProgressPercent = missionProgressPercent;
-      }
-      return vehicleInfo;
+      return applyVehicleMissionMeta(vehicleInfo, {
+        commandStatusHint: commandStatusHints[v.id],
+        assignment: vehicleAssignments[normalizedId],
+        assignmentLabel: vehicleAssignmentLabels[normalizedId],
+        progress: vehicleProgress[normalizedId],
+        online: vehicleOnline[normalizedId],
+      });
     });
   }, [
     commandStatusHints,

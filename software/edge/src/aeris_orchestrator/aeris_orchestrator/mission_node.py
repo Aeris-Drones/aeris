@@ -244,6 +244,8 @@ class MissionNode(Node):
         self._active_ranger_vehicle_id = ""
         self._ranger_orbit_waypoints: list[dict[str, float]] = []
         self._ranger_orbit_index = 0
+        self._ranger_mavlink_adapter: MavlinkAdapter | None = None
+        self._ranger_adapter_vehicle_id = ""
         self._tracking_context = TrackingContext()
         self._last_detection_event: DetectionEvent | None = None
         self._last_detection_rejection_reason = ""
@@ -350,6 +352,7 @@ class MissionNode(Node):
 
     def destroy_node(self) -> bool:
         self._close_tracking_adapter()
+        self._close_ranger_adapter()
         self._mavlink_adapter.close()
         return super().destroy_node()
 
@@ -366,9 +369,11 @@ class MissionNode(Node):
 
         if new_state in self._AUTONOMOUS_STATES and self._plan_state.waypoints:
             self._start_autonomous_execution()
+            self._start_ranger_overwatch_execution()
 
         if new_state in {"ABORTED", "COMPLETE", "IDLE"}:
             self._close_tracking_adapter()
+            self._close_ranger_adapter()
             self._mavlink_adapter.stop_stream()
             self._mission_started_sec = 0.0
             if new_state in {"ABORTED", "IDLE"}:
@@ -406,6 +411,7 @@ class MissionNode(Node):
         self._active_ranger_vehicle_id = ""
         self._ranger_orbit_waypoints = []
         self._ranger_orbit_index = 0
+        self._close_ranger_adapter()
         self._reset_tracking_context()
 
     def _reset_plan_state(self) -> None:
@@ -419,6 +425,14 @@ class MissionNode(Node):
             return
         self._tracking_mavlink_adapter.close()
         self._tracking_mavlink_adapter = None
+
+    def _close_ranger_adapter(self) -> None:
+        if self._ranger_mavlink_adapter is None:
+            self._ranger_adapter_vehicle_id = ""
+            return
+        self._ranger_mavlink_adapter.close()
+        self._ranger_mavlink_adapter = None
+        self._ranger_adapter_vehicle_id = ""
 
     def _set_scout_assignment(
         self, vehicle_id: str, assignment: str, *, label: str | None = None
@@ -1059,6 +1073,17 @@ class MissionNode(Node):
             logger=lambda message: self.get_logger().info(message),
         )
 
+    def _build_ranger_adapter(self, endpoint: ScoutEndpoint) -> MavlinkAdapter:
+        return MavlinkAdapter(
+            host=endpoint.host,
+            port=endpoint.port,
+            command_port=endpoint.command_port if endpoint.command_port > 0 else endpoint.port,
+            stream_hz=self._setpoint_stream_hz,
+            target_system=endpoint.target_system,
+            target_component=endpoint.target_component,
+            logger=lambda message: self.get_logger().info(message),
+        )
+
     def _process_detection_event(self, event: DetectionEvent) -> bool:
         is_valid, reason = self._validate_detection_event(event)
         if not is_valid:
@@ -1264,6 +1289,13 @@ class MissionNode(Node):
     def _resolve_scout_endpoint(self, vehicle_id: str) -> ScoutEndpoint | None:
         normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
         for endpoint in self._scout_endpoints:
+            if endpoint.vehicle_id == normalized_vehicle_id:
+                return endpoint
+        return None
+
+    def _resolve_ranger_endpoint(self, vehicle_id: str) -> ScoutEndpoint | None:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        for endpoint in self._ranger_endpoints:
             if endpoint.vehicle_id == normalized_vehicle_id:
                 return endpoint
         return None
@@ -1625,15 +1657,13 @@ class MissionNode(Node):
     def _is_search_plan_complete(self, plan: MissionPlanState) -> bool:
         if not plan.waypoints:
             return True
-        return plan.current_waypoint_index >= (len(plan.waypoints) - 1)
+        return plan.current_waypoint_index >= len(plan.waypoints)
 
     def _search_plan_progress_percent(self, plan: MissionPlanState) -> float:
         if not plan.waypoints:
             return 100.0
-        if len(plan.waypoints) == 1:
-            return 100.0 if self._is_search_plan_complete(plan) else 0.0
-        completed = max(0, min(plan.current_waypoint_index, len(plan.waypoints) - 1))
-        return min(100.0, max(0.0, (completed / (len(plan.waypoints) - 1)) * 100.0))
+        completed = max(0, min(plan.current_waypoint_index, len(plan.waypoints)))
+        return min(100.0, max(0.0, (completed / len(plan.waypoints)) * 100.0))
 
     def _advance_search_plan_for_vehicle(self, vehicle_id: str) -> None:
         plan = self._scout_plans.get(vehicle_id)
@@ -1659,7 +1689,8 @@ class MissionNode(Node):
                     self._tracking_command_adapter().update_setpoint(
                         plan.waypoints[next_index]
                     )
-            if self._is_search_plan_complete(plan):
+            else:
+                plan.current_waypoint_index = len(plan.waypoints)
                 self._set_scout_assignment(
                     vehicle_id,
                     "IDLE",
@@ -1703,7 +1734,7 @@ class MissionNode(Node):
             for vehicle_id, plan in self._scout_plans.items():
                 if vehicle_id == completed_vehicle_id:
                     continue
-                remaining = len(plan.waypoints) - 1 - plan.current_waypoint_index
+                remaining = len(plan.waypoints) - plan.current_waypoint_index
                 if remaining > 2:
                     donor_candidates.append((remaining, vehicle_id))
             if not donor_candidates:
@@ -1711,7 +1742,7 @@ class MissionNode(Node):
             donor_candidates.sort(key=lambda item: (-item[0], item[1]))
             donor_vehicle_id = donor_candidates[0][1]
             donor_plan = self._scout_plans[donor_vehicle_id]
-            remaining = len(donor_plan.waypoints) - 1 - donor_plan.current_waypoint_index
+            remaining = len(donor_plan.waypoints) - donor_plan.current_waypoint_index
             split_offset = max(1, remaining // 2)
             split_index = donor_plan.current_waypoint_index + split_offset
             if split_index >= len(donor_plan.waypoints) - 1:
@@ -1723,7 +1754,7 @@ class MissionNode(Node):
 
             donor_plan.waypoints = donor_plan.waypoints[:split_index]
             if donor_plan.current_waypoint_index >= len(donor_plan.waypoints):
-                donor_plan.current_waypoint_index = max(len(donor_plan.waypoints) - 1, 0)
+                donor_plan.current_waypoint_index = len(donor_plan.waypoints)
 
             new_zone_id = f"{donor_plan.zone_id}-assist-{completed_vehicle_id}"
             self._scout_plans[completed_vehicle_id] = MissionPlanState(
@@ -1754,8 +1785,11 @@ class MissionNode(Node):
         for endpoint in self._scout_endpoints:
             vehicle_id = endpoint.vehicle_id
             assignment = self._scout_assignments.get(vehicle_id, "IDLE")
+            assignment_label = self._assignment_labels.get(vehicle_id, assignment)
             if self._is_endpoint_online(endpoint):
                 if assignment == "IDLE" and vehicle_id in self._scout_plans:
+                    if "complete" in assignment_label.lower():
+                        continue
                     label = f"SEARCHING:{self._scout_plans[vehicle_id].zone_id}"
                     self._set_scout_assignment(vehicle_id, "SEARCHING", label=label)
                 continue
@@ -1861,6 +1895,7 @@ class MissionNode(Node):
         self._active_ranger_vehicle_id = ""
         self._ranger_orbit_waypoints = []
         self._ranger_orbit_index = 0
+        self._close_ranger_adapter()
 
         online_ranger_vehicle_ids = self._online_ranger_vehicle_ids()
         if not online_ranger_vehicle_ids:
@@ -1870,12 +1905,46 @@ class MissionNode(Node):
         self._ranger_orbit_waypoints = self._build_ranger_orbit_waypoints(centroid)
         self._active_ranger_vehicle_id = ranger_vehicle_id
         self._set_scout_assignment(ranger_vehicle_id, "OVERWATCH", label="OVERWATCH")
+        self._start_ranger_overwatch_execution()
+
+    def _start_ranger_overwatch_execution(self) -> None:
+        if self._state not in self._AUTONOMOUS_STATES:
+            return
+        if not self._mission_id or not self._active_ranger_vehicle_id:
+            return
+        if not self._ranger_orbit_waypoints:
+            return
+
+        endpoint = self._resolve_ranger_endpoint(self._active_ranger_vehicle_id)
+        if endpoint is None:
+            return
+
+        current_waypoint = self._ranger_orbit_waypoints[
+            self._ranger_orbit_index % len(self._ranger_orbit_waypoints)
+        ]
+        if (
+            self._ranger_mavlink_adapter is None
+            or self._ranger_adapter_vehicle_id != endpoint.vehicle_id
+        ):
+            self._close_ranger_adapter()
+            self._ranger_mavlink_adapter = self._build_ranger_adapter(endpoint)
+            self._ranger_adapter_vehicle_id = endpoint.vehicle_id
+
+        if self._ranger_mavlink_adapter.is_streaming:
+            self._ranger_mavlink_adapter.update_setpoint(current_waypoint)
+            return
+
+        self._ranger_mavlink_adapter.upload_mission_items_int(
+            self._mission_id, self._ranger_orbit_waypoints
+        )
+        self._ranger_mavlink_adapter.start_stream(self._mission_id, current_waypoint)
 
     def _update_ranger_overwatch_orbit(self) -> None:
         if not self._active_ranger_vehicle_id:
             return
         if not self._ranger_orbit_waypoints:
             return
+        self._start_ranger_overwatch_execution()
         current_index = self._ranger_orbit_index % len(self._ranger_orbit_waypoints)
         current_waypoint = self._ranger_orbit_waypoints[current_index]
         ranger_position = self._scout_position_snapshot.get(self._active_ranger_vehicle_id)
@@ -1886,6 +1955,7 @@ class MissionNode(Node):
         distance = math.hypot(delta_x, delta_z)
         if distance <= self._waypoint_reached_threshold_m:
             self._ranger_orbit_index = (current_index + 1) % len(self._ranger_orbit_waypoints)
+            self._start_ranger_overwatch_execution()
 
     def _advance_waypoint_index(self) -> None:
         current = self._plan_state.current_waypoint_index
@@ -2030,6 +2100,7 @@ class MissionNode(Node):
 
         # Pause setpoint streaming before switching MAVLink endpoints for RTL fan-out.
         self._close_tracking_adapter()
+        self._close_ranger_adapter()
         self._mavlink_adapter.stop_stream()
         target_endpoints = self._active_abort_endpoints()
         successful_dispatches, total_dispatches = self._dispatch_abort_rtl(target_endpoints)
