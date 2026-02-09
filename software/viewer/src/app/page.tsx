@@ -1,428 +1,441 @@
 'use client';
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { LegacyGCSLayout as GCSLayout } from "@/components/layout/LegacyGCSLayout";
-import { Scene3D, Scene3DHandle } from "@/components/Scene3D";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { CoordinateOriginProvider } from "@/context/CoordinateOriginContext";
-import { LayerVisibilityProvider } from "@/context/LayerVisibilityContext";
-import { DetectionProvider } from "@/context/DetectionContext";
-import { MissionProvider } from "@/context/MissionContext";
-import { FleetProvider } from "@/context/FleetContext";
-import { ZoneProvider } from "@/context/ZoneContext";
-import { ToastProvider } from "@/components/ui/Toast";
-import { MiniMap } from "@/components/ui/MiniMap";
-import { KeyboardShortcutsOverlay } from "@/components/ui/KeyboardShortcuts";
-import { MissionProgress, MissionControlPanel } from "@/components/mission";
-import { DetectionPanel, DetectionPanelCompact } from "@/components/detections/DetectionPanel";
-import { FleetPanel } from "@/components/fleet/FleetPanel";
-import { ZoneDrawingTool, ZoneListPanel } from "@/components/zones";
-import { GlassPanel } from "@/components/ui/GlassPanel";
-import { cn } from "@/lib/utils";
-import { 
-  Camera, 
-  Eye, 
-  Layers, 
-  Wifi, 
-  WifiOff,
-  Clock,
-  Target,
-  AlertCircle,
-  CheckCircle2,
-  Pause,
-  Radio,
-  Plane,
-  MapPin
-} from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useMissionControl } from "@/hooks/useMissionControl";
-import { formatMissionTime, getMissionPhaseConfig } from "@/types/mission";
-import { transitions } from "@/lib/animations";
+/**
+ * V2 Dashboard - Phase 8 Implementation
+ * 
+ * Per spec Section 8 Phase 8: Alerts & Polish (Week 8)
+ * Goal: Alert system and final polish
+ * 
+ * Phase 1 (Complete): Design tokens, layout, StatusPill, CommandDock container
+ * Phase 2 (Complete): 3D map, DroneMarker3D, DetectionMarker3D, FlightTrail3D
+ * Phase 3 (Complete): FleetCard, DetectionsCard, ControlsCard, Progress in StatusPill
+ * Phase 4 (Complete): DetectionSheet, DetectionCard, FleetSheet, VehicleCard
+ * Phase 5 (Complete): LayersPanel, Layer visibility context
+ * Phase 6 (Complete): ZoneToolbar, ZoneOverlay3D, click-to-draw zones
+ * Phase 7 (Complete): PiPVideoFeed, Vehicle switcher tabs, Mock placeholder, Expand button
+ * Phase 8 (Current):
+ * ✓ AlertStack component
+ * ✓ Alert severity styling
+ * ✓ Auto-dismiss logic
+ * - Audio cues (optional)
+ * - Animation polish pass
+ * - Touch gesture refinement
+ * - Keyboard shortcuts
+ * - Performance optimization
+ * 
+ * Deliverable: Production-ready dashboard
+ */
 
-// ============================================================================
-// New Mission-Centric Status Bar
-// ============================================================================
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { GCSLayout } from '@/components/layout/GCSLayout';
+import { StatusPill, MissionPhase } from '@/components/layout/StatusPill';
+import { CommandDock } from '@/components/layout/CommandDock';
+import { FleetCard, VehicleWarning } from '@/components/cards/FleetCard';
+import { DetectionsCard } from '@/components/cards/DetectionsCard';
+import { ControlsCard } from '@/components/cards/ControlsCard';
+import { MapScene3D, MapScene3DHandle } from '@/components/map/MapScene3D';
+import { FleetSheet } from '@/components/sheets/FleetSheet';
+import { DetectionSheet } from '@/components/sheets/DetectionSheet';
+import { Detection } from '@/components/sheets/DetectionCard';
+import { VehicleInfo } from '@/components/sheets/VehicleCard';
+import { LayersPanel } from '@/components/layers/LayersPanel';
+import { LayerVisibilityProvider } from '@/context/LayerVisibilityContext';
+import { ZoneProvider, useZoneContext } from '@/context/ZoneContext';
+import { ZoneToolbar } from '@/components/zones/ZoneToolbar';
+import { PiPVideoFeed } from '@/components/pip/PiPVideoFeed';
+import { AlertToaster, showAlert, dismissAllAlerts, type Alert } from '@/components/alerts';
+import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
 
-function NewStatusBar() {
-  const { phase, isPaused, elapsedSeconds, pendingDetections, confirmedSurvivors, rosConnected } = useMissionControl();
-  const phaseConfig = getMissionPhaseConfig(phase);
+// Mock fleet data with extended info for sheets
+const mockVehicles: VehicleInfo[] = [
+  { id: 'scout-1', name: 'Scout 1', status: 'active', battery: 78, altitude: 50, linkQuality: 95, coverage: 32 },
+  { id: 'scout-2', name: 'Scout 2', status: 'warning', battery: 45, altitude: 80, linkQuality: 88, coverage: 28 },
+  { id: 'ranger-1', name: 'Ranger 1', status: 'returning', battery: 22, altitude: 60, linkQuality: 72, coverage: 45 },
+  { id: 'ranger-2', name: 'Ranger 2', status: 'idle', battery: 100, altitude: 0, linkQuality: 100, coverage: 0 },
+];
+
+const mockWarnings: VehicleWarning[] = [
+  { vehicleId: 'scout-2', message: 'Battery below 50%', severity: 'warning' },
+  { vehicleId: 'ranger-1', message: 'Battery critical', severity: 'critical' },
+];
+
+// Mock detections data with extended sensor readings
+const mockDetections: Detection[] = [
+  { 
+    id: 'det-1', sensorType: 'thermal', confidence: 0.92, 
+    timestamp: Date.now() - 30000, status: 'new', 
+    vehicleId: 'scout-1', vehicleName: 'Scout 1', position: [50, 0, -50],
+    temperature: 37.2, sector: 'Sector C-4', signatureType: 'Human signature likely'
+  },
+  { 
+    id: 'det-2', sensorType: 'acoustic', confidence: 0.78, 
+    timestamp: Date.now() - 120000, status: 'reviewing', 
+    vehicleId: 'scout-2', vehicleName: 'Scout 2', position: [-80, 0, 120],
+    decibels: 42, sector: 'Sector B-2', signatureType: 'Voice detected'
+  },
+  { 
+    id: 'det-3', sensorType: 'gas', confidence: 0.65, 
+    timestamp: Date.now() - 300000, status: 'confirmed', 
+    vehicleId: 'scout-1', vehicleName: 'Scout 1', position: [200, 0, 50],
+    concentration: 85, sector: 'Sector D-1', signatureType: 'Elevated CO levels'
+  },
+  { 
+    id: 'det-4', sensorType: 'thermal', confidence: 0.88, 
+    timestamp: Date.now() - 60000, status: 'new', 
+    vehicleId: 'ranger-1', vehicleName: 'Ranger 1', position: [-150, 0, -80],
+    temperature: 36.8, sector: 'Sector A-3', signatureType: 'Possible survivor'
+  },
+];
+const INITIAL_ALERT_COUNT = 2;
+
+export default function V2Page() {
+  return (
+    <LayerVisibilityProvider>
+      <ZoneProvider>
+        <V2PageContent />
+        <AlertToaster visibleToasts={5} />
+        <KeyboardShortcutsOverlay />
+      </ZoneProvider>
+    </LayerVisibilityProvider>
+  );
+}
+
+function V2PageContent() {
+  // Zone context
+  const {
+    zones,
+    selectedZoneId,
+    selectZone,
+    drawing,
+    isDrawing,
+    addPoint,
+  } = useZoneContext();
   
-  return (
-    <div className="flex items-center justify-between h-full px-4 bg-surface-1">
-      {/* Left: Logo + Mission Status */}
-      <div className="flex items-center gap-4">
-        {/* Logo */}
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-info to-info/50 flex items-center justify-center">
-            <Radio className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-semibold text-foreground tracking-tight hidden sm:block">AERIS GCS</span>
-        </div>
-        
-        {/* Divider */}
-        <div className="w-px h-6 bg-glass-border" />
-        
-        {/* Mission Phase */}
-        <div className="flex items-center gap-2">
-          <motion.div
-            key={phase}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold uppercase tracking-wider",
-              phaseConfig.bgColor,
-              phaseConfig.color
-            )}
-          >
-            {(phase === 'SEARCHING' || phase === 'TRACKING') && !isPaused && (
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-current" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-current" />
-              </span>
-            )}
-            {isPaused && <Pause className="w-3 h-3" />}
-            {phase === 'COMPLETE' && <CheckCircle2 className="w-3 h-3" />}
-            {phaseConfig.label}
-          </motion.div>
-          
-          {/* Timer */}
-          {phase !== 'IDLE' && (
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Clock className="w-3.5 h-3.5" />
-              <span className={cn(
-                "font-mono text-sm tabular-nums",
-                isPaused && "text-warning animate-pulse"
-              )}>
-                {formatMissionTime(elapsedSeconds)}
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      {/* Center: Detection Summary */}
-      <div className="flex items-center gap-4">
-        {pendingDetections > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warning/10 border border-warning/20"
-          >
-            <AlertCircle className="w-3.5 h-3.5 text-warning" />
-            <span className="text-xs font-medium text-warning">{pendingDetections} pending</span>
-          </motion.div>
-        )}
-        
-        {confirmedSurvivors > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-success/10 border border-success/20"
-          >
-            <Target className="w-3.5 h-3.5 text-success" />
-            <span className="text-xs font-medium text-success">{confirmedSurvivors} confirmed</span>
-          </motion.div>
-        )}
-      </div>
-      
-      {/* Right: Connection Status */}
-      <div className="flex items-center gap-3">
-        <div className={cn(
-          "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs",
-          rosConnected 
-            ? "bg-success/10 text-success" 
-            : "bg-danger/10 text-danger"
-        )}>
-          {rosConnected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-          <span className="hidden sm:inline">{rosConnected ? "Connected" : "Offline"}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
+  // Selection state for markers
+  const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
+  const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
+  
+  // Mission state
+  const [missionPhase, setMissionPhase] = useState<MissionPhase>('SEARCHING');
+  const [elapsedTime, setElapsedTime] = useState(847); // ~14 minutes
+  const [isPaused, setIsPaused] = useState(false);
+  const [progress, setProgress] = useState(42);
 
-// ============================================================================
-// Camera Controls (Floating Panel)
-// ============================================================================
+  // Detection state
+  const [detections, setDetections] = useState<Detection[]>(mockDetections);
 
-interface CameraControlsProps {
-  onPreset: (preset: 'wide' | 'tracking' | 'overhead') => void;
-  className?: string;
-}
+  // PiP video feed state
+  const [pipVehicleId, setPipVehicleId] = useState<string | null>(null);
 
-function CameraControls({ onPreset, className }: CameraControlsProps) {
-  return (
-    <GlassPanel
-      title="Camera"
-      icon={<Camera className="w-4 h-4" />}
-      collapsible
-      defaultCollapsed={false}
-      className={cn("w-[200px]", className)}
-    >
-      <div className="flex flex-col gap-2">
-        <button
-          onClick={() => onPreset('wide')}
-          className={cn(
-            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm",
-            "bg-surface-2 hover:bg-surface-3 transition-colors",
-            "min-h-[var(--touch-min)]"
-          )}
-        >
-          <Eye className="w-4 h-4 text-muted-foreground" />
-          Wide View
-          <kbd className="ml-auto px-1.5 py-0.5 rounded bg-surface-3 font-mono text-[10px] text-muted-foreground">1</kbd>
-        </button>
-        <button
-          onClick={() => onPreset('tracking')}
-          className={cn(
-            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm",
-            "bg-surface-2 hover:bg-surface-3 transition-colors",
-            "min-h-[var(--touch-min)]"
-          )}
-        >
-          <Target className="w-4 h-4 text-muted-foreground" />
-          Track Drone
-          <kbd className="ml-auto px-1.5 py-0.5 rounded bg-surface-3 font-mono text-[10px] text-muted-foreground">2</kbd>
-        </button>
-        <button
-          onClick={() => onPreset('overhead')}
-          className={cn(
-            "flex items-center gap-2 px-3 py-2 rounded-lg text-sm",
-            "bg-surface-2 hover:bg-surface-3 transition-colors",
-            "min-h-[var(--touch-min)]"
-          )}
-        >
-          <Layers className="w-4 h-4 text-muted-foreground" />
-          Overhead
-          <kbd className="ml-auto px-1.5 py-0.5 rounded bg-surface-3 font-mono text-[10px] text-muted-foreground">3</kbd>
-        </button>
-      </div>
-    </GlassPanel>
-  );
-}
+  // Ref for camera control
+  const mapRef = useRef<MapScene3DHandle>(null);
 
-// ============================================================================
-// Main Home Content
-// ============================================================================
-
-function HomeContent() {
-  const sceneRef = useRef<Scene3DHandle>(null);
-  const [cameraPosition, setCameraPosition] = useState<{ x: number; y: number; z: number } | undefined>();
-  const [cameraTarget, setCameraTarget] = useState<{ x: number; y: number; z: number } | undefined>();
-  const [showCameraControls, setShowCameraControls] = useState(false);
-  const [showFleetPanel, setShowFleetPanel] = useState(false);
-  const [showZonePanel, setShowZonePanel] = useState(false);
-  const { pauseMission, resumeMission, isPaused, isActive } = useMissionControl();
-
-  const handleCameraPreset = useCallback((preset: 'wide' | 'tracking' | 'overhead') => {
-    sceneRef.current?.setCameraView(preset);
+  // Vehicle handlers (defined before useEffect to avoid dependency issues)
+  const handleLocateVehicle = useCallback((id: string) => {
+    setSelectedDroneId(id);
+    if (mapRef.current) {
+      const positions: Record<string, [number, number]> = {
+        'scout-1': [0, 0],
+        'scout-2': [150, -100],
+        'ranger-1': [-120, 80],
+        'ranger-2': [0, 0],
+      };
+      const pos = positions[id] || [0, 0];
+      mapRef.current.teleportTo(pos[0], pos[1]);
+    }
   }, []);
 
-  const handleTeleport = useCallback((x: number, z: number) => {
-    sceneRef.current?.teleportTo(x, z);
+  const handleViewFeed = useCallback((id: string) => {
+    setPipVehicleId(id);
   }, []);
-
-  // Poll camera state for mini-map updates
+  
+  const storedAlerts = useMemo<Alert[]>(() => [
+    {
+      id: 'demo-critical',
+      severity: 'critical',
+      title: 'Scout-2 COMMS LOST',
+      description: 'Last contact: 45 seconds ago - Initiating recovery',
+      dismissible: false,
+      timestamp: new Date(),
+      action: { label: 'LOCATE', onClick: () => handleLocateVehicle('scout-2') },
+    },
+    {
+      id: 'demo-warning',
+      severity: 'warning',
+      title: 'Ranger-1 low battery',
+      description: '22% remaining - Auto RTH initiated',
+      dismissible: true,
+      timestamp: new Date(),
+      action: { label: 'VIEW', onClick: () => handleViewFeed('ranger-1') },
+    },
+  ], [handleLocateVehicle, handleViewFeed]);
+  const hasAddedInitialAlerts = useRef(false);
+  const areAlertsOpenRef = useRef(false);
   useEffect(() => {
-    const interval = setInterval(() => {
-      const state = sceneRef.current?.getCameraState();
-      if (state) {
-        setCameraPosition({ x: state.position.x, y: state.position.y, z: state.position.z });
-        setCameraTarget({ x: state.target.x, y: state.target.y, z: state.target.z });
+    if (hasAddedInitialAlerts.current) return;
+    hasAddedInitialAlerts.current = true;
+    storedAlerts.forEach((alert) => showAlert(alert));
+  }, [storedAlerts]);
+
+  const handleDroneSelect = (id: string) => {
+    setSelectedDroneId(id || null);
+    setSelectedDetectionId(null);
+  };
+
+  const handleDetectionSelect = useCallback((id: string) => {
+    setSelectedDetectionId(id || null);
+    setSelectedDroneId(null);
+    
+    // Zoom to detection when selected from map
+    if (id) {
+      const detection = detections.find(d => d.id === id);
+      if (detection && mapRef.current) {
+        mapRef.current.teleportTo(detection.position[0], detection.position[2]);
       }
-    }, 100);
-    return () => clearInterval(interval);
+    }
+  }, [detections]);
+
+  // Mission control handlers
+  const handleStart = useCallback(() => {
+    setMissionPhase('SEARCHING');
+    setElapsedTime(0);
+    setProgress(0);
+    setIsPaused(false);
   }, []);
 
-  // Global Keyboard Shortcuts
+  const handlePause = useCallback(() => {
+    setIsPaused(true);
+  }, []);
+
+  const handleResume = useCallback(() => {
+    setIsPaused(false);
+  }, []);
+
+  const handleAbort = useCallback(() => {
+    setMissionPhase('ABORTED');
+    setIsPaused(false);
+  }, []);
+
+  // Detection handlers
+  const handleConfirmDetection = useCallback((id: string) => {
+    setDetections(prev => prev.map(d => 
+      d.id === id ? { ...d, status: 'confirmed' as const } : d
+    ));
+  }, []);
+
+  const handleDismissDetection = useCallback((id: string) => {
+    setDetections(prev => prev.map(d => 
+      d.id === id ? { ...d, status: 'dismissed' as const } : d
+    ));
+  }, []);
+
+  const handleLocateDetection = useCallback((id: string) => {
+    const detection = detections.find(d => d.id === id);
+    if (detection && mapRef.current) {
+      mapRef.current.teleportTo(detection.position[0], detection.position[2]);
+    }
+    setSelectedDetectionId(id);
+  }, [detections]);
+
+  const handleClosePip = useCallback(() => {
+    setPipVehicleId(null);
+  }, []);
+
+  const handleExpandPip = useCallback(() => {
+    // Future: fullscreen modal
+  }, []);
+
+  const handleRTH = useCallback((id: string) => {
+    // Would send RTH command
+    void id;
+  }, []);
+
+  // Bell click - toggle toasts: show stored alerts when opening, dismiss all toasts when closing
+  const handleAlertClick = useCallback(() => {
+    areAlertsOpenRef.current = !areAlertsOpenRef.current;
+    if (areAlertsOpenRef.current) {
+      storedAlerts.forEach((alert) => showAlert(alert, { playSound: false }));
+      return;
+    }
+    dismissAllAlerts();
+  }, [storedAlerts]);
+
+  // Keyboard shortcuts per spec Section 5.2
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      switch (e.key.toLowerCase()) {
-        case ' ':
+      switch (e.key) {
+        case ' ': // Space - Pause/Resume mission
           e.preventDefault();
-          if (isActive) {
+          if (missionPhase === 'SEARCHING' || missionPhase === 'TRACKING') {
             if (isPaused) {
-              resumeMission();
+              handleResume();
             } else {
-              pauseMission();
+              handlePause();
             }
           }
           break;
-        case 'r':
-          handleCameraPreset('wide');
-          break;
-        case 'c':
-          setShowCameraControls(prev => !prev);
-          break;
-        case 'f':
-          setShowFleetPanel(prev => !prev);
-          break;
-        case 'z':
-          setShowZonePanel(prev => !prev);
+        case 'Escape': // Cancel current action
+          e.preventDefault();
+          setSelectedDroneId(null);
+          setSelectedDetectionId(null);
           break;
         case '1':
-          handleCameraPreset('wide');
-          break;
         case '2':
-          handleCameraPreset('tracking');
-          break;
         case '3':
-          handleCameraPreset('overhead');
+        case '4':
+        case '5':
+        case '6':
+          // Select drone 1-6
+          const droneIndex = parseInt(e.key) - 1;
+          if (droneIndex < mockVehicles.length) {
+            handleLocateVehicle(mockVehicles[droneIndex].id);
+          }
+          break;
+        case 'r':
+        case 'R':
+          // Reset camera to default view
+          if (mapRef.current) {
+            mapRef.current.teleportTo(0, 0);
+          }
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCameraPreset, isActive, isPaused, pauseMission, resumeMission]);
+  }, [missionPhase, isPaused, handlePause, handleResume, handleLocateVehicle]);
+
+  // Calculate stats
+  const activeVehicles = mockVehicles.filter(v => v.status === 'active' || v.status === 'warning');
+  const avgBattery = Math.round(mockVehicles.reduce((sum, v) => sum + v.battery, 0) / mockVehicles.length);
+  const avgAltitude = Math.round(activeVehicles.reduce((sum, v) => sum + v.altitude, 0) / (activeVehicles.length || 1));
+
+  // Detection stats
+  const thermalCount = detections.filter(d => d.sensorType === 'thermal').length;
+  const acousticCount = detections.filter(d => d.sensorType === 'acoustic').length;
+  const gasCount = detections.filter(d => d.sensorType === 'gas').length;
+  const pendingCount = detections.filter(d => d.status === 'new' || d.status === 'reviewing').length;
+  const confirmedCount = detections.filter(d => d.status === 'confirmed').length;
 
   return (
     <GCSLayout
-      statusBar={<NewStatusBar />}
-      sidebar={<DetectionPanel />}
-      bottomSheet={<DetectionPanelCompact />}
-      map={<Scene3D ref={sceneRef} />}
-      floatingPanels={
-        <>
-          {/* Top-left: Mission Progress + Camera Controls */}
-          <div className="absolute top-4 left-4 flex flex-col gap-3">
-            <MissionProgress collapsible defaultCollapsed={false} />
-            <AnimatePresence>
-              {showCameraControls && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={transitions.fast}
-                >
-                  <CameraControls onPreset={handleCameraPreset} />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          
-          {/* Top-right: Fleet + Zone panels + toggle buttons */}
-          <div className="absolute top-4 right-4 flex flex-col gap-3 items-end">
-            {/* Toggle buttons */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowFleetPanel(prev => !prev)}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-lg",
-                  "bg-glass-bg backdrop-blur-xl border border-glass-border",
-                  "text-sm transition-colors min-h-[var(--touch-min)]",
-                  showFleetPanel ? "text-info border-info/30" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Plane className="w-4 h-4" />
-                <span className="hidden sm:inline">Fleet</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-surface-3 font-mono text-[10px]">F</kbd>
-              </button>
-              <button
-                onClick={() => setShowZonePanel(prev => !prev)}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-lg",
-                  "bg-glass-bg backdrop-blur-xl border border-glass-border",
-                  "text-sm transition-colors min-h-[var(--touch-min)]",
-                  showZonePanel ? "text-info border-info/30" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <MapPin className="w-4 h-4" />
-                <span className="hidden sm:inline">Zones</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-surface-3 font-mono text-[10px]">Z</kbd>
-              </button>
-              <button
-                onClick={() => setShowCameraControls(prev => !prev)}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-lg",
-                  "bg-glass-bg backdrop-blur-xl border border-glass-border",
-                  "text-sm transition-colors min-h-[var(--touch-min)]",
-                  showCameraControls ? "text-info border-info/30" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                <Camera className="w-4 h-4" />
-                <kbd className="px-1.5 py-0.5 rounded bg-surface-3 font-mono text-[10px]">C</kbd>
-              </button>
-            </div>
-            
-            {/* Fleet Panel */}
-            <AnimatePresence>
-              {showFleetPanel && (
-                <motion.div
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  transition={transitions.fast}
-                >
-                  <FleetPanel />
-                </motion.div>
-              )}
-            </AnimatePresence>
-            
-            {/* Zone Panel */}
-            <AnimatePresence>
-              {showZonePanel && (
-                <motion.div
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 10 }}
-                  transition={transitions.fast}
-                >
-                  <ZoneListPanel />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          
-          {/* Bottom-left: Mission Control + Zone Drawing */}
-          <div className="absolute bottom-4 left-4 flex flex-col gap-3">
-            <ZoneDrawingTool />
-            <MissionControlPanel />
-          </div>
-          
-          {/* Bottom-right: Mini Map */}
-          <div className="absolute bottom-4 right-4">
-            <GlassPanel
-              title="Map"
-              collapsible
-              defaultCollapsed={false}
-              className="w-[220px]"
-            >
-              <MiniMap
-                size={188}
-                cameraPosition={cameraPosition}
-                cameraTarget={cameraTarget}
-                onTeleport={handleTeleport}
-              />
-            </GlassPanel>
-          </div>
-        </>
+      map={
+        <MapScene3D
+          ref={mapRef}
+          selectedDroneId={selectedDroneId}
+          selectedDetectionId={selectedDetectionId}
+          onDroneSelect={handleDroneSelect}
+          onDetectionSelect={handleDetectionSelect}
+          zones={zones}
+          selectedZoneId={selectedZoneId}
+          onZoneSelect={selectZone}
+          isDrawingZone={isDrawing}
+          drawingPoints={drawing.points}
+          drawingPriority={drawing.currentPriority}
+          onAddZonePoint={addPoint}
+        />
       }
-    />
-  );
-}
+      
+      statusPill={
+        <StatusPill
+          missionPhase={missionPhase}
+          elapsedTime={elapsedTime}
+          progressPercent={progress}
+          connectionStatus="connected"
+          alertCount={INITIAL_ALERT_COUNT}
+          hasUnreadAlerts={INITIAL_ALERT_COUNT > 0}
+          onAlertClick={handleAlertClick}
+        />
+      }
 
-export default function Home() {
-  return (
-    <ErrorBoundary>
-      <ToastProvider>
-        <CoordinateOriginProvider>
-          <LayerVisibilityProvider>
-            <DetectionProvider>
-              <MissionProvider demoMode initialProgress={{ searchAreaKm2: 2.4, totalDrones: 4, activeDrones: 4 }}>
-                <FleetProvider>
-                  <ZoneProvider>
-                    <HomeContent />
-                    <KeyboardShortcutsOverlay />
-                  </ZoneProvider>
-                </FleetProvider>
-              </MissionProvider>
-            </DetectionProvider>
-          </LayerVisibilityProvider>
-        </CoordinateOriginProvider>
-      </ToastProvider>
-    </ErrorBoundary>
+      layersPanel={<LayersPanel />}
+
+      zoneToolbar={<ZoneToolbar />}
+      
+      commandDock={
+        <CommandDock
+          fleetCard={
+            <FleetSheet
+              vehicles={mockVehicles}
+              selectedVehicleId={selectedDroneId}
+              onLocate={handleLocateVehicle}
+              onViewFeed={handleViewFeed}
+              onRTH={handleRTH}
+              trigger={
+                <FleetCard
+                  vehicles={mockVehicles}
+                  activeCount={activeVehicles.length}
+                  totalCount={mockVehicles.length}
+                  avgBattery={avgBattery}
+                  avgAltitude={avgAltitude}
+                  warnings={mockWarnings}
+                />
+              }
+            />
+          }
+          detectionsCard={
+            <DetectionSheet
+              detections={detections}
+              onConfirm={handleConfirmDetection}
+              onDismiss={handleDismissDetection}
+              onLocate={handleLocateDetection}
+              trigger={
+                <DetectionsCard
+                  thermalCount={thermalCount}
+                  acousticCount={acousticCount}
+                  gasCount={gasCount}
+                  pendingCount={pendingCount}
+                  confirmedCount={confirmedCount}
+                />
+              }
+            />
+          }
+          controlsCard={
+            <ControlsCard
+              missionPhase={missionPhase}
+              isPaused={isPaused}
+              canStart={missionPhase === 'IDLE' || missionPhase === 'COMPLETE' || missionPhase === 'ABORTED'}
+              canPause={missionPhase === 'SEARCHING' || missionPhase === 'TRACKING'}
+              canAbort={missionPhase === 'SEARCHING' || missionPhase === 'TRACKING'}
+              onStart={handleStart}
+              onPause={handlePause}
+              onResume={handleResume}
+              onAbort={handleAbort}
+            />
+          }
+        />
+      }
+
+      pipFeed={
+        pipVehicleId ? (() => {
+          const vehicle = mockVehicles.find(v => v.id === pipVehicleId);
+          if (!vehicle) return null;
+
+          const isLive = vehicle.status === 'active' || vehicle.status === 'warning';
+
+          return (
+            <PiPVideoFeed
+              vehicleId={vehicle.id}
+              vehicleName={vehicle.name}
+              batteryPercent={vehicle.battery}
+              altitude={vehicle.altitude}
+              isLive={isLive}
+              allVehicles={mockVehicles.map(v => ({
+                id: v.id,
+                name: v.name,
+                status: v.status,
+              }))}
+              onVehicleSwitch={setPipVehicleId}
+              onClose={handleClosePip}
+              onExpand={handleExpandPip}
+            />
+          );
+        })() : undefined
+      }
+      alerts={undefined}
+    />
   );
 }

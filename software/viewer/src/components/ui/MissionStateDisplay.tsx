@@ -1,16 +1,19 @@
 'use client';
 
 import React from 'react';
-import { useMissionState, MissionPhase } from '../../hooks/useMissionState';
+import { useMissionState } from '../../hooks/useMissionState';
+import type { MissionPhase } from '../../types/mission';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Activity } from 'lucide-react';
 
 const phaseColors: Record<MissionPhase, string> = {
   IDLE: "bg-zinc-500 hover:bg-zinc-600",
+  PLANNING: "bg-violet-500 hover:bg-violet-600",
   SEARCHING: "bg-blue-500 hover:bg-blue-600",
   TRACKING: "bg-orange-500 hover:bg-orange-600",
   COMPLETE: "bg-emerald-500 hover:bg-emerald-600",
+  ABORTED: "bg-red-600 hover:bg-red-700",
 };
 
 export function MissionStateDisplay() {

@@ -53,6 +53,7 @@ interface MissionContextValue {
   updateProgress: (progress: Partial<MissionProgress>) => void;
   updateStats: (stats: Partial<MissionStats>) => void;
   setPhase: (phase: MissionPhase) => void;
+  markExternalUpdate: () => void;
   
   // Command history for debugging
   lastCommand?: MissionCommand;
@@ -131,9 +132,11 @@ export function MissionProvider({
   const [commandHistory, setCommandHistory] = useState<
     Array<{ command: MissionCommand; timestamp: number }>
   >([]);
+  const [externalUpdatesActive, setExternalUpdatesActive] = useState(false);
   
   // Demo mode interval ref
   const demoIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const externalUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // ============================================================================
   // Persistence
@@ -176,7 +179,7 @@ export function MissionProvider({
   // ============================================================================
   
   useEffect(() => {
-    if (!demoMode || state.phase === 'IDLE' || state.pausedAt) {
+    if (!demoMode || externalUpdatesActive || state.phase === 'IDLE' || state.pausedAt) {
       if (demoIntervalRef.current) {
         clearInterval(demoIntervalRef.current);
         demoIntervalRef.current = null;
@@ -227,7 +230,16 @@ export function MissionProvider({
         demoIntervalRef.current = null;
       }
     };
-  }, [demoMode, state.phase, state.pausedAt]);
+  }, [demoMode, externalUpdatesActive, state.phase, state.pausedAt]);
+
+  useEffect(() => {
+    return () => {
+      if (externalUpdateTimeoutRef.current) {
+        clearTimeout(externalUpdateTimeoutRef.current);
+        externalUpdateTimeoutRef.current = null;
+      }
+    };
+  }, []);
   
   // ============================================================================
   // Command Helpers
@@ -339,6 +351,18 @@ export function MissionProvider({
       phase,
     }));
   }, []);
+
+  const markExternalUpdate = useCallback(() => {
+    setExternalUpdatesActive(true);
+    if (externalUpdateTimeoutRef.current) {
+      clearTimeout(externalUpdateTimeoutRef.current);
+    }
+    // Resume demo mode automatically if external updates stop arriving.
+    externalUpdateTimeoutRef.current = setTimeout(() => {
+      setExternalUpdatesActive(false);
+      externalUpdateTimeoutRef.current = null;
+    }, 5000);
+  }, []);
   
   // ============================================================================
   // Context Value
@@ -356,6 +380,7 @@ export function MissionProvider({
     updateProgress,
     updateStats,
     setPhase,
+    markExternalUpdate,
     lastCommand,
     commandHistory,
   };

@@ -12,7 +12,13 @@
 /**
  * Mission lifecycle phases
  */
-export type MissionPhase = 'IDLE' | 'SEARCHING' | 'TRACKING' | 'COMPLETE';
+export type MissionPhase =
+  | 'IDLE'
+  | 'PLANNING'
+  | 'SEARCHING'
+  | 'TRACKING'
+  | 'COMPLETE'
+  | 'ABORTED';
 
 /**
  * Core mission state for persistence and control
@@ -173,7 +179,7 @@ export function getMissionPhaseConfig(phase: MissionPhase): {
   label: string;
   color: string;
   bgColor: string;
-  icon: 'idle' | 'searching' | 'tracking' | 'complete';
+  icon: 'idle' | 'planning' | 'searching' | 'tracking' | 'complete' | 'aborted';
 } {
   switch (phase) {
     case 'IDLE':
@@ -182,6 +188,13 @@ export function getMissionPhaseConfig(phase: MissionPhase): {
         color: 'text-muted-foreground',
         bgColor: 'bg-surface-3',
         icon: 'idle',
+      };
+    case 'PLANNING':
+      return {
+        label: 'Planning',
+        color: 'text-primary',
+        bgColor: 'bg-primary/10',
+        icon: 'planning',
       };
     case 'SEARCHING':
       return {
@@ -203,6 +216,13 @@ export function getMissionPhaseConfig(phase: MissionPhase): {
         color: 'text-success',
         bgColor: 'bg-success/10',
         icon: 'complete',
+      };
+    case 'ABORTED':
+      return {
+        label: 'Aborted',
+        color: 'text-danger',
+        bgColor: 'bg-danger/10',
+        icon: 'aborted',
       };
   }
 }

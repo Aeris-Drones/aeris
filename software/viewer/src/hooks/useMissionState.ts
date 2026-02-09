@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
 import ROSLIB from 'roslib';
+import type { MissionPhase } from '@/types/mission';
 import { useROSConnection } from './useROSConnection';
 
-const MISSION_PHASES = ['IDLE', 'SEARCHING', 'TRACKING', 'COMPLETE'] as const;
-export type MissionPhase = typeof MISSION_PHASES[number];
+const MISSION_PHASES = [
+  'IDLE',
+  'PLANNING',
+  'SEARCHING',
+  'TRACKING',
+  'COMPLETE',
+  'ABORTED',
+] as const;
 
 export function useMissionState() {
   const { ros, isConnected } = useROSConnection();
@@ -19,14 +26,25 @@ export function useMissionState() {
     });
 
     const handleMessage = (message: ROSLIB.Message) => {
-      const data = typeof (message as { data?: unknown }).data === 'string'
-        ? (message as { data: string }).data
-        : 'IDLE';
+      try {
+        const data = typeof (message as { data?: unknown }).data === 'string'
+          ? (message as { data: string }).data
+          : 'IDLE';
+        const parsed = data.trim();
+        let state = parsed;
 
-      if (MISSION_PHASES.includes(data as MissionPhase)) {
-          setMissionState(data as MissionPhase);
-      } else {
-          console.warn(`Received unknown mission state: ${data}`);
+        if (parsed.startsWith('{')) {
+          const payload = JSON.parse(parsed) as { phase?: string; state?: string };
+          state = payload.phase ?? payload.state ?? 'IDLE';
+        }
+
+        if (MISSION_PHASES.includes(state as MissionPhase)) {
+          setMissionState(state as MissionPhase);
+        } else {
+          console.warn(`Received unknown mission state: ${state}`);
+        }
+      } catch (error) {
+        console.warn('Failed to parse mission state message:', error);
       }
     };
 

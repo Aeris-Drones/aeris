@@ -1,0 +1,8 @@
+float64 coverage_percent
+float64 search_area_km2
+float64 covered_area_km2
+uint8 active_drones
+uint8 total_drones
+float64 estimated_time_remaining
+uint32 grid_completed
+uint32 grid_total
