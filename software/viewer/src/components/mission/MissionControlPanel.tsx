@@ -140,6 +140,7 @@ export function MissionControlPanel({
     selectedPattern,
     setSelectedPattern,
     startMissionError,
+    abortMissionError,
     startMission,
     pauseMission,
     resumeMission,
@@ -366,6 +367,9 @@ export function MissionControlPanel({
                 </motion.div>
               )}
             </AnimatePresence>
+            {abortMissionError && (
+              <p className="text-xs text-danger">{abortMissionError}</p>
+            )}
           </div>
           
           {/* Paused indicator */}

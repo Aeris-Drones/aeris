@@ -151,6 +151,32 @@ class MavlinkAdapter:
         with self._connection_lock:
             self._mav_connection.close()
 
+    def send_return_to_launch(self) -> bool:
+        """Send an explicit RTL command to the currently selected endpoint."""
+        try:
+            with self._connection_lock:
+                self._mav_connection.mav.command_long_send(
+                    self._target_system,
+                    self._target_component,
+                    mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+                    0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                )
+            self._logger(
+                "Sent MAV_CMD_NAV_RETURN_TO_LAUNCH to "
+                f"{self._host}:{self._port}"
+            )
+            return True
+        except OSError as error:
+            self._logger(f"MAVLink RTL command send failed: {error}")
+            return False
+
     def _stream_loop(self) -> None:
         period = 1.0 / self._stream_hz
         next_tick = time.perf_counter()

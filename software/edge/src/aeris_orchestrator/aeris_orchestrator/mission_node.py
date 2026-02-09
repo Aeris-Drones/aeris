@@ -310,6 +310,59 @@ class MissionNode(Node):
             return stripped
         return f"mission-{int(time.time())}"
 
+    def _active_abort_endpoints(self) -> list[ScoutEndpoint]:
+        if not self._scout_endpoints:
+            return []
+
+        now = time.monotonic()
+        online_window = max(self._scout_online_window_sec, 0.0)
+        selected: list[ScoutEndpoint] = []
+        selected_ids: set[str] = set()
+
+        for endpoint in self._scout_endpoints:
+            last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id)
+            if last_seen is None:
+                continue
+            if now - last_seen <= online_window:
+                selected.append(endpoint)
+                selected_ids.add(endpoint.vehicle_id)
+
+        if self._active_scout_vehicle_id:
+            for endpoint in self._scout_endpoints:
+                if endpoint.vehicle_id != self._active_scout_vehicle_id:
+                    continue
+                if endpoint.vehicle_id not in selected_ids:
+                    selected.append(endpoint)
+                    selected_ids.add(endpoint.vehicle_id)
+                break
+
+        if selected:
+            return selected
+        return list(self._scout_endpoints)
+
+    def _dispatch_abort_rtl(self, endpoints: list[ScoutEndpoint]) -> tuple[int, int]:
+        success_count = 0
+        total_count = len(endpoints)
+
+        for endpoint in endpoints:
+            try:
+                self._mavlink_adapter.set_endpoint(endpoint.host, endpoint.port)
+                sent = self._mavlink_adapter.send_return_to_launch()
+                if sent:
+                    success_count += 1
+                else:
+                    self.get_logger().warning(
+                        "Abort RTL dispatch was not acknowledged for "
+                        f"{endpoint.vehicle_id} ({endpoint.host}:{endpoint.port})"
+                    )
+            except OSError as error:
+                self.get_logger().warning(
+                    "Abort RTL dispatch failed for "
+                    f"{endpoint.vehicle_id} ({endpoint.host}:{endpoint.port}): {error}"
+                )
+
+        return success_count, total_count
+
     def _parse_mission_plan(
         self, zone_geometry: str
     ) -> tuple[MissionPlanState | None, str]:
@@ -506,10 +559,16 @@ class MissionNode(Node):
             response.message = "abort_mission rejected due to mission_id mismatch"
             return response
 
+        target_endpoints = self._active_abort_endpoints()
+        successful_dispatches, total_dispatches = self._dispatch_abort_rtl(target_endpoints)
+
         self._transition_to("ABORTED")
         self._reset_plan_state()
         response.success = True
-        response.message = f"Mission {self._mission_id} aborted"
+        response.message = (
+            f"Mission {self._mission_id} aborted; RTL dispatches "
+            f"{successful_dispatches}/{total_dispatches}"
+        )
         return response
 
     def _control_loop(self) -> None:

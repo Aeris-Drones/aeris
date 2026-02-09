@@ -62,6 +62,7 @@ export interface MissionControlState {
   selectedPattern: SearchPattern;
   setSelectedPattern: (pattern: SearchPattern) => void;
   startMissionError: string | null;
+  abortMissionError: string | null;
   
   // Actions
   startMission: () => void;
@@ -86,7 +87,6 @@ export function useMissionControl(): MissionControlState {
     startMission: contextStart,
     pauseMission: contextPause,
     resumeMission: contextResume,
-    abortMission: contextAbort,
     completeMission: contextComplete,
     setPhase,
     updateProgress,
@@ -98,6 +98,7 @@ export function useMissionControl(): MissionControlState {
   const { ros, isConnected: rosConnected } = useROSConnection();
   const [selectedPattern, setSelectedPattern] = useState<SearchPattern>('lawnmower');
   const [startMissionError, setStartMissionError] = useState<string | null>(null);
+  const [abortMissionError, setAbortMissionError] = useState<string | null>(null);
   const hasValidStartZone =
     !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
   const updateSelectedPattern = useCallback((pattern: SearchPattern) => {
@@ -235,6 +236,9 @@ export function useMissionControl(): MissionControlState {
         if (stateFromPayload && isMissionPhase(stateFromPayload)) {
           markExternalUpdate();
           setPhase(stateFromPayload);
+          if (stateFromPayload === 'ABORTED' || stateFromPayload === 'IDLE') {
+            setAbortMissionError(null);
+          }
         } else {
           console.warn('[MissionControl] Ignoring unknown mission phase:', rawState);
         }
@@ -389,14 +393,17 @@ export function useMissionControl(): MissionControlState {
   }, [contextResume, publishCommand]);
   
   const abortMission = useCallback(() => {
+    setAbortMissionError(null);
+
     if (!rosConnected || !ros) {
-      contextAbort();
+      setAbortMissionError('ROS is disconnected. Reconnect before aborting the mission.');
       return;
     }
+
     const missionId = state.missionId?.trim();
     if (!missionId) {
       console.warn('[MissionControl] abort_mission called without a missionId');
-      contextAbort();
+      setAbortMissionError('Mission abort failed: active mission id is missing.');
       return;
     }
 
@@ -408,21 +415,26 @@ export function useMissionControl(): MissionControlState {
       .then(response => {
         if (!response.success) {
           console.warn('[MissionControl] abort_mission rejected:', response.message);
+          setAbortMissionError(
+            response.message || 'Mission abort was rejected by orchestrator.'
+          );
           return;
         }
-        contextAbort();
+        setAbortMissionError(null);
       })
       .catch(error => {
         console.error('[MissionControl] Failed to call abort_mission:', error);
+        setAbortMissionError(
+          error instanceof Error ? error.message : 'Failed to call abort_mission'
+        );
       });
   }, [
     callMissionService,
-    contextAbort,
     ros,
     rosConnected,
     state.missionId,
   ]);
-  
+
   const completeMission = useCallback(() => {
     contextComplete();
     publishCommand('COMPLETE');
@@ -497,7 +509,8 @@ export function useMissionControl(): MissionControlState {
     
     selectedPattern,
     setSelectedPattern: updateSelectedPattern,
-    startMissionError: hasValidStartZone ? null : startMissionError,
+    startMissionError: hasValidStartZone ? startMissionError : null,
+    abortMissionError,
 
     // ROS status
     rosConnected,

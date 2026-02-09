@@ -10,6 +10,7 @@ class _FakeMav:
         self.mission_count_calls: list[tuple] = []
         self.mission_item_int_calls: list[tuple] = []
         self.set_position_calls: list[tuple] = []
+        self.command_long_calls: list[tuple] = []
 
     def mission_count_send(self, *args) -> None:
         self.mission_count_calls.append(args)
@@ -19,6 +20,9 @@ class _FakeMav:
 
     def set_position_target_local_ned_send(self, *args) -> None:
         self.set_position_calls.append(args)
+
+    def command_long_send(self, *args) -> None:
+        self.command_long_calls.append(args)
 
 
 class _FakeConnection:
@@ -73,4 +77,36 @@ def test_adapter_sends_mission_item_int_and_local_ned_setpoints(monkeypatch) -> 
     adapter.set_endpoint("127.0.0.1", 14541)
     assert len(connections) == 2
     assert connections[0].closed
+    adapter.close()
+
+
+def test_adapter_sends_explicit_rtl_command_to_current_endpoint(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
+    assert adapter.send_return_to_launch()
+
+    first_conn = connections[0]
+    assert len(first_conn.mav.command_long_calls) == 1
+    rtl_call = first_conn.mav.command_long_calls[0]
+    assert rtl_call[0] == 1  # target_system default
+    assert rtl_call[1] == 1  # target_component default
+    assert rtl_call[2] == mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH
+
+    adapter.set_endpoint("127.0.0.1", 14541)
+    assert adapter.send_return_to_launch()
+    assert len(connections) == 2
+    assert len(connections[1].mav.command_long_calls) == 1
+
     adapter.close()

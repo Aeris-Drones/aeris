@@ -195,6 +195,34 @@ def test_abort_mission_rejects_invalid_command(mission_harness) -> None:
     assert "unsupported command" in response.message
 
 
+def test_abort_mission_rejects_mission_id_mismatch(mission_harness) -> None:
+    _, observer = mission_harness
+
+    start_request = MissionCommand.Request()
+    start_request.command = "START"
+    start_request.mission_id = "mismatch-abort"
+    start_request.zone_geometry = VALID_ZONE_GEOMETRY
+    start_future = observer.start_client.call_async(start_request)
+
+    assert _wait_until(lambda: start_future.done())
+    assert start_future.result() is not None
+    assert start_future.result().success
+    assert _wait_until(lambda: "SEARCHING" in observer.states)
+
+    abort_request = MissionCommand.Request()
+    abort_request.command = "ABORT"
+    abort_request.mission_id = "other-mission-id"
+    abort_request.zone_geometry = ""
+    abort_future = observer.abort_client.call_async(abort_request)
+
+    assert _wait_until(lambda: abort_future.done())
+    response = abort_future.result()
+    assert response is not None
+    assert not response.success
+    assert "mission_id mismatch" in response.message
+    assert "ABORTED" not in observer.states
+
+
 def test_start_mission_rejects_missing_zone_geometry(mission_harness) -> None:
     _, observer = mission_harness
 
@@ -291,3 +319,67 @@ def test_start_mission_prefers_recently_seen_scout_endpoint(mission_harness) -> 
     assert response.success
     assert "scout 'scout_2'" in response.message
     assert mission_node._active_scout_vehicle_id == "scout_2"  # noqa: SLF001
+
+
+def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+
+    start_request = MissionCommand.Request()
+    start_request.command = "START"
+    start_request.mission_id = "fleet-abort"
+    start_request.zone_geometry = VALID_ZONE_GEOMETRY
+    start_future = observer.start_client.call_async(start_request)
+
+    assert _wait_until(lambda: start_future.done())
+    assert start_future.result() is not None
+    assert start_future.result().success
+    assert _wait_until(lambda: "SEARCHING" in observer.states)
+
+    telemetry_scout_1 = Telemetry()
+    telemetry_scout_1.vehicle_id = "scout1"
+    telemetry_scout_1.vehicle_type = "scout"
+    observer.telemetry_publisher.publish(telemetry_scout_1)
+
+    telemetry_scout_2 = Telemetry()
+    telemetry_scout_2.vehicle_id = "scout2"
+    telemetry_scout_2.vehicle_type = "scout"
+    observer.telemetry_publisher.publish(telemetry_scout_2)
+
+    assert _wait_until(
+        lambda: {"scout_1", "scout_2"}.issubset(  # noqa: SLF001
+            set(mission_node._scout_last_seen_monotonic.keys())  # noqa: SLF001
+        )
+    )
+
+    endpoint_calls: list[tuple[str, int]] = []
+    rtl_attempts: list[int] = []
+
+    def _record_endpoint(host: str, port: int) -> None:
+        endpoint_calls.append((host, int(port)))
+
+    def _record_rtl_attempt() -> bool:
+        rtl_attempts.append(1)
+        if len(rtl_attempts) == 1:
+            raise OSError("simulated endpoint write failure")
+        return True
+
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)  # noqa: SLF001
+    monkeypatch.setattr(  # noqa: SLF001
+        mission_node._mavlink_adapter, "send_return_to_launch", _record_rtl_attempt
+    )
+
+    abort_request = MissionCommand.Request()
+    abort_request.command = "ABORT"
+    abort_request.mission_id = "fleet-abort"
+    abort_request.zone_geometry = ""
+    abort_future = observer.abort_client.call_async(abort_request)
+
+    assert _wait_until(lambda: abort_future.done())
+    response = abort_future.result()
+    assert response is not None
+    assert response.success
+    assert _wait_until(lambda: "ABORTED" in observer.states)
+    assert len(rtl_attempts) == 2
+    assert sorted(endpoint_calls) == [("127.0.0.1", 14540), ("127.0.0.1", 14541)]
