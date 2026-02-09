@@ -701,15 +701,15 @@ def test_detection_dispatch_preserves_non_target_vehicle_assignments(
     assert mission_node._tracking_context.uses_dedicated_adapter
     assert mission_node._tracking_context.assigned_scout_vehicle_id == "scout_2"
     assert "scout_1" in mission_node._tracking_context.preserved_non_target_vehicle_ids
-    assert mission_node._scout_assignments.get("scout_1") == "SEARCHING"
-    assert mission_node._scout_assignments.get("scout_2") == "TRACKING"
+    assert mission_node._vehicle_assignments.get("scout_1") == "SEARCHING"
+    assert mission_node._vehicle_assignments.get("scout_2") == "TRACKING"
     assert ("127.0.0.1", 14541) not in endpoint_calls
 
     signal = String()
     signal.data = "resolved"
     observer.tracking_resolution_publisher.publish(signal)
     assert _wait_until(lambda: mission_node._state == "SEARCHING")
-    assert mission_node._scout_assignments.get("scout_2") == "SEARCHING"
+    assert mission_node._vehicle_assignments.get("scout_2") == "SEARCHING"
 
 
 def test_detection_latency_uses_adapter_dispatch_timestamp(
@@ -824,7 +824,7 @@ def test_completed_scout_is_reassigned_to_remaining_work(mission_harness) -> Non
 
     mission_node._redistribute_completed_scout_work()
 
-    assert mission_node._scout_assignments.get("scout_1") == "SEARCHING"
+    assert mission_node._vehicle_assignments.get("scout_1") == "SEARCHING"
     assert mission_node._assignment_labels.get("scout_1", "").startswith("SEARCHING:")
     assert len(mission_node._scout_plans["scout_1"].waypoints) >= 2
     assert len(mission_node._scout_plans["scout_2"].waypoints) < 5
@@ -879,7 +879,7 @@ def test_start_mission_enables_ranger_overwatch_from_role_data(
     assert response.success
     assert _wait_until(lambda: mission_node._state == "SEARCHING")
     assert mission_node._active_ranger_vehicle_id == "ranger_1"
-    assert mission_node._scout_assignments.get("ranger_1") == "OVERWATCH"
+    assert mission_node._vehicle_assignments.get("ranger_1") == "OVERWATCH"
     assert len(mission_node._ranger_orbit_waypoints) >= 4
 
 
@@ -939,6 +939,44 @@ def test_start_mission_dispatches_ranger_overwatch_stream_when_endpoint_is_confi
     )
 
 
+def test_sync_assignments_reassigns_active_ranger_when_current_goes_offline(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._mission_id = "ranger-failover"
+    mission_node._state = "SEARCHING"
+    mission_node._active_ranger_vehicle_id = "ranger_1"
+    mission_node._ranger_endpoints = [
+        ScoutEndpoint(vehicle_id="ranger_1", host="127.0.0.1", port=14543),
+        ScoutEndpoint(vehicle_id="ranger_2", host="127.0.0.1", port=14544),
+    ]
+    mission_node._ranger_orbit_waypoints = [{"x": 0.0, "z": 0.0, "altitude_m": 20.0}]
+    mission_node._set_scout_assignment("ranger_1", "OVERWATCH", label="OVERWATCH")
+    mission_node._set_scout_assignment("ranger_2", "IDLE", label="IDLE")
+    now = time.monotonic()
+    mission_node._ranger_last_seen_monotonic = {
+        "ranger_1": now - 10.0,
+        "ranger_2": now,
+    }
+
+    dispatch_calls: list[bool] = []
+    monkeypatch.setattr(
+        mission_node,
+        "_start_ranger_overwatch_execution",
+        lambda: dispatch_calls.append(True),
+    )
+
+    mission_node._sync_assignments_with_telemetry_freshness()
+
+    assert mission_node._active_ranger_vehicle_id == "ranger_2"
+    assert mission_node._vehicle_assignments["ranger_1"] == "IDLE"
+    assert mission_node._assignment_labels["ranger_1"] == "IDLE:offline"
+    assert mission_node._vehicle_assignments["ranger_2"] == "OVERWATCH"
+    assert dispatch_calls == [True]
+
+
 def test_sync_assignments_preserves_completed_idle_label_for_online_scout(
     mission_harness,
 ) -> None:
@@ -963,7 +1001,7 @@ def test_sync_assignments_preserves_completed_idle_label_for_online_scout(
 
     mission_node._sync_assignments_with_telemetry_freshness()
 
-    assert mission_node._scout_assignments["scout_1"] == "IDLE"
+    assert mission_node._vehicle_assignments["scout_1"] == "IDLE"
     assert mission_node._assignment_labels["scout_1"] == "IDLE:zone-1:complete"
 
 

@@ -236,7 +236,7 @@ class MissionNode(Node):
         self._ranger_geodetic_snapshot: dict[str, dict[str, float]] = {}
         self._telemetry_geodetic_origin: dict[str, float] | None = None
         self._active_scout_vehicle_id = ""
-        self._scout_assignments: dict[str, str] = {}
+        self._vehicle_assignments: dict[str, str] = {}
         self._assignment_labels: dict[str, str] = {}
         self._scout_plans: dict[str, MissionPlanState] = {}
         self._zone_polygons_by_vehicle: dict[str, list[dict[str, float]]] = {}
@@ -380,7 +380,7 @@ class MissionNode(Node):
             self._mission_started_sec = 0.0
             if new_state in {"ABORTED", "IDLE"}:
                 self._active_scout_vehicle_id = ""
-            self._scout_assignments.clear()
+            self._vehicle_assignments.clear()
             self._assignment_labels.clear()
             self._reset_tracking_context()
             self._reset_vehicle_command_states()
@@ -406,7 +406,7 @@ class MissionNode(Node):
         self._last_detection_rejection_reason = ""
         self._last_tracking_completion_reason = ""
         self._last_detection_event = None
-        self._scout_assignments.clear()
+        self._vehicle_assignments.clear()
         self._assignment_labels.clear()
         self._scout_plans.clear()
         self._zone_polygons_by_vehicle.clear()
@@ -442,7 +442,7 @@ class MissionNode(Node):
         normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
         if not normalized_vehicle_id:
             return
-        self._scout_assignments[normalized_vehicle_id] = assignment
+        self._vehicle_assignments[normalized_vehicle_id] = assignment
         self._assignment_labels[normalized_vehicle_id] = (
             label if label is not None else assignment
         )
@@ -631,7 +631,7 @@ class MissionNode(Node):
                 self._set_scout_assignment(vehicle_id, "IDLE", label="IDLE")
             return
 
-        if vehicle_id in self._scout_assignments:
+        if vehicle_id in self._vehicle_assignments:
             return
         if (
             self._tracking_context.active
@@ -1124,7 +1124,7 @@ class MissionNode(Node):
             )
             return False
 
-        selected_scout_previous_assignment = self._scout_assignments.get(
+        selected_scout_previous_assignment = self._vehicle_assignments.get(
             selected_endpoint.vehicle_id, "SEARCHING"
         )
         selected_scout_previous_plan = self._scout_plans.get(selected_endpoint.vehicle_id)
@@ -1135,7 +1135,7 @@ class MissionNode(Node):
         )
         preserved_non_target_vehicle_ids = sorted(
             vehicle_id
-            for vehicle_id, assignment in self._scout_assignments.items()
+            for vehicle_id, assignment in self._vehicle_assignments.items()
             if vehicle_id != selected_endpoint.vehicle_id
             and assignment in {"SEARCHING", "TRACKING"}
         )
@@ -1804,7 +1804,7 @@ class MissionNode(Node):
 
         for endpoint in self._scout_endpoints:
             vehicle_id = endpoint.vehicle_id
-            assignment = self._scout_assignments.get(vehicle_id, "IDLE")
+            assignment = self._vehicle_assignments.get(vehicle_id, "IDLE")
             assignment_label = self._assignment_labels.get(vehicle_id, assignment)
             if self._is_endpoint_online(endpoint):
                 if assignment == "IDLE" and vehicle_id in self._scout_plans:
@@ -1821,23 +1821,37 @@ class MissionNode(Node):
             self._set_scout_assignment(vehicle_id, "IDLE", label="IDLE:offline")
 
         online_rangers = set(self._online_ranger_vehicle_ids())
-        if self._active_ranger_vehicle_id:
-            if self._active_ranger_vehicle_id in online_rangers:
-                self._set_scout_assignment(
-                    self._active_ranger_vehicle_id,
-                    "OVERWATCH",
-                    label="OVERWATCH",
-                )
-            elif self._active_ranger_vehicle_id in self._scout_assignments:
+        if (
+            self._active_ranger_vehicle_id
+            and self._active_ranger_vehicle_id not in online_rangers
+        ):
+            if self._active_ranger_vehicle_id in self._vehicle_assignments:
                 self._set_scout_assignment(
                     self._active_ranger_vehicle_id,
                     "IDLE",
                     label="IDLE:offline",
                 )
+            self._close_ranger_adapter()
+            self._active_ranger_vehicle_id = ""
+
+        if not self._active_ranger_vehicle_id and online_rangers:
+            self._active_ranger_vehicle_id = sorted(online_rangers)[0]
+            self._set_scout_assignment(
+                self._active_ranger_vehicle_id,
+                "OVERWATCH",
+                label="OVERWATCH",
+            )
+            self._start_ranger_overwatch_execution()
+        elif self._active_ranger_vehicle_id in online_rangers:
+            self._set_scout_assignment(
+                self._active_ranger_vehicle_id,
+                "OVERWATCH",
+                label="OVERWATCH",
+            )
         for endpoint in self._ranger_endpoints:
             if endpoint.vehicle_id in online_rangers:
                 continue
-            if endpoint.vehicle_id in self._scout_assignments:
+            if endpoint.vehicle_id in self._vehicle_assignments:
                 self._set_scout_assignment(
                     endpoint.vehicle_id,
                     "IDLE",
@@ -2294,7 +2308,7 @@ class MissionNode(Node):
             self._coverage_increment_per_tick, 0.01
         )
         estimated_time_remaining = max(0.0, estimated_ticks_remaining * self._progress_period)
-        assignment_items = dict(sorted(self._scout_assignments.items()))
+        assignment_items = dict(sorted(self._vehicle_assignments.items()))
         assignment_labels = dict(sorted(self._assignment_labels.items()))
         vehicle_progress = self._vehicle_progress_snapshot()
         vehicle_online = self._vehicle_online_snapshot()

@@ -113,3 +113,12 @@ def test_normalize_vehicle_id_applies_shared_rules() -> None:
     assert normalize_vehicle_id("RANGER-2") == "ranger_2"
     assert normalize_vehicle_id("alpha__03") == "alpha_03"
     assert normalize_vehicle_id("___") == ""
+
+
+def test_partition_polygon_normalizes_trailing_numeric_vehicle_ids() -> None:
+    polygon = _rectangle_polygon()
+    partitions = partition_polygon_for_scouts(
+        polygon, ["scout1", "scout-2", "scout_2"]
+    )
+
+    assert [part["vehicle_id"] for part in partitions] == ["scout_1", "scout_2"]
