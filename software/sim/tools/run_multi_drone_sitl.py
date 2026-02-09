@@ -80,7 +80,11 @@ def execute(vehicles):
         print(f"Launching {vehicle['name']}: {' '.join(cmd)}")
         processes.append((vehicle["name"], subprocess.Popen(cmd, env=env)))
 
+    user_terminated = False
+
     def shutdown(*_):
+        nonlocal user_terminated
+        user_terminated = True
         for _, proc in processes:
             proc.send_signal(signal.SIGINT)
 
@@ -90,6 +94,8 @@ def execute(vehicles):
     failures = []
     for name, proc in processes:
         code = proc.wait()
+        if user_terminated and code in (-signal.SIGINT, -signal.SIGTERM):
+            continue
         if code != 0:
             failures.append((name, code))
 

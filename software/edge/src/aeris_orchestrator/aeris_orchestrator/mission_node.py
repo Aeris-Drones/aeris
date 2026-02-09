@@ -561,6 +561,8 @@ class MissionNode(Node):
             response.message = "abort_mission rejected due to mission_id mismatch"
             return response
 
+        # Pause setpoint streaming before switching MAVLink endpoints for RTL fan-out.
+        self._mavlink_adapter.stop_stream()
         target_endpoints = self._active_abort_endpoints()
         successful_dispatches, total_dispatches = self._dispatch_abort_rtl(target_endpoints)
 

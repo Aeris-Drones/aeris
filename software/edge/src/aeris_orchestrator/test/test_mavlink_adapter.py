@@ -248,7 +248,7 @@ def test_adapter_send_rtl_returns_false_on_oserror(monkeypatch) -> None:
 
     adapter = MavlinkAdapter(host="127.0.0.1", port=14540, stream_hz=20.0)
 
-    def _raise_oserror(*args):
+    def _raise_oserror(*_args):
         raise OSError("simulated failure")
 
     connections[0].mav.command_long_send = _raise_oserror

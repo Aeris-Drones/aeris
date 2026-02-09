@@ -152,7 +152,7 @@ function V2PageContent() {
   }, [telemetryVehicles]);
 
   const vehiclePositionById = useMemo(() => {
-    const entries = telemetryVehicles.map((vehicle) => [
+    const entries: [string, [number, number]][] = telemetryVehicles.map((vehicle) => [
       vehicle.id,
       [vehicle.position.x, vehicle.position.z] as [number, number],
     ]);

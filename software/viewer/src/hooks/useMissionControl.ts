@@ -27,6 +27,8 @@ import ROSLIB from 'roslib';
 
 type SearchPattern = 'lawnmower' | 'spiral';
 const MISSION_SERVICE_TIMEOUT_MS = 8000;
+const INVALID_START_ZONE_ERROR =
+  'Select an active zone with at least 3 points before starting.';
 
 // ============================================================================
 // Hook Return Type
@@ -111,6 +113,12 @@ export function useMissionControl(): MissionControlState {
     setSelectedPattern(pattern);
     setStartMissionError(null);
   }, []);
+
+  useEffect(() => {
+    if (hasValidStartZone && startMissionError === INVALID_START_ZONE_ERROR) {
+      setStartMissionError(null);
+    }
+  }, [hasValidStartZone, startMissionError]);
 
   // Get detection stats from DetectionContext if available
   let detectionStats = stats.detectionCounts;
@@ -348,7 +356,7 @@ export function useMissionControl(): MissionControlState {
   const startMission = useCallback(() => {
     const zone = selectedZone;
     if (!zone || !hasValidStartZone) {
-      setStartMissionError('Select an active zone with at least 3 points before starting.');
+      setStartMissionError(INVALID_START_ZONE_ERROR);
       return;
     }
     const missionId = state.missionId?.trim() || generateMissionId();
@@ -522,7 +530,7 @@ export function useMissionControl(): MissionControlState {
     
     selectedPattern,
     setSelectedPattern: updateSelectedPattern,
-    startMissionError: hasValidStartZone ? startMissionError : null,
+    startMissionError,
     abortMissionError,
 
     // ROS status

@@ -1,6 +1,8 @@
 from pathlib import Path
+import shutil
 import subprocess
 
+import pytest
 
 MISSION_CONTROL_HOOK = Path("software/viewer/src/hooks/useMissionControl.ts")
 MISSION_CONTROL_PANEL = Path("software/viewer/src/components/mission/MissionControlPanel.tsx")
@@ -27,6 +29,8 @@ def test_abort_mission_hook_uses_timeout_and_validation_helpers() -> None:
 
 def test_mission_control_behavior_runtime_contracts() -> None:
     assert MISSION_CONTROL_BEHAVIOR_TEST.is_file()
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
     result = subprocess.run(
         ["node", "--test", str(MISSION_CONTROL_BEHAVIOR_TEST)],
         check=False,

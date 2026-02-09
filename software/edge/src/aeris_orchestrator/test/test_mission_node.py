@@ -73,9 +73,9 @@ def _publish_scout_telemetry(
     telemetry.vehicle_id = vehicle_id
     telemetry.vehicle_type = "scout"
     observer.telemetry_publisher.publish(telemetry)
-    normalized_id = mission_node._normalize_vehicle_id(vehicle_id)  # noqa: SLF001
+    normalized_id = mission_node._normalize_vehicle_id(vehicle_id)
     assert _wait_until(
-        lambda: normalized_id in mission_node._scout_last_seen_monotonic  # noqa: SLF001
+        lambda: normalized_id in mission_node._scout_last_seen_monotonic
     )
 
 
