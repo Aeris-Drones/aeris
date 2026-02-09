@@ -11,9 +11,13 @@ from pymavlink import mavutil
 Setpoint = dict[str, float]
 
 _METERS_TO_CENTIMETERS = 100.0
+_COMMAND_ACK_TIMEOUT_SEC = 1.0
+_COMMAND_ACK_RETRIES = 1
 _RTL_ACK_TIMEOUT_SEC = 1.0
 _RTL_HEARTBEAT_TIMEOUT_SEC = 2.0
 _RTL_ACK_RETRIES = 1
+_PARTNER_PRIME_TIMEOUT_SEC = 0.4
+_STREAM_PARTNER_POLL_TIMEOUT_SEC = 0.01
 
 
 class MavlinkAdapter:
@@ -24,6 +28,7 @@ class MavlinkAdapter:
         *,
         host: str = "127.0.0.1",
         port: int = 14540,
+        command_port: int | None = None,
         stream_hz: float = 10.0,
         target_system: int = 1,
         target_component: int = 1,
@@ -33,14 +38,17 @@ class MavlinkAdapter:
     ) -> None:
         self._host = host
         self._port = port
+        self._command_port = int(command_port) if command_port is not None else int(port)
         self._stream_hz = max(stream_hz, 2.1)
-        self._target_system = target_system
-        self._target_component = target_component
+        self._target_system = int(target_system)
+        self._target_component = int(target_component)
         self._source_system = source_system
         self._source_component = source_component
         self._logger = logger or (lambda _: None)
+        self._partner_ready = self._command_port == self._port
 
         self._mav_connection = self._new_connection()
+        self._command_connection = self._new_command_connection()
         self._connection_lock = threading.Lock()
 
         self._running = False
@@ -64,22 +72,52 @@ class MavlinkAdapter:
         with self._state_lock:
             return self._last_setpoint_sent_monotonic
 
-    def set_endpoint(self, host: str, port: int) -> None:
+    def command_port(self) -> int:
+        return self._command_port
+
+    @property
+    def target(self) -> tuple[int, int]:
+        return self._target_system, self._target_component
+
+    def set_target(self, target_system: int, target_component: int = 1) -> None:
+        self._target_system = int(target_system)
+        self._target_component = int(target_component)
+
+    def set_endpoint(self, host: str, port: int, command_port: int | None = None) -> None:
         host_clean = host.strip() or "127.0.0.1"
         port_clean = int(port)
-        if host_clean == self._host and port_clean == self._port:
+        command_port_clean = (
+            int(command_port) if command_port is not None else int(port_clean)
+        )
+        if (
+            host_clean == self._host
+            and port_clean == self._port
+            and command_port_clean == self._command_port
+        ):
             return
 
         with self._connection_lock:
             previous = self._mav_connection
-            self._host = host_clean
-            self._port = port_clean
-            self._mav_connection = self._new_connection()
+            previous_command = self._command_connection
             try:
                 previous.close()
             except OSError:
                 pass
-        self._logger(f"MAVLink endpoint set to {self._host}:{self._port}")
+            if previous_command is not None:
+                try:
+                    previous_command.close()
+                except OSError:
+                    pass
+            self._host = host_clean
+            self._port = port_clean
+            self._command_port = command_port_clean
+            self._partner_ready = self._command_port == self._port
+            self._mav_connection = self._new_connection()
+            self._command_connection = self._new_command_connection()
+        self._logger(
+            "MAVLink endpoint set to "
+            f"{self._host}:{self._port} (command_port={self._command_port})"
+        )
 
     def upload_mission_items_int(self, mission_id: str, waypoints: list[Setpoint]) -> None:
         if not waypoints:
@@ -161,6 +199,8 @@ class MavlinkAdapter:
         self.stop_stream()
         with self._connection_lock:
             self._mav_connection.close()
+            if self._command_connection is not None:
+                self._command_connection.close()
 
     def wait_for_setpoint_dispatch(
         self, *, after_monotonic: float, timeout_sec: float
@@ -176,65 +216,146 @@ class MavlinkAdapter:
 
     def send_return_to_launch(self) -> bool:
         """Send an explicit RTL command to the currently selected endpoint."""
-        command_id = mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH
+        return self._send_command_with_ack(
+            command_id=mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+            params=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ack_timeout_sec=_RTL_ACK_TIMEOUT_SEC,
+            ack_retries=_RTL_ACK_RETRIES,
+            require_rtl_heartbeat=True,
+            heartbeat_timeout_sec=_RTL_HEARTBEAT_TIMEOUT_SEC,
+            label="RTL",
+        )
+
+    def send_hold_position(self) -> bool:
+        """Put the target vehicle in PX4 AUTO.LOITER (hold) mode."""
+        return self._send_command_with_ack(
+            command_id=mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+            params=(
+                float(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
+                4.0,  # PX4_CUSTOM_MAIN_MODE_AUTO
+                3.0,  # PX4_CUSTOM_SUB_MODE_AUTO_LOITER
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ),
+            ack_timeout_sec=_COMMAND_ACK_TIMEOUT_SEC,
+            ack_retries=_COMMAND_ACK_RETRIES,
+            require_rtl_heartbeat=False,
+            heartbeat_timeout_sec=0.0,
+            label="HOLD",
+        )
+
+    def send_resume_mission(self) -> bool:
+        """Put the target vehicle in PX4 AUTO.MISSION (resume) mode."""
+        return self._send_command_with_ack(
+            command_id=mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+            params=(
+                float(mavutil.mavlink.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED),
+                4.0,  # PX4_CUSTOM_MAIN_MODE_AUTO
+                4.0,  # PX4_CUSTOM_SUB_MODE_AUTO_MISSION
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ),
+            ack_timeout_sec=_COMMAND_ACK_TIMEOUT_SEC,
+            ack_retries=_COMMAND_ACK_RETRIES,
+            require_rtl_heartbeat=False,
+            heartbeat_timeout_sec=0.0,
+            label="RESUME",
+        )
+
+    def _send_command_with_ack(
+        self,
+        *,
+        command_id: int,
+        params: tuple[float, float, float, float, float, float, float],
+        ack_timeout_sec: float,
+        ack_retries: int,
+        require_rtl_heartbeat: bool,
+        heartbeat_timeout_sec: float,
+        label: str,
+    ) -> bool:
         accepted_results = {
             mavutil.mavlink.MAV_RESULT_ACCEPTED,
             mavutil.mavlink.MAV_RESULT_IN_PROGRESS,
         }
+        if self._command_connection is None and not self._ensure_partner_ready(
+            timeout_sec=_PARTNER_PRIME_TIMEOUT_SEC
+        ):
+            self._logger(
+                f"{label} command could not run because no MAVLink partner is available "
+                f"for {self._host}:{self._port} (command_port={self._command_port})"
+            )
+            return False
 
-        for attempt in range(1, _RTL_ACK_RETRIES + 2):
+        command_connection = (
+            self._command_connection
+            if self._command_connection is not None
+            else self._mav_connection
+        )
+        command_log_endpoint = (
+            f"{self._host}:{self._command_port}"
+            if self._command_connection is not None
+            else f"{self._host}:{self._port}"
+        )
+
+        for attempt in range(1, ack_retries + 2):
             confirmation = attempt - 1
             try:
                 with self._connection_lock:
-                    self._mav_connection.mav.command_long_send(
+                    command_connection.mav.command_long_send(
                         self._target_system,
                         self._target_component,
                         command_id,
                         confirmation,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
-                        0.0,
+                        params[0],
+                        params[1],
+                        params[2],
+                        params[3],
+                        params[4],
+                        params[5],
+                        params[6],
                     )
                 self._logger(
-                    "Sent MAV_CMD_NAV_RETURN_TO_LAUNCH to "
-                    f"{self._host}:{self._port} (attempt {attempt}, confirmation={confirmation})"
+                    f"Sent command {command_id} ({label}) to "
+                    f"{command_log_endpoint} (attempt {attempt}, confirmation={confirmation})"
                 )
             except OSError as error:
-                self._logger(f"MAVLink RTL command send failed: {error}")
+                self._logger(f"MAVLink {label} command send failed: {error}")
                 return False
 
-            ack = self._wait_for_command_ack(command_id, _RTL_ACK_TIMEOUT_SEC)
+            ack = self._wait_for_command_ack(command_id, ack_timeout_sec)
             if ack is None:
-                if attempt <= _RTL_ACK_RETRIES:
+                if attempt <= ack_retries:
                     self._logger(
-                        "No COMMAND_ACK received for RTL command; retrying "
-                        f"({attempt}/{_RTL_ACK_RETRIES + 1})"
+                        f"No COMMAND_ACK received for {label} command; retrying "
+                        f"({attempt}/{ack_retries + 1})"
                     )
                     continue
-                self._logger("No COMMAND_ACK received for RTL command")
+                self._logger(f"No COMMAND_ACK received for {label} command")
                 return False
 
             result = int(getattr(ack, "result", -1))
             if result in accepted_results:
-                if not self._wait_for_heartbeat_rtl(_RTL_HEARTBEAT_TIMEOUT_SEC):
+                if require_rtl_heartbeat and not self._wait_for_heartbeat_rtl(
+                    heartbeat_timeout_sec
+                ):
                     self._logger(
                         "COMMAND_ACK accepted but RTL mode was not observed via HEARTBEAT "
                         f"for {self._host}:{self._port}"
                     )
-                    if attempt <= _RTL_ACK_RETRIES:
+                    if attempt <= ack_retries:
                         continue
                     return False
                 return True
 
             self._logger(
-                "RTL command rejected with COMMAND_ACK result="
+                f"{label} command rejected with COMMAND_ACK result="
                 f"{result} on {self._host}:{self._port}"
             )
-            if attempt <= _RTL_ACK_RETRIES:
+            if attempt <= ack_retries:
                 continue
             return False
 
@@ -281,7 +402,9 @@ class MavlinkAdapter:
         get_system = getattr(message, "get_srcSystem", None)
         if callable(get_system):
             try:
-                if int(get_system()) != int(self._target_system):
+                if int(self._target_system) > 0 and int(get_system()) != int(
+                    self._target_system
+                ):
                     return False
             except (TypeError, ValueError):
                 return False
@@ -324,6 +447,8 @@ class MavlinkAdapter:
                 return
 
             if setpoint is not None:
+                if not self._partner_ready:
+                    self._ensure_partner_ready(timeout_sec=_STREAM_PARTNER_POLL_TIMEOUT_SEC)
                 self._send_local_ned_setpoint(setpoint)
 
             next_tick += period
@@ -335,11 +460,62 @@ class MavlinkAdapter:
                 next_tick = time.perf_counter()
 
     def _new_connection(self):
+        if self._command_port != self._port:
+            return mavutil.mavlink_connection(
+                f"udpin:0.0.0.0:{self._port}",
+                source_system=self._source_system,
+                source_component=self._source_component,
+            )
         return mavutil.mavlink_connection(
             f"udpout:{self._host}:{self._port}",
             source_system=self._source_system,
             source_component=self._source_component,
         )
+
+    def _new_command_connection(self):
+        if self._command_port == self._port:
+            return None
+        return mavutil.mavlink_connection(
+            f"udpout:{self._host}:{self._command_port}",
+            source_system=self._source_system,
+            source_component=self._source_component,
+        )
+
+    def _ensure_partner_ready(self, timeout_sec: float) -> bool:
+        if self._partner_ready:
+            return True
+
+        with self._connection_lock:
+            clients = getattr(self._mav_connection, "clients", None)
+            if isinstance(clients, set) and clients:
+                self._partner_ready = True
+                return True
+
+        deadline = time.monotonic() + max(timeout_sec, 0.0)
+        while time.monotonic() < deadline:
+            remaining = max(deadline - time.monotonic(), 0.0)
+            wait_slice = min(0.25, remaining)
+            try:
+                with self._connection_lock:
+                    sock = getattr(self._mav_connection, "port", None)
+                    if sock is None:
+                        self._partner_ready = True
+                        return True
+                    sock.sendto(b"\x00", (self._host, self._port))
+                    if self._command_port != self._port:
+                        sock.sendto(b"\x00", (self._host, self._command_port))
+                    message = self._mav_connection.recv_match(
+                        blocking=True, timeout=wait_slice
+                    )
+            except OSError as error:
+                self._logger(f"MAVLink endpoint handshake failed: {error}")
+                return False
+
+            if message is not None:
+                self._partner_ready = True
+                return True
+
+        return False
 
     def _send_local_ned_setpoint(self, setpoint: Setpoint) -> None:
         # Our mission plan uses x/east and z/north in meters. MAVLink local NED expects

@@ -109,16 +109,14 @@ export function useMissionControl(): MissionControlState {
   const [abortMissionError, setAbortMissionError] = useState<string | null>(null);
   const hasValidStartZone =
     !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
+  const effectiveStartMissionError =
+    hasValidStartZone && startMissionError === INVALID_START_ZONE_ERROR
+      ? null
+      : startMissionError;
   const updateSelectedPattern = useCallback((pattern: SearchPattern) => {
     setSelectedPattern(pattern);
     setStartMissionError(null);
   }, []);
-
-  useEffect(() => {
-    if (hasValidStartZone && startMissionError === INVALID_START_ZONE_ERROR) {
-      setStartMissionError(null);
-    }
-  }, [hasValidStartZone, startMissionError]);
 
   // Get detection stats from DetectionContext if available
   let detectionStats = stats.detectionCounts;
@@ -413,13 +411,13 @@ export function useMissionControl(): MissionControlState {
   const abortMission = useCallback(() => {
     setAbortMissionError(null);
 
-    const missionId = state.missionId;
+    const missionId = state.missionId?.trim() ?? '';
     const validationError = getAbortMissionValidationError({
       rosConnected: rosConnected && !!ros,
       missionId,
     });
     if (validationError) {
-      if (!missionId?.trim()) {
+      if (!missionId) {
         console.warn('[MissionControl] abort_mission called without a missionId');
       }
       setAbortMissionError(validationError);
@@ -428,7 +426,7 @@ export function useMissionControl(): MissionControlState {
 
     callMissionService('abort_mission', {
       command: 'ABORT',
-      mission_id: missionId.trim(),
+      mission_id: missionId,
       zone_geometry: '',
     })
       .then(response => {
@@ -530,7 +528,7 @@ export function useMissionControl(): MissionControlState {
     
     selectedPattern,
     setSelectedPattern: updateSelectedPattern,
-    startMissionError,
+    startMissionError: effectiveStartMissionError,
     abortMissionError,
 
     // ROS status

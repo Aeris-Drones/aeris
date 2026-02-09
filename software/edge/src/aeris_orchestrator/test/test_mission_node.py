@@ -1,6 +1,7 @@
 import json
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,14 +14,14 @@ from aeris_msgs.msg import (
     Telemetry,
     ThermalHotspot,
 )
-from aeris_msgs.srv import MissionCommand
+from aeris_msgs.srv import MissionCommand, VehicleCommand
 from geometry_msgs.msg import Point32, Polygon
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from std_msgs.msg import String
 
-from aeris_orchestrator.mission_node import MissionNode
+from aeris_orchestrator.mission_node import MissionNode, ScoutEndpoint
 
 
 def _wait_until(predicate, timeout_sec: float = 5.0, sleep_sec: float = 0.02) -> bool:
@@ -79,6 +80,9 @@ class MissionObserver(Node):
         )
         self.start_client = self.create_client(MissionCommand, "start_mission")
         self.abort_client = self.create_client(MissionCommand, "abort_mission")
+        self.vehicle_command_client = self.create_client(
+            VehicleCommand, "vehicle_command"
+        )
 
     def _on_state(self, message: MissionState) -> None:
         with self._state_lock:
@@ -133,6 +137,7 @@ def mission_harness(ros_runtime: MultiThreadedExecutor):
 
     assert observer.start_client.wait_for_service(timeout_sec=2.0)
     assert observer.abort_client.wait_for_service(timeout_sec=2.0)
+    assert observer.vehicle_command_client.wait_for_service(timeout_sec=2.0)
 
     try:
         yield mission_node, observer
@@ -384,7 +389,10 @@ def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
     endpoint_calls: list[tuple[str, int]] = []
     rtl_attempts: list[int] = []
 
-    def _record_endpoint(host: str, port: int) -> None:
+    def _record_endpoint(
+        host: str, port: int, command_port: int | None = None
+    ) -> None:
+        del command_port
         endpoint_calls.append((host, int(port)))
 
     def _record_rtl_attempt() -> bool:
@@ -410,7 +418,7 @@ def test_abort_mission_dispatches_rtl_to_all_active_endpoints_best_effort(
     assert response.success
     assert _wait_until(lambda: "ABORTED" in observer.states)
     assert len(rtl_attempts) == 2
-    assert sorted(endpoint_calls) == [("127.0.0.1", 14540), ("127.0.0.1", 14541)]
+    assert sorted(endpoint_calls) == [("127.0.0.1", 14541), ("127.0.0.1", 14542)]
 
 
 def test_start_mission_rejects_when_no_scout_is_online(mission_harness) -> None:
@@ -632,9 +640,12 @@ def test_detection_dispatch_preserves_non_target_vehicle_assignments(
     endpoint_calls: list[tuple[str, int]] = []
     original_set_endpoint = mission_node._mavlink_adapter.set_endpoint
 
-    def _record_endpoint(host: str, port: int) -> None:
+    def _record_endpoint(host: str, port: int, command_port: int | None = None) -> None:
         endpoint_calls.append((host, int(port)))
-        original_set_endpoint(host, port)
+        if command_port is None:
+            original_set_endpoint(host, port)
+        else:
+            original_set_endpoint(host, port, command_port=command_port)
 
     monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
 
@@ -687,3 +698,409 @@ def test_detection_selection_falls_back_to_most_recent_seen_without_positions(
     selected = mission_node._select_tracking_scout_endpoint({"x": 0.0, "z": 0.0})
     assert selected is not None
     assert selected.vehicle_id == "scout_2"
+
+def test_vehicle_command_targets_only_requested_endpoint(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    now = time.monotonic()
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vehicle-command-mission"
+    mission_node._scout_last_seen_monotonic = {
+        "scout_1": now,
+        "scout_2": now,
+    }
+
+    endpoint_calls: list[tuple[str, int]] = []
+    hold_calls: list[int] = []
+
+    def _record_endpoint(
+        host: str, port: int, command_port: int | None = None
+    ) -> None:
+        del command_port
+        endpoint_calls.append((host, int(port)))
+
+    def _record_hold() -> bool:
+        hold_calls.append(1)
+        return True
+
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="scout2",
+        mission_id="vehicle-command-mission",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert result.success
+    assert hold_calls == [1]
+    assert endpoint_calls == [("127.0.0.1", 14542), ("127.0.0.1", 14540)]
+    assert mission_node._state == "SEARCHING"
+
+
+def test_vehicle_command_rejects_unknown_vehicle(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "reject-unknown-vehicle"
+    mission_node._scout_last_seen_monotonic = {}
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="unknown7",
+        mission_id="reject-unknown-vehicle",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert not result.success
+    assert "unknown vehicle_id" in result.message
+
+
+def test_vehicle_command_rejects_offline_vehicle(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "reject-offline-vehicle"
+    mission_node._scout_last_seen_monotonic = {
+        "scout_2": time.monotonic() - 10.0,
+    }
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="scout2",
+        mission_id="reject-offline-vehicle",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert not result.success
+    assert "offline vehicle_id" in result.message
+
+
+def test_vehicle_command_rejects_unsupported_command(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "reject-command"
+    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}
+
+    request = SimpleNamespace(
+        command="LAND",
+        vehicle_id="scout1",
+        mission_id="reject-command",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert not result.success
+    assert "unsupported command" in result.message
+
+
+def test_vehicle_command_rejects_invalid_state_transition(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "IDLE"
+    mission_node._mission_id = "state-gate"
+    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="scout1",
+        mission_id="state-gate",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert not result.success
+    assert "rejected while in IDLE" in result.message
+
+
+def test_vehicle_command_rejects_invalid_per_vehicle_transition(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "transition-gate"
+    mission_node._scout_last_seen_monotonic = {"scout_1": time.monotonic()}
+
+    endpoint_calls: list[tuple[str, int]] = []
+    hold_calls: list[int] = []
+
+    def _record_endpoint(
+        host: str, port: int, command_port: int | None = None
+    ) -> None:
+        del command_port
+        endpoint_calls.append((host, int(port)))
+
+    def _record_hold() -> bool:
+        hold_calls.append(1)
+        return True
+
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="scout1",
+        mission_id="transition-gate",
+    )
+    response = SimpleNamespace(success=False, message="")
+    first_result = mission_node._handle_vehicle_command(request, response)
+    assert first_result.success
+
+    second_response = SimpleNamespace(success=False, message="")
+    second_result = mission_node._handle_vehicle_command(request, second_response)
+    assert not second_result.success
+    assert "invalid transition" in second_result.message
+    assert hold_calls == [1]
+    assert endpoint_calls == [("127.0.0.1", 14541), ("127.0.0.1", 14540)]
+
+
+def test_vehicle_command_service_accepts_online_target(mission_harness, monkeypatch) -> None:
+    mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
+
+    start_request = MissionCommand.Request()
+    start_request.command = "START"
+    start_request.mission_id = "vehicle-service-accept"
+    start_request.zone_geometry = VALID_ZONE_GEOMETRY
+    start_future = observer.start_client.call_async(start_request)
+
+    assert _wait_until(lambda: start_future.done())
+    assert start_future.result() is not None
+    assert start_future.result().success
+    assert _wait_until(lambda: "SEARCHING" in observer.states)
+
+    endpoint_calls: list[tuple[str, int]] = []
+    hold_calls: list[int] = []
+
+    def _record_endpoint(
+        host: str, port: int, command_port: int | None = None
+    ) -> None:
+        del command_port
+        endpoint_calls.append((host, int(port)))
+
+    def _record_hold() -> bool:
+        hold_calls.append(1)
+        return True
+
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)
+
+    request = VehicleCommand.Request()
+    request.command = "HOLD"
+    request.vehicle_id = "scout2"
+    request.mission_id = "vehicle-service-accept"
+    result_future = observer.vehicle_command_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert response.success
+    assert "accepted" in response.message
+    assert endpoint_calls == [("127.0.0.1", 14542), ("127.0.0.1", 14541)]
+    assert hold_calls == [1]
+    assert mission_node._state == "SEARCHING"
+
+
+def test_vehicle_command_service_rejects_unknown_target(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+
+    start_request = MissionCommand.Request()
+    start_request.command = "START"
+    start_request.mission_id = "vehicle-service-reject"
+    start_request.zone_geometry = VALID_ZONE_GEOMETRY
+    start_future = observer.start_client.call_async(start_request)
+
+    assert _wait_until(lambda: start_future.done())
+    assert start_future.result() is not None
+    assert start_future.result().success
+    assert _wait_until(lambda: "SEARCHING" in observer.states)
+
+    request = VehicleCommand.Request()
+    request.command = "HOLD"
+    request.vehicle_id = "unknown99"
+    request.mission_id = "vehicle-service-reject"
+    result_future = observer.vehicle_command_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert not response.success
+    assert "unknown vehicle_id" in response.message
+
+
+def test_vehicle_command_applies_endpoint_command_port_and_target_system(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    now = time.monotonic()
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vehicle-command-target-system"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_endpoints = [
+        ScoutEndpoint(
+            vehicle_id="scout_1",
+            host="127.0.0.1",
+            port=14541,
+            command_port=14581,
+            target_system=2,
+            target_component=1,
+        ),
+        ScoutEndpoint(
+            vehicle_id="scout_2",
+            host="127.0.0.1",
+            port=14542,
+            command_port=14582,
+            target_system=3,
+            target_component=1,
+        ),
+    ]
+    mission_node._reset_vehicle_command_states()
+    mission_node._scout_last_seen_monotonic = {
+        "scout_1": now,
+        "scout_2": now,
+    }
+
+    endpoint_calls: list[tuple[str, int, int | None]] = []
+    target_calls: list[tuple[int, int]] = []
+    hold_calls: list[int] = []
+
+    def _record_endpoint(host: str, port: int, command_port: int | None = None) -> None:
+        endpoint_calls.append(
+            (
+                host,
+                int(port),
+                None if command_port is None else int(command_port),
+            )
+        )
+
+    def _record_target(system_id: int, component_id: int = 1) -> None:
+        target_calls.append((int(system_id), int(component_id)))
+
+    def _record_hold() -> bool:
+        hold_calls.append(1)
+        return True
+
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_target", _record_target)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", _record_hold)
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="scout2",
+        mission_id="vehicle-command-target-system",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert result.success
+    assert hold_calls == [1]
+    assert endpoint_calls == [
+        ("127.0.0.1", 14542, 14582),
+        ("127.0.0.1", 14541, 14581),
+    ]
+    assert target_calls == [(3, 1), (2, 1)]
+
+
+def test_vehicle_command_pauses_stream_when_switching_endpoints(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    now = time.monotonic()
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vehicle-command-stream-guard"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._plan_state.waypoints = [
+        {"x": 10.0, "z": 20.0, "altitude_m": 30.0}
+    ]
+    mission_node._plan_state.current_waypoint_index = 0
+    mission_node._scout_endpoints = [
+        ScoutEndpoint(
+            vehicle_id="scout_1",
+            host="127.0.0.1",
+            port=14541,
+            command_port=14581,
+            target_system=2,
+            target_component=1,
+        ),
+        ScoutEndpoint(
+            vehicle_id="scout_2",
+            host="127.0.0.1",
+            port=14542,
+            command_port=14582,
+            target_system=3,
+            target_component=1,
+        ),
+    ]
+    mission_node._reset_vehicle_command_states()
+    mission_node._scout_last_seen_monotonic = {
+        "scout_1": now,
+        "scout_2": now,
+    }
+    mission_node._mavlink_adapter._running = True
+
+    endpoint_calls: list[tuple[str, int, int | None]] = []
+    target_calls: list[tuple[int, int]] = []
+    stop_stream_calls: list[int] = []
+    start_stream_calls: list[tuple[str, dict[str, float]]] = []
+
+    def _record_endpoint(host: str, port: int, command_port: int | None = None) -> None:
+        endpoint_calls.append((host, int(port), command_port))
+
+    def _record_target(system_id: int, component_id: int = 1) -> None:
+        target_calls.append((int(system_id), int(component_id)))
+
+    def _record_stop_stream() -> None:
+        stop_stream_calls.append(1)
+        mission_node._mavlink_adapter._running = False
+
+    def _record_start_stream(mission_id: str, setpoint: dict[str, float]) -> None:
+        start_stream_calls.append((mission_id, dict(setpoint)))
+        mission_node._mavlink_adapter._running = True
+
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", _record_endpoint)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_target", _record_target)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "stop_stream", _record_stop_stream)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "start_stream", _record_start_stream)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", lambda: True)
+
+    request = SimpleNamespace(
+        command="HOLD",
+        vehicle_id="scout2",
+        mission_id="vehicle-command-stream-guard",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert result.success
+    assert stop_stream_calls == [1]
+    assert start_stream_calls == [
+        (
+            "vehicle-command-stream-guard",
+            {"x": 10.0, "z": 20.0, "altitude_m": 30.0},
+        )
+    ]
+    assert endpoint_calls == [
+        ("127.0.0.1", 14542, 14582),
+        ("127.0.0.1", 14541, 14581),
+    ]
+    assert target_calls == [(3, 1), (2, 1)]

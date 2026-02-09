@@ -3,7 +3,7 @@ import math
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Callable, Final
 
 import rclpy
 from aeris_msgs.msg import (
@@ -14,7 +14,7 @@ from aeris_msgs.msg import (
     Telemetry,
     ThermalHotspot,
 )
-from aeris_msgs.srv import MissionCommand
+from aeris_msgs.srv import MissionCommand, VehicleCommand
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -40,6 +40,9 @@ class ScoutEndpoint:
     vehicle_id: str
     host: str
     port: int
+    command_port: int = 0
+    target_system: int = 1
+    target_component: int = 1
 
 
 @dataclass(frozen=True)
@@ -82,6 +85,10 @@ class MissionNode(Node):
     _ABORTABLE_STATES: Final[set[str]] = {"SEARCHING", "TRACKING"}
     _SUPPORTED_PATTERNS: Final[set[str]] = {"lawnmower", "spiral"}
     _EARTH_RADIUS_M: Final[float] = 6_378_137.0
+    _SUPPORTED_VEHICLE_COMMANDS: Final[set[str]] = {"HOLD", "RESUME", "RECALL"}
+    _VEHICLE_COMMAND_STATE_ACTIVE: Final[str] = "ACTIVE"
+    _VEHICLE_COMMAND_STATE_HOLDING: Final[str] = "HOLDING"
+    _VEHICLE_COMMAND_STATE_RETURNING: Final[str] = "RETURNING"
 
     def __init__(self, *, parameter_overrides: list[Parameter] | None = None) -> None:
         super().__init__(
@@ -146,8 +153,10 @@ class MissionNode(Node):
         self._scout_endpoints_json = str(
             self.declare_parameter(
                 "scout_endpoints_json",
-                '[{"vehicle_id":"scout1","host":"127.0.0.1","port":14540},'
-                '{"vehicle_id":"scout2","host":"127.0.0.1","port":14541}]',
+                '[{"vehicle_id":"scout1","host":"127.0.0.1","port":14541,'
+                '"command_port":14581,"target_system":2},'
+                '{"vehicle_id":"scout2","host":"127.0.0.1","port":14542,'
+                '"command_port":14582,"target_system":3}]',
             ).value
         )
         self._thermal_confidence_min = float(
@@ -216,6 +225,8 @@ class MissionNode(Node):
         self._last_tracking_completion_reason = ""
         self._last_detection_accept_monotonic = -math.inf
         self._last_tracking_dispatch_latency_ms = 0.0
+        self._vehicle_command_states: dict[str, str] = {}
+        self._reset_vehicle_command_states()
 
         self._mavlink_adapter = MavlinkAdapter(
             host=self._scout_mavlink_host,
@@ -285,6 +296,12 @@ class MissionNode(Node):
             self._handle_abort_mission,
             callback_group=self._serialized_callback_group,
         )
+        self._vehicle_command_service = self.create_service(
+            VehicleCommand,
+            "vehicle_command",
+            self._handle_vehicle_command,
+            callback_group=self._serialized_callback_group,
+        )
 
         self._control_timer = self.create_timer(
             self._control_loop_period,
@@ -333,6 +350,7 @@ class MissionNode(Node):
                 self._active_scout_vehicle_id = ""
             self._scout_assignments.clear()
             self._reset_tracking_context()
+            self._reset_vehicle_command_states()
 
     def _publish_state(self, previous_state: str) -> None:
         state_message = MissionState()
@@ -421,6 +439,18 @@ class MissionNode(Node):
                             port = int(item.get("port", 0))
                         except (TypeError, ValueError):
                             continue
+                        try:
+                            command_port = int(item.get("command_port", port))
+                        except (TypeError, ValueError):
+                            continue
+                        try:
+                            target_system = int(item.get("target_system", 1))
+                        except (TypeError, ValueError):
+                            target_system = 1
+                        try:
+                            target_component = int(item.get("target_component", 1))
+                        except (TypeError, ValueError):
+                            target_component = 1
                         if not vehicle_id_raw or port <= 0:
                             continue
                         endpoints.append(
@@ -428,6 +458,11 @@ class MissionNode(Node):
                                 vehicle_id=self._normalize_vehicle_id(vehicle_id_raw),
                                 host=host,
                                 port=port,
+                                command_port=command_port if command_port > 0 else port,
+                                target_system=target_system if target_system > 0 else 1,
+                                target_component=(
+                                    target_component if target_component > 0 else 1
+                                ),
                             )
                         )
             except json.JSONDecodeError:
@@ -441,6 +476,9 @@ class MissionNode(Node):
                     vehicle_id="scout_1",
                     host=self._scout_mavlink_host,
                     port=self._scout_mavlink_udp_port,
+                    command_port=self._scout_mavlink_udp_port,
+                    target_system=1,
+                    target_component=1,
                 )
             )
         return endpoints
@@ -693,13 +731,54 @@ class MissionNode(Node):
             return selected
         return list(self._scout_endpoints)
 
+    def _reset_vehicle_command_states(self) -> None:
+        self._vehicle_command_states = {
+            endpoint.vehicle_id: self._VEHICLE_COMMAND_STATE_ACTIVE
+            for endpoint in self._scout_endpoints
+        }
+
+    def _next_vehicle_command_state(self, command: str) -> str:
+        if command == "HOLD":
+            return self._VEHICLE_COMMAND_STATE_HOLDING
+        if command == "RESUME":
+            return self._VEHICLE_COMMAND_STATE_ACTIVE
+        if command == "RECALL":
+            return self._VEHICLE_COMMAND_STATE_RETURNING
+        return self._VEHICLE_COMMAND_STATE_ACTIVE
+
+    def _validate_vehicle_command_transition(
+        self, *, vehicle_id: str, command: str
+    ) -> tuple[bool, str]:
+        current_state = self._vehicle_command_states.get(
+            vehicle_id, self._VEHICLE_COMMAND_STATE_ACTIVE
+        )
+        allowed_by_command: dict[str, set[str]] = {
+            "HOLD": {self._VEHICLE_COMMAND_STATE_ACTIVE},
+            "RESUME": {self._VEHICLE_COMMAND_STATE_HOLDING},
+            "RECALL": {
+                self._VEHICLE_COMMAND_STATE_ACTIVE,
+                self._VEHICLE_COMMAND_STATE_HOLDING,
+            },
+        }
+        allowed_states = allowed_by_command.get(command, set())
+        if current_state in allowed_states:
+            return True, ""
+        allowed_str = ", ".join(sorted(allowed_states)) if allowed_states else "none"
+        return (
+            False,
+            (
+                f"vehicle_command '{command}' rejected for '{vehicle_id}': invalid transition "
+                f"from {current_state}; allowed from {allowed_str}"
+            ),
+        )
+
     def _dispatch_abort_rtl(self, endpoints: list[ScoutEndpoint]) -> tuple[int, int]:
         success_count = 0
         total_count = len(endpoints)
 
         for endpoint in endpoints:
             try:
-                self._mavlink_adapter.set_endpoint(endpoint.host, endpoint.port)
+                self._apply_mavlink_endpoint(endpoint)
                 sent = self._mavlink_adapter.send_return_to_launch()
                 if sent:
                     success_count += 1
@@ -816,10 +895,7 @@ class MissionNode(Node):
         )
 
     def _select_endpoint_by_vehicle_id(self, vehicle_id: str) -> ScoutEndpoint | None:
-        for endpoint in self._scout_endpoints:
-            if endpoint.vehicle_id == vehicle_id:
-                return endpoint
-        return None
+        return self._resolve_scout_endpoint(vehicle_id)
 
     def _tracking_command_adapter(self) -> MavlinkAdapter:
         if (
@@ -834,7 +910,10 @@ class MissionNode(Node):
         return MavlinkAdapter(
             host=endpoint.host,
             port=endpoint.port,
+            command_port=endpoint.command_port if endpoint.command_port > 0 else endpoint.port,
             stream_hz=self._setpoint_stream_hz,
+            target_system=endpoint.target_system,
+            target_component=endpoint.target_component,
             logger=lambda message: self.get_logger().info(message),
         )
 
@@ -894,7 +973,7 @@ class MissionNode(Node):
             self._tracking_mavlink_adapter = self._build_tracking_adapter(selected_endpoint)
         else:
             self._close_tracking_adapter()
-            self._mavlink_adapter.set_endpoint(selected_endpoint.host, selected_endpoint.port)
+            self._apply_mavlink_endpoint(selected_endpoint)
 
         self._last_detection_accept_monotonic = accepted_monotonic
         self._last_detection_event = event
@@ -1002,11 +1081,151 @@ class MissionNode(Node):
             self._active_scout_vehicle_id = previous_scout_vehicle_id
             endpoint = self._select_endpoint_by_vehicle_id(previous_scout_vehicle_id)
             if endpoint is not None:
-                self._mavlink_adapter.set_endpoint(endpoint.host, endpoint.port)
+                try:
+                    self._apply_mavlink_endpoint(endpoint)
+                except OSError as error:
+                    self.get_logger().warning(
+                        "Failed to restore scout endpoint after tracking complete: "
+                        f"{endpoint.vehicle_id} ({endpoint.host}:{endpoint.port}): {error}"
+                    )
         if self._state != "SEARCHING":
             self._transition_to("SEARCHING")
         else:
             self._start_autonomous_execution()
+
+    def _resolve_scout_endpoint(self, vehicle_id: str) -> ScoutEndpoint | None:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        for endpoint in self._scout_endpoints:
+            if endpoint.vehicle_id == normalized_vehicle_id:
+                return endpoint
+        return None
+
+    def _is_endpoint_online(self, endpoint: ScoutEndpoint) -> bool:
+        if self._scout_online_window_sec < 0:
+            return False
+        last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id)
+        if last_seen is None:
+            return False
+        return (time.monotonic() - last_seen) <= self._scout_online_window_sec
+
+    def _dispatch_vehicle_command(
+        self, endpoint: ScoutEndpoint, command: str
+    ) -> tuple[bool, str]:
+        dispatchers: dict[str, Callable[[], bool]] = {
+            "HOLD": self._mavlink_adapter.send_hold_position,
+            "RESUME": self._mavlink_adapter.send_resume_mission,
+            "RECALL": self._mavlink_adapter.send_return_to_launch,
+        }
+        dispatch = dispatchers.get(command)
+        if dispatch is None:
+            return False, f"unsupported command '{command}'"
+
+        previous_host, previous_port = self._mavlink_adapter.endpoint
+        previous_command_port = self._mavlink_adapter.command_port
+        previous_target_system, previous_target_component = self._mavlink_adapter.target
+        restore_host, restore_port = previous_host, previous_port
+        restore_command_port = previous_command_port
+        restore_target_system, restore_target_component = (
+            previous_target_system,
+            previous_target_component,
+        )
+        if self._active_scout_vehicle_id:
+            active_endpoint = self._resolve_scout_endpoint(self._active_scout_vehicle_id)
+            if active_endpoint is not None:
+                restore_host, restore_port = active_endpoint.host, active_endpoint.port
+                restore_command_port = active_endpoint.command_port
+                restore_target_system = active_endpoint.target_system
+                restore_target_component = active_endpoint.target_component
+
+        should_pause_stream = self._mavlink_adapter.is_streaming and (
+            (endpoint.host, endpoint.port, endpoint.command_port)
+            != (restore_host, restore_port, restore_command_port)
+            or (endpoint.target_system, endpoint.target_component)
+            != (restore_target_system, restore_target_component)
+        )
+        resume_setpoint: dict[str, float] | None = None
+        if should_pause_stream:
+            current_waypoint = self._current_waypoint()
+            if current_waypoint is not None:
+                resume_setpoint = dict(current_waypoint)
+            self._mavlink_adapter.stop_stream()
+
+        try:
+            self._apply_mavlink_endpoint(endpoint)
+        except OSError as error:
+            return (
+                False,
+                f"vehicle_command dispatch failed for '{endpoint.vehicle_id}': {error}",
+            )
+
+        command_sent = False
+        restore_error = ""
+        try:
+            command_sent = dispatch()
+        finally:
+            if (
+                (endpoint.host, endpoint.port, endpoint.command_port)
+                != (restore_host, restore_port, restore_command_port)
+                or (endpoint.target_system, endpoint.target_component)
+                != (restore_target_system, restore_target_component)
+            ):
+                try:
+                    if restore_command_port == restore_port:
+                        self._mavlink_adapter.set_endpoint(restore_host, restore_port)
+                    else:
+                        self._mavlink_adapter.set_endpoint(
+                            restore_host,
+                            restore_port,
+                            command_port=restore_command_port,
+                        )
+                    self._mavlink_adapter.set_target(
+                        restore_target_system, restore_target_component
+                    )
+                except OSError as error:
+                    restore_error = (
+                        "vehicle_command dispatch failed to restore active endpoint "
+                        f"{restore_host}:{restore_port} "
+                        f"(command_port={restore_command_port}, "
+                        f"target={restore_target_system}/{restore_target_component}): {error}"
+                    )
+            if (
+                not restore_error
+                and should_pause_stream
+                and resume_setpoint is not None
+                and self._state in self._AUTONOMOUS_STATES
+            ):
+                try:
+                    self._mavlink_adapter.start_stream(self._mission_id, resume_setpoint)
+                except OSError as error:
+                    restore_error = (
+                        "vehicle_command dispatch failed to resume mission streaming "
+                        f"for '{self._mission_id}': {error}"
+                    )
+
+        if restore_error:
+            return False, restore_error
+
+        if not command_sent:
+            return (
+                False,
+                f"vehicle_command '{command}' was not acknowledged by '{endpoint.vehicle_id}'",
+            )
+        return True, ""
+
+    def _apply_mavlink_endpoint(self, endpoint: ScoutEndpoint) -> None:
+        command_port = endpoint.command_port if endpoint.command_port > 0 else endpoint.port
+        if command_port == endpoint.port:
+            self._mavlink_adapter.set_endpoint(endpoint.host, endpoint.port)
+        else:
+            self._mavlink_adapter.set_endpoint(
+                endpoint.host,
+                endpoint.port,
+                command_port=command_port,
+            )
+        self._mavlink_adapter.set_target(
+            endpoint.target_system,
+            endpoint.target_component,
+        )
 
     def _parse_mission_plan(
         self, zone_geometry: str
@@ -1174,7 +1393,8 @@ class MissionNode(Node):
             return response
         self._active_scout_vehicle_id = selected_scout.vehicle_id
         self._close_tracking_adapter()
-        self._mavlink_adapter.set_endpoint(selected_scout.host, selected_scout.port)
+        self._apply_mavlink_endpoint(selected_scout)
+        self._reset_vehicle_command_states()
 
         self._mission_id = self._set_default_mission_id_if_needed(request.mission_id)
         self._mission_started_sec = self._now_seconds()
@@ -1216,6 +1436,10 @@ class MissionNode(Node):
         self._mavlink_adapter.stop_stream()
         target_endpoints = self._active_abort_endpoints()
         successful_dispatches, total_dispatches = self._dispatch_abort_rtl(target_endpoints)
+        for endpoint in target_endpoints:
+            self._vehicle_command_states[endpoint.vehicle_id] = (
+                self._VEHICLE_COMMAND_STATE_RETURNING
+            )
 
         self._transition_to("ABORTED")
         self._reset_plan_state()
@@ -1223,6 +1447,72 @@ class MissionNode(Node):
         response.message = (
             f"Mission {self._mission_id} aborted; RTL dispatches "
             f"{successful_dispatches}/{total_dispatches}"
+        )
+        return response
+
+    def _handle_vehicle_command(
+        self, request: VehicleCommand.Request, response: VehicleCommand.Response
+    ) -> VehicleCommand.Response:
+        command = self._normalized_command(request.command)
+        if command not in self._SUPPORTED_VEHICLE_COMMANDS:
+            response.success = False
+            response.message = (
+                f"vehicle_command rejected due to unsupported command '{request.command}'"
+            )
+            return response
+
+        if self._state not in self._AUTONOMOUS_STATES:
+            response.success = False
+            response.message = f"vehicle_command '{command}' rejected while in {self._state}"
+            return response
+
+        if request.mission_id.strip() and request.mission_id.strip() != self._mission_id:
+            response.success = False
+            response.message = "vehicle_command rejected due to mission_id mismatch"
+            return response
+
+        normalized_vehicle_id = self._normalize_vehicle_id(request.vehicle_id)
+        if not normalized_vehicle_id:
+            response.success = False
+            response.message = "vehicle_command rejected due to missing vehicle_id"
+            return response
+
+        endpoint = self._resolve_scout_endpoint(normalized_vehicle_id)
+        if endpoint is None:
+            response.success = False
+            response.message = (
+                f"vehicle_command rejected due to unknown vehicle_id '{request.vehicle_id}'"
+            )
+            return response
+
+        if not self._is_endpoint_online(endpoint):
+            response.success = False
+            response.message = (
+                f"vehicle_command rejected due to offline vehicle_id '{request.vehicle_id}'"
+            )
+            return response
+
+        transition_valid, transition_error = self._validate_vehicle_command_transition(
+            vehicle_id=endpoint.vehicle_id, command=command
+        )
+        if not transition_valid:
+            response.success = False
+            response.message = transition_error
+            return response
+
+        command_sent, command_error = self._dispatch_vehicle_command(endpoint, command)
+        if not command_sent:
+            response.success = False
+            response.message = command_error
+            return response
+
+        self._vehicle_command_states[endpoint.vehicle_id] = self._next_vehicle_command_state(
+            command
+        )
+
+        response.success = True
+        response.message = (
+            f"vehicle_command '{command}' accepted for target '{endpoint.vehicle_id}'"
         )
         return response
 
