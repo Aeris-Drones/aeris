@@ -107,6 +107,11 @@ class MissionNode(Node):
     _RETURN_TRAJECTORY_STATE_ACTIVE: Final[str] = "RETURNING"
     _RETURN_TRAJECTORY_STATE_FALLBACK: Final[str] = "FALLBACK"
     _OCCUPANCY_BLOCKED_THRESHOLD: Final[int] = 50
+    _RETURN_BREADCRUMB_ALLOWED_STATES: Final[set[str]] = {
+        "SEARCHING",
+        "TRACKING",
+        "RETURNING",
+    }
 
     def __init__(self, *, parameter_overrides: list[Parameter] | None = None) -> None:
         super().__init__(
@@ -199,6 +204,10 @@ class MissionNode(Node):
         )
         self._return_required_freshness_sec = max(
             0.1, float(self.declare_parameter("return_required_freshness_sec", 2.0).value)
+        )
+        self._return_breadcrumb_max_age_sec = max(
+            self._return_required_freshness_sec,
+            float(self.declare_parameter("return_breadcrumb_max_age_sec", 1800.0).value),
         )
         self._return_separation_horizontal_m = max(
             0.0, float(self.declare_parameter("return_separation_horizontal_m", 5.0).value)
@@ -901,6 +910,39 @@ class MissionNode(Node):
             return
         self._return_fallback_reasons.pop(normalized_vehicle_id, None)
 
+    def _filtered_mission_breadcrumbs_for_return(
+        self, vehicle_id: str
+    ) -> list[dict[str, float | str]]:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        if not normalized_vehicle_id or not self._mission_id:
+            return []
+
+        now_sec = self._now_seconds()
+        mission_started_sec = self._mission_started_sec
+        filtered: list[dict[str, float | str]] = []
+        for breadcrumb in self._scout_vio_breadcrumbs.get(normalized_vehicle_id, []):
+            if str(breadcrumb.get("missionId", "")) != self._mission_id:
+                continue
+            mission_state = str(breadcrumb.get("missionState", "")).upper()
+            if mission_state not in self._RETURN_BREADCRUMB_ALLOWED_STATES:
+                continue
+            try:
+                timestamp_sec = float(breadcrumb.get("timestampSec", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(timestamp_sec) or timestamp_sec <= 0.0:
+                continue
+            if mission_started_sec > 0.0 and timestamp_sec + 1e-6 < mission_started_sec:
+                continue
+            if timestamp_sec > now_sec + 1.0:
+                continue
+            if (now_sec - timestamp_sec) > self._return_breadcrumb_max_age_sec:
+                continue
+            filtered.append(breadcrumb)
+
+        filtered.sort(key=lambda entry: float(entry.get("timestampSec", 0.0)))
+        return filtered
+
     def _build_vio_return_waypoints(
         self, vehicle_id: str
     ) -> tuple[list[dict[str, float]] | None, str]:
@@ -918,13 +960,14 @@ class MissionNode(Node):
         if current_vio_position is None:
             return None, "VIO odometry is stale or unavailable for return planning"
 
-        mission_breadcrumbs = [
-            breadcrumb
-            for breadcrumb in self._scout_vio_breadcrumbs.get(normalized_vehicle_id, [])
-            if str(breadcrumb.get("missionId", "")) == self._mission_id
-        ]
+        mission_breadcrumbs = self._filtered_mission_breadcrumbs_for_return(
+            normalized_vehicle_id
+        )
         if len(mission_breadcrumbs) < 2:
-            return None, "insufficient VIO breadcrumb history to synthesize return path"
+            return (
+                None,
+                "insufficient fresh in-mission VIO breadcrumb history to synthesize return path",
+            )
 
         route_points: list[dict[str, float]] = [
             {"x": float(current_vio_position["x"]), "z": float(current_vio_position["z"])}
@@ -1989,13 +2032,104 @@ class MissionNode(Node):
     def _current_vehicle_altitude_m(self, vehicle_id: str) -> float:
         normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
         if normalized_vehicle_id in self._return_paths_by_vehicle:
-            return self._scout_altitude_m + self._return_altitude_offset_m
+            waypoints = self._return_paths_by_vehicle.get(normalized_vehicle_id, [])
+            default_altitude = self._scout_altitude_m + self._return_altitude_offset_m
+            if not waypoints:
+                return default_altitude
+            current_index = self._return_path_index_by_vehicle.get(normalized_vehicle_id, 0)
+            if current_index < 0:
+                current_index = 0
+            if current_index >= len(waypoints):
+                current_index = len(waypoints) - 1
+            return float(waypoints[current_index].get("altitude_m", default_altitude))
         plan = self._scout_plans.get(normalized_vehicle_id)
         if plan is not None:
             waypoint = self._current_waypoint_for_plan(plan)
             if waypoint is not None:
                 return float(waypoint.get("altitude_m", self._scout_altitude_m))
         return self._scout_altitude_m
+
+    def _apply_returning_separation_mitigation(
+        self,
+        *,
+        returning_vehicle_id: str,
+        searching_vehicle_id: str,
+        returning_position: dict[str, float],
+        searching_position: dict[str, float],
+        searching_altitude_m: float,
+    ) -> None:
+        waypoints = self._return_paths_by_vehicle.get(returning_vehicle_id)
+        if not waypoints:
+            return
+        current_index = self._return_path_index_by_vehicle.get(returning_vehicle_id, 0)
+        if current_index < 0:
+            current_index = 0
+        if current_index >= len(waypoints):
+            return
+
+        away_x = float(returning_position["x"]) - float(searching_position["x"])
+        away_z = float(returning_position["z"]) - float(searching_position["z"])
+        norm = math.hypot(away_x, away_z)
+        if norm < 1e-6:
+            away_x, away_z, norm = 1.0, 0.0, 1.0
+        unit_x = away_x / norm
+        unit_z = away_z / norm
+        target_horizontal_m = self._return_separation_horizontal_m + 1.0
+        candidate_x = float(searching_position["x"]) + (unit_x * target_horizontal_m)
+        candidate_z = float(searching_position["z"]) + (unit_z * target_horizontal_m)
+        current_target = waypoints[current_index]
+        candidate_altitude_m = max(
+            float(current_target.get("altitude_m", self._scout_altitude_m)),
+            float(searching_altitude_m) + self._return_separation_vertical_m + 0.5,
+        )
+        candidate_waypoint = {
+            "x": candidate_x,
+            "z": candidate_z,
+            "altitude_m": candidate_altitude_m,
+        }
+
+        # Avoid repeatedly inserting equivalent mitigation waypoints every loop.
+        if (
+            math.hypot(
+                float(current_target.get("x", 0.0)) - candidate_x,
+                float(current_target.get("z", 0.0)) - candidate_z,
+            )
+            <= 0.25
+            and abs(
+                float(current_target.get("altitude_m", candidate_altitude_m))
+                - candidate_altitude_m
+            )
+            <= 0.25
+        ):
+            return
+
+        safe, reason = self._segment_is_return_safe(
+            {
+                "x": float(returning_position["x"]),
+                "z": float(returning_position["z"]),
+            },
+            candidate_waypoint,
+        )
+        if not safe:
+            self.get_logger().warning(
+                "Unable to apply RETURNING separation mitigation waypoint for "
+                f"{returning_vehicle_id} vs {searching_vehicle_id}: {reason}"
+            )
+            return
+
+        waypoints.insert(current_index, candidate_waypoint)
+        self._return_path_index_by_vehicle[returning_vehicle_id] = current_index
+        self._return_last_updated_sec_by_vehicle[returning_vehicle_id] = self._now_seconds()
+        if (
+            self._active_scout_vehicle_id == returning_vehicle_id
+            and self._mavlink_adapter.is_streaming
+        ):
+            self._mavlink_adapter.update_setpoint(dict(candidate_waypoint))
+        self.get_logger().warning(
+            "Applied RETURNING separation mitigation for "
+            f"{returning_vehicle_id} away from {searching_vehicle_id} "
+            f"toward ({candidate_x:.2f}, {candidate_z:.2f}, {candidate_altitude_m:.2f}m)"
+        )
 
     def _enforce_mixed_returning_separation(self) -> None:
         returning_vehicle_ids = sorted(
@@ -2036,6 +2170,130 @@ class MissionNode(Node):
                         f"(horizontal={horizontal_distance_m:.2f}m, "
                         f"vertical={vertical_distance_m:.2f}m)"
                     )
+                    self._apply_returning_separation_mitigation(
+                        returning_vehicle_id=returning_vehicle_id,
+                        searching_vehicle_id=searching_vehicle_id,
+                        returning_position=returning_position,
+                        searching_position=searching_position,
+                        searching_altitude_m=searching_altitude,
+                    )
+
+    def _dispatch_return_to_launch_for_endpoint(
+        self, endpoint: ScoutEndpoint
+    ) -> tuple[bool, str]:
+        previous_host, previous_port = self._mavlink_adapter.endpoint
+        previous_command_port = self._mavlink_adapter.command_port()
+        previous_target_system, previous_target_component = self._mavlink_adapter.target
+        restore_host, restore_port = previous_host, previous_port
+        restore_command_port = previous_command_port
+        restore_target_system, restore_target_component = (
+            previous_target_system,
+            previous_target_component,
+        )
+        if self._active_scout_vehicle_id:
+            active_endpoint = self._resolve_scout_endpoint(self._active_scout_vehicle_id)
+            if active_endpoint is not None:
+                restore_host, restore_port = active_endpoint.host, active_endpoint.port
+                restore_command_port = active_endpoint.command_port
+                restore_target_system = active_endpoint.target_system
+                restore_target_component = active_endpoint.target_component
+
+        should_pause_stream = self._mavlink_adapter.is_streaming and (
+            (endpoint.host, endpoint.port, endpoint.command_port)
+            != (restore_host, restore_port, restore_command_port)
+            or (endpoint.target_system, endpoint.target_component)
+            != (restore_target_system, restore_target_component)
+        )
+        resume_setpoint: dict[str, float] | None = None
+        if should_pause_stream:
+            current_waypoint = self._current_waypoint()
+            if current_waypoint is not None:
+                resume_setpoint = dict(current_waypoint)
+            self._mavlink_adapter.stop_stream()
+
+        try:
+            self._apply_mavlink_endpoint(endpoint)
+        except OSError as error:
+            return (
+                False,
+                f"px4 native RTL fallback dispatch failed for '{endpoint.vehicle_id}': {error}",
+            )
+
+        command_sent = False
+        restore_error = ""
+        try:
+            command_sent = self._mavlink_adapter.send_return_to_launch()
+        finally:
+            if (
+                (endpoint.host, endpoint.port, endpoint.command_port)
+                != (restore_host, restore_port, restore_command_port)
+                or (endpoint.target_system, endpoint.target_component)
+                != (restore_target_system, restore_target_component)
+            ):
+                try:
+                    if restore_command_port == restore_port:
+                        self._mavlink_adapter.set_endpoint(restore_host, restore_port)
+                    else:
+                        self._mavlink_adapter.set_endpoint(
+                            restore_host,
+                            restore_port,
+                            command_port=restore_command_port,
+                        )
+                    self._mavlink_adapter.set_target(
+                        restore_target_system, restore_target_component
+                    )
+                except OSError as error:
+                    restore_error = (
+                        "px4 native RTL fallback failed to restore active endpoint "
+                        f"{restore_host}:{restore_port} "
+                        f"(command_port={restore_command_port}, "
+                        f"target={restore_target_system}/{restore_target_component}): {error}"
+                    )
+            if (
+                not restore_error
+                and should_pause_stream
+                and resume_setpoint is not None
+                and self._state in self._AUTONOMOUS_STATES
+            ):
+                try:
+                    self._mavlink_adapter.start_stream(self._mission_id, resume_setpoint)
+                except OSError as error:
+                    restore_error = (
+                        "px4 native RTL fallback failed to resume mission streaming "
+                        f"for '{self._mission_id}': {error}"
+                    )
+
+        if restore_error:
+            return False, restore_error
+        if not command_sent:
+            return (
+                False,
+                f"px4 native RTL fallback for '{endpoint.vehicle_id}' was not acknowledged",
+            )
+        return True, ""
+
+    def _activate_px4_return_fallback(
+        self, vehicle_id: str, reason: str
+    ) -> tuple[bool, str]:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        if not normalized_vehicle_id:
+            return False, "vehicle_id is required for px4 fallback"
+        self._set_return_fallback_reason(normalized_vehicle_id, reason)
+        self._set_scout_assignment(
+            normalized_vehicle_id,
+            "RETURNING",
+            label="RETURNING:fallback:px4-native-rtl",
+        )
+        self._return_paths_by_vehicle.pop(normalized_vehicle_id, None)
+        self._return_path_index_by_vehicle.pop(normalized_vehicle_id, None)
+        self._return_last_updated_sec_by_vehicle[normalized_vehicle_id] = self._now_seconds()
+        endpoint = self._resolve_scout_endpoint(normalized_vehicle_id)
+        if endpoint is None:
+            return (
+                False,
+                f"px4 native RTL fallback failed for '{normalized_vehicle_id}': unknown endpoint",
+            )
+        return self._dispatch_return_to_launch_for_endpoint(endpoint)
 
     def _start_vio_return_execution(
         self, endpoint: ScoutEndpoint
@@ -2043,23 +2301,11 @@ class MissionNode(Node):
         normalized_vehicle_id = self._normalize_vehicle_id(endpoint.vehicle_id)
         waypoints, planning_error = self._build_vio_return_waypoints(normalized_vehicle_id)
         if waypoints is None:
-            self._set_return_fallback_reason(normalized_vehicle_id, planning_error)
-            sent = self._mavlink_adapter.send_return_to_launch()
+            sent, fallback_error = self._activate_px4_return_fallback(
+                normalized_vehicle_id, planning_error
+            )
             if not sent:
-                return (
-                    False,
-                    "return synthesis failed and PX4 native RTL fallback was not acknowledged",
-                )
-            self._set_scout_assignment(
-                normalized_vehicle_id,
-                "RETURNING",
-                label="RETURNING:fallback:px4-native-rtl",
-            )
-            self._return_paths_by_vehicle.pop(normalized_vehicle_id, None)
-            self._return_path_index_by_vehicle.pop(normalized_vehicle_id, None)
-            self._return_last_updated_sec_by_vehicle[normalized_vehicle_id] = (
-                self._now_seconds()
-            )
+                return False, fallback_error
             return True, ""
 
         self._clear_return_fallback_reason(normalized_vehicle_id)
@@ -2116,15 +2362,24 @@ class MissionNode(Node):
             )
             return
 
+        if self._map_freshness_age_sec() > self._return_required_freshness_sec:
+            sent, fallback_error = self._activate_px4_return_fallback(
+                normalized_vehicle_id,
+                "occupancy map became stale during return execution",
+            )
+            if not sent:
+                self.get_logger().warning(fallback_error)
+            return
+
         source_mode, vio_position = self._resolve_position_source_for_vehicle(normalized_vehicle_id)
         if source_mode == self._POSITION_SOURCE_VIO:
             if vio_position is None:
-                self._set_return_fallback_reason(
+                sent, fallback_error = self._activate_px4_return_fallback(
                     normalized_vehicle_id,
                     "VIO odometry became unavailable during return execution",
                 )
-                if self._active_scout_vehicle_id == normalized_vehicle_id:
-                    self._mavlink_adapter.send_return_to_launch()
+                if not sent:
+                    self.get_logger().warning(fallback_error)
                 return
             position = {"x": float(vio_position["x"]), "z": float(vio_position["z"])}
         else:
