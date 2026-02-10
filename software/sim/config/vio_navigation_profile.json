@@ -24,5 +24,11 @@
     "min_samples": 100,
     "output_dir": "output/vio_navigation_drift",
     "run_id": "latest"
+  },
+  "return_validation": {
+    "target_vehicle_id": "scout1",
+    "max_arrival_error_m": 2.0,
+    "max_trajectory_update_latency_sec": 1.0,
+    "require_fallback_reason_on_failure": true
   }
 }
