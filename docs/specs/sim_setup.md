@@ -16,6 +16,18 @@ ros2 launch software/sim/launch/multi_drone_sim.launch.py \
   scout_model_name:=scout1
 ```
 
+## Start Disaster Scene + SITL (GPS-Denied VIO Mode)
+
+```bash
+ros2 launch software/sim/launch/multi_drone_sim.launch.py \
+  world:=software/sim/worlds/disaster_scene.sdf \
+  scout_model_name:=scout1 \
+  vehicles_config:=software/sim/config/multi_drone_gps_denied.json \
+  gps_denied_mode:=true \
+  position_source_mode:=vio_odometry \
+  launch_orchestrator:=true
+```
+
 ## Start OpenVINS + RTAB-Map
 
 ```bash
@@ -44,3 +56,11 @@ OUTPUT_DIR=output/rtabmap_loop_closure ./software/sim/tools/validate_loop_closur
 ```
 
 This check now hard-fails when loop-closure tokens are missing, odometry does not return near the trajectory endpoint, or TF chain evidence is incomplete.
+
+## VIO Drift Validation (10-Minute Run)
+
+```bash
+python3 software/sim/tools/validate_vio_navigation_drift.py \
+  --profile software/sim/config/vio_navigation_profile.json \
+  --run-id latest
+```

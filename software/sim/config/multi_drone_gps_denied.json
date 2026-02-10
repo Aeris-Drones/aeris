@@ -1,0 +1,65 @@
+{
+  "vehicles": [
+    {
+      "name": "scout1",
+      "model": "scout",
+      "pose": "-40 0 8 0 0 0",
+      "mavlink_udp_port": 14540,
+      "px4_instance": 1,
+      "px4_sys_autostart": 4001,
+      "px4_sim_model": "gz_scout",
+      "px4_env": {
+        "PX4_PARAM_EKF2_GPS_CTRL": "0",
+        "PX4_PARAM_EKF2_EV_CTRL": "3",
+        "PX4_PARAM_EKF2_HGT_REF": "Vision"
+      },
+      "sensor_bridge": {
+        "left_image_topic": "/scout1/stereo/left/image_raw",
+        "right_image_topic": "/scout1/stereo/right/image_raw",
+        "left_camera_info_topic": "/scout1/stereo/left/camera_info",
+        "right_camera_info_topic": "/scout1/stereo/right/camera_info",
+        "imu_topic": "/scout1/imu/data",
+        "frames": {
+          "map": "map",
+          "odom": "odom",
+          "base_link": "base_link"
+        }
+      }
+    },
+    {
+      "name": "scout2",
+      "model": "scout",
+      "pose": "0 50 10 0 0 1.57",
+      "mavlink_udp_port": 14541,
+      "px4_instance": 2,
+      "px4_sys_autostart": 4001,
+      "px4_sim_model": "gz_scout",
+      "px4_env": {
+        "PX4_PARAM_EKF2_GPS_CTRL": "0",
+        "PX4_PARAM_EKF2_EV_CTRL": "3",
+        "PX4_PARAM_EKF2_HGT_REF": "Vision"
+      },
+      "sensor_bridge": {
+        "left_image_topic": "/scout2/stereo/left/image_raw",
+        "right_image_topic": "/scout2/stereo/right/image_raw",
+        "left_camera_info_topic": "/scout2/stereo/left/camera_info",
+        "right_camera_info_topic": "/scout2/stereo/right/camera_info",
+        "imu_topic": "/scout2/imu/data",
+        "frames": {
+          "map": "map",
+          "odom": "odom",
+          "base_link": "base_link"
+        }
+      }
+    },
+    {
+      "name": "ranger1",
+      "model": "ranger",
+      "pose": "50 -5 12 0 0 -1.57",
+      "mavlink_udp_port": 14542,
+      "px4_instance": 3,
+      "px4_sys_autostart": 4010,
+      "px4_sim_model": "gz_ranger"
+    }
+  ]
+}
