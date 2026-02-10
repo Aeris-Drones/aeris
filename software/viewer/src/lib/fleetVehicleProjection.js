@@ -16,9 +16,9 @@ export function applyVehicleMissionMeta(vehicleInfo, meta = {}) {
 
   const assignmentLabel =
     typeof meta?.assignmentLabel === "string" && meta.assignmentLabel.trim()
-      ? meta.assignmentLabel
+      ? meta.assignmentLabel.trim()
       : typeof meta?.assignment === "string" && meta.assignment.trim()
-        ? meta.assignment
+        ? meta.assignment.trim()
         : "";
   if (assignmentLabel) {
     next.assignment = assignmentLabel;

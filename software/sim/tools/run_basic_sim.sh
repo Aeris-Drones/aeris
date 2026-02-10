@@ -20,7 +20,7 @@ GPS_DENIED_MODE=${GPS_DENIED_MODE:-false}
 POSITION_SOURCE_MODE=${POSITION_SOURCE_MODE:-telemetry_geodetic}
 
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
+REPO_ROOT=$(cd -- "${SCRIPT_DIR}/../../.." && pwd)
 MODEL_PATH="${REPO_ROOT}/software/sim/models"
 PLUGIN_PATH="${REPO_ROOT}/install/aeris_camera_controller/lib"
 RECORD_SCRIPT="${SCRIPT_DIR}/record_sim_session.py"
@@ -40,8 +40,7 @@ RIGHT_INFO_TOPIC_ROS=${RIGHT_INFO_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/right/
 IMU_TOPIC_ROS=${IMU_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/imu/data"}
 
 if [[ -n "${BRIDGE_TOPICS:-}" ]]; then
-  # shellcheck disable=SC2206
-  BRIDGE_TOPIC_ARGS=(${BRIDGE_TOPICS})
+  IFS=' ' read -r -a BRIDGE_TOPIC_ARGS <<< "${BRIDGE_TOPICS}"
 else
   BRIDGE_TOPIC_ARGS=(
     "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
@@ -53,14 +52,20 @@ else
   )
 fi
 
-BRIDGE_REMAP_ARGS=(
-  "--ros-args"
-  "-r" "${LEFT_IMAGE_TOPIC_GZ}:=${LEFT_IMAGE_TOPIC_ROS}"
-  "-r" "${RIGHT_IMAGE_TOPIC_GZ}:=${RIGHT_IMAGE_TOPIC_ROS}"
-  "-r" "${LEFT_INFO_TOPIC_GZ}:=${LEFT_INFO_TOPIC_ROS}"
-  "-r" "${RIGHT_INFO_TOPIC_GZ}:=${RIGHT_INFO_TOPIC_ROS}"
-  "-r" "${IMU_TOPIC_GZ}:=${IMU_TOPIC_ROS}"
-)
+if [[ -z "${BRIDGE_TOPICS:-}" || "${APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS:-0}" == "1" ]]; then
+  BRIDGE_REMAP_ARGS=(
+    "--ros-args"
+    "-r" "${LEFT_IMAGE_TOPIC_GZ}:=${LEFT_IMAGE_TOPIC_ROS}"
+    "-r" "${RIGHT_IMAGE_TOPIC_GZ}:=${RIGHT_IMAGE_TOPIC_ROS}"
+    "-r" "${LEFT_INFO_TOPIC_GZ}:=${LEFT_INFO_TOPIC_ROS}"
+    "-r" "${RIGHT_INFO_TOPIC_GZ}:=${RIGHT_INFO_TOPIC_ROS}"
+    "-r" "${IMU_TOPIC_GZ}:=${IMU_TOPIC_ROS}"
+  )
+else
+  BRIDGE_REMAP_ARGS=()
+  echo "[run_basic_sim] INFO: custom BRIDGE_TOPICS detected; default stereo/IMU remaps skipped." >&2
+  echo "[run_basic_sim] INFO: set APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS=1 or provide matching remap vars to enable remaps." >&2
+fi
 
 if [[ -d "${MODEL_PATH}" ]]; then
   if [[ -z "${IGN_GAZEBO_RESOURCE_PATH:-}" ]]; then

@@ -50,6 +50,13 @@ export function parseTileId(tileId: string): TileCoordinates {
   if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) || z < 0 || x < 0 || y < 0) {
     throw new Error(`Invalid tile ID format: ${tileId}. Expected non-negative integers z/x/y`);
   }
+  if (z > 22) {
+    throw new Error(`Invalid tile ID format: ${tileId}. Zoom level must be <= 22`);
+  }
+  const maxIndex = Math.pow(2, z) - 1;
+  if (x > maxIndex || y > maxIndex) {
+    throw new Error(`Invalid tile ID format: ${tileId}. Tile indices out of bounds for zoom ${z}`);
+  }
   return {
     z,
     x,

@@ -1,5 +1,7 @@
 #include "aeris_map/tile_contract.hpp"
 
+#include <cstdint>
+#include <exception>
 #include <iomanip>
 #include <regex>
 #include <sstream>
@@ -10,6 +12,8 @@ namespace
 {
 constexpr char kTileIdPattern[] = R"(^([0-9]{1,2})/([0-9]+)/([0-9]+)$)";
 constexpr char kFormat[] = "mbtiles-1.3";
+constexpr int kMinZoom = 0;
+constexpr int kMaxZoom = 22;
 }  // namespace
 
 namespace aeris_map::tile_contract
@@ -18,7 +22,24 @@ namespace aeris_map::tile_contract
 bool is_valid_tile_id(const std::string & tile_id)
 {
   static const std::regex pattern(kTileIdPattern);
-  return std::regex_match(tile_id, pattern);
+  std::smatch match;
+  if (!std::regex_match(tile_id, match, pattern)) {
+    return false;
+  }
+
+  try {
+    const int z = std::stoi(match[1].str());
+    if (z < kMinZoom || z > kMaxZoom) {
+      return false;
+    }
+
+    const uint64_t x = std::stoull(match[2].str());
+    const uint64_t y = std::stoull(match[3].str());
+    const uint64_t max_index = (1ULL << static_cast<uint64_t>(z)) - 1ULL;
+    return x <= max_index && y <= max_index;
+  } catch (const std::exception &) {
+    return false;
+  }
 }
 
 std::string sha256_hex(const std::vector<uint8_t> & bytes)

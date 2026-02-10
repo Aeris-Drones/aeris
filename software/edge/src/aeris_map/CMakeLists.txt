@@ -8,16 +8,17 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(aeris_msgs REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(PNG REQUIRED)
 find_package(SQLite3 REQUIRED)
 
 add_library(tile_contract src/tile_contract.cpp)
-target_include_directories(tile_contract PUBLIC
+target_include_directories(tile_contract PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
 )
+target_compile_features(tile_contract PUBLIC cxx_std_17)
 ament_target_dependencies(tile_contract aeris_msgs)
 target_link_libraries(tile_contract OpenSSL::Crypto)
 
@@ -25,15 +26,11 @@ add_executable(map_tile_publisher src/map_tile_publisher.cpp)
 target_include_directories(map_tile_publisher PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
-ament_target_dependencies(map_tile_publisher rclcpp aeris_msgs nav_msgs)
+ament_target_dependencies(map_tile_publisher rclcpp aeris_msgs nav_msgs sensor_msgs)
 target_link_libraries(map_tile_publisher tile_contract PNG::PNG SQLite::SQLite3)
 
 install(TARGETS map_tile_publisher
   DESTINATION lib/${PROJECT_NAME}
-)
-
-install(DIRECTORY include/
-  DESTINATION include
 )
 
 install(DIRECTORY
@@ -54,8 +51,5 @@ if(BUILD_TESTING)
     ament_target_dependencies(test_tile_contract aeris_msgs)
   endif()
 endif()
-
-ament_export_include_directories(include)
-ament_export_dependencies(aeris_msgs nav_msgs)
 
 ament_package()

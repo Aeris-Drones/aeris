@@ -62,6 +62,12 @@ python3 software/sim/tools/validate_vio_navigation_drift.py \
   --run-id latest
 ```
 
+`validate_slam_topics.sh` enforces publish-rate thresholds by default (`MIN_CAMERA_HZ=15`, `MIN_IMU_HZ=200`, `MIN_ODOM_HZ=15`).
+
+`validate_loop_closure.sh` now fails unless loop-closure evidence appears in `/rtabmap/info`, odometry returns near the trajectory endpoint, and TF samples are captured for both `map -> odom` and `odom -> base_link`.
+
+When using custom `BRIDGE_TOPICS`, default stereo/IMU remaps are skipped; set `APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS=1` (or provide matching remap vars) if custom bridge topics should still remap to scout ROS topic names.
+
 > The multi-drone path now provides stereo + IMU bridge wiring for Scout and launch/config scaffolding for OpenVINS + RTAB-Map. Tune exact Gazebo sensor topic names via `LEFT_*_TOPIC_GZ`, `RIGHT_*_TOPIC_GZ`, and `IMU_TOPIC_GZ` env overrides if your local PX4 model differs.
 
 ### Planned next steps

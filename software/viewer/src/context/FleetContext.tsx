@@ -111,6 +111,13 @@ export function FleetProvider({ children }: FleetProviderProps) {
   const [vehicleAssignmentLabels, setVehicleAssignmentLabels] = useState<Record<string, string>>({});
   const [vehicleProgress, setVehicleProgress] = useState<Record<string, number>>({});
   const [vehicleOnline, setVehicleOnline] = useState<Record<string, boolean>>({});
+
+  const clearMissionVehicleMeta = useCallback(() => {
+    setVehicleAssignments({});
+    setVehicleAssignmentLabels({});
+    setVehicleProgress({});
+    setVehicleOnline({});
+  }, []);
   
   // Convert raw vehicle states to VehicleInfo
   const vehicles = useMemo(() => {
@@ -157,10 +164,7 @@ export function FleetProvider({ children }: FleetProviderProps) {
       if (state === 'IDLE' || state === 'ABORTED' || state === 'COMPLETE') {
         setCommandStatusHints({});
         setActiveMissionId('');
-        setVehicleAssignments({});
-        setVehicleAssignmentLabels({});
-        setVehicleProgress({});
-        setVehicleOnline({});
+        clearMissionVehicleMeta();
       }
     };
 
@@ -168,10 +172,11 @@ export function FleetProvider({ children }: FleetProviderProps) {
     return () => {
       missionStateTopic.unsubscribe();
     };
-  }, [isConnected, ros]);
+  }, [clearMissionVehicleMeta, isConnected, ros]);
 
   useEffect(() => {
     if (!ros || !isConnected) {
+      clearMissionVehicleMeta();
       return;
     }
 
@@ -202,8 +207,9 @@ export function FleetProvider({ children }: FleetProviderProps) {
     missionProgressTopic.subscribe(handleMissionProgress);
     return () => {
       missionProgressTopic.unsubscribe();
+      clearMissionVehicleMeta();
     };
-  }, [isConnected, ros]);
+  }, [clearMissionVehicleMeta, isConnected, ros]);
 
   // Selected vehicle
   const selectedVehicle = useMemo(() => {

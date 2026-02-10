@@ -6,6 +6,7 @@ from aeris_orchestrator.search_patterns import (
     point_in_polygon,
     validate_polygon,
 )
+from aeris_orchestrator.vehicle_ids import normalize_vehicle_id
 
 
 def _rectangle_polygon() -> list[dict[str, float]]:
@@ -81,8 +82,8 @@ def _polygon_area(polygon: list[dict[str, float]]) -> float:
 
 def test_partition_polygon_for_scouts_is_deterministic_and_stably_ordered() -> None:
     polygon = _rectangle_polygon()
-    first = partition_polygon_for_scouts(polygon, ["scout2", "scout1"])
-    second = partition_polygon_for_scouts(polygon, ["scout2", "scout1"])
+    first = partition_polygon_for_scouts(polygon, ["scout2", "scout-1"])
+    second = partition_polygon_for_scouts(polygon, ["scout2", "scout-1"])
 
     assert first == second
     assert [part["vehicle_id"] for part in first] == ["scout_1", "scout_2"]
@@ -105,6 +106,13 @@ def test_partition_polygon_for_scouts_non_overlap_and_area_coverage() -> None:
 
     total_area = _polygon_area(left) + _polygon_area(right)
     assert total_area == pytest.approx(_polygon_area(polygon), rel=1e-3)
+
+
+def test_normalize_vehicle_id_applies_shared_rules() -> None:
+    assert normalize_vehicle_id(" scout1 ") == "scout_1"
+    assert normalize_vehicle_id("RANGER-2") == "ranger_2"
+    assert normalize_vehicle_id("alpha__03") == "alpha_03"
+    assert normalize_vehicle_id("___") == ""
 
 
 def test_partition_polygon_normalizes_trailing_numeric_vehicle_ids() -> None:
