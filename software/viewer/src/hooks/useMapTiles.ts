@@ -18,6 +18,7 @@ export function useMapTiles() {
 
   const managerRef = useRef<MapTileManager>(new MapTileManager(500));
   const serviceCacheRef = useRef<Map<string, ROSLIB.Service>>(new Map());
+  const rosNowMsRef = useRef<number | null>(null);
   const originRef = useRef(origin);
   const setOriginRef = useRef(setOrigin);
 
@@ -38,6 +39,20 @@ export function useMapTiles() {
       name: '/map/tiles',
       messageType: 'aeris_msgs/MapTile',
     });
+    const clockTopic = new ROSLIB.Topic({
+      ros: ros,
+      name: '/clock',
+      messageType: 'rosgraph_msgs/Clock',
+    });
+    const handleClock = (message: ROSLIB.Message) => {
+      const payload = message as unknown as RosClockMessage;
+      if (!payload.clock) {
+        return;
+      }
+      rosNowMsRef.current = (payload.clock.sec * 1000) + (payload.clock.nanosec / 1e6);
+    };
+    clockTopic.subscribe(handleClock);
+
     const handleMessage = async (message: ROSLIB.Message) => {
       const tileMsg = message as unknown as MapTileMessage;
       const serviceName = getFetchServiceName(tileMsg.layer_ids);
@@ -51,15 +66,19 @@ export function useMapTiles() {
         serviceCache.set(serviceName, tileBytesService);
       }
 
-      const receivedAtMs = Date.now();
       const msgWithData = await hydrateTileData(tileBytesService, tileMsg);
       if (!msgWithData || !active) {
         return;
       }
-
       const publishedAt = msgWithData.published_at;
-      const latencyMs = publishedAt
-        ? Math.max(0, receivedAtMs - (publishedAt.sec * 1000 + publishedAt.nanosec / 1e6))
+      const publishedAtMs = publishedAt
+        ? (publishedAt.sec * 1000 + publishedAt.nanosec / 1e6)
+        : null;
+      const nowMs = publishedAtMs === null
+        ? null
+        : resolveNowMs(publishedAtMs, rosNowMsRef.current);
+      const latencyMs = (publishedAtMs !== null && nowMs !== null)
+        ? Math.max(0, nowMs - publishedAtMs)
         : undefined;
 
       const result = manager.ingest(msgWithData, originRef.current, latencyMs);
@@ -77,7 +96,9 @@ export function useMapTiles() {
     return () => {
       active = false;
       topic.unsubscribe();
+      clockTopic.unsubscribe();
       serviceCache.clear();
+      rosNowMsRef.current = null;
       manager.clear();
     };
   }, [ros, isConnected]);
@@ -97,17 +118,42 @@ interface GetMapTileBytesResponse {
   };
 }
 
+interface RosClockMessage {
+  clock: {
+    sec: number;
+    nanosec: number;
+  };
+}
+
+const TILE_SERVICE_TIMEOUT_MS = 5000;
+const WALL_CLOCK_EPOCH_THRESHOLD_MS = 1_000_000_000_000;
+
 function callTileByteService(
   service: ROSLIB.Service,
-  tileId: string
+  tileId: string,
+  timeoutMs: number = TILE_SERVICE_TIMEOUT_MS
 ): Promise<GetMapTileBytesResponse | null> {
   return new Promise((resolve) => {
+    let resolved = false;
+    const finish = (value: GetMapTileBytesResponse | null) => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      clearTimeout(timeoutHandle);
+      resolve(value);
+    };
+
+    const timeoutHandle: ReturnType<typeof setTimeout> = setTimeout(() => {
+      finish(null);
+    }, timeoutMs);
+
     const request = new ROSLIB.ServiceRequest({ tile_id: tileId });
     const invocable = service as unknown as RoslibServiceInvoker;
     invocable.callService(
       request,
-      (response) => resolve(response as unknown as GetMapTileBytesResponse),
-      () => resolve(null)
+      (response) => finish(response as unknown as GetMapTileBytesResponse),
+      () => finish(null)
     );
   });
 }
@@ -122,7 +168,8 @@ async function hydrateTileData(
 
   const response = await callTileByteService(service, message.tile_id);
   if (!response || !response.found || !Array.isArray(response.data) || response.data.length === 0) {
-    return message;
+    console.warn('Tile hydration failed or returned empty data for', message.tile_id);
+    return null;
   }
 
   const bytes = new Uint8Array(response.data);
@@ -160,4 +207,14 @@ function getFetchServiceName(layerIds: string[]): string {
   }
   const value = fetchEntry.slice('fetch-service:'.length).trim();
   return value.length > 0 ? value : '/map/get_tile_bytes';
+}
+
+function resolveNowMs(publishedAtMs: number, rosNowMs: number | null): number | null {
+  if (typeof rosNowMs === 'number' && Number.isFinite(rosNowMs)) {
+    return rosNowMs;
+  }
+  if (publishedAtMs >= WALL_CLOCK_EPOCH_THRESHOLD_MS) {
+    return Date.now();
+  }
+  return null;
 }

@@ -11,9 +11,13 @@ TEST(TileContract, ValidatesTileIdFormat)
 {
   EXPECT_TRUE(tc::is_valid_tile_id("12/345/678"));
   EXPECT_TRUE(tc::is_valid_tile_id("0/0/0"));
+  EXPECT_TRUE(tc::is_valid_tile_id("22/4194303/4194303"));
   EXPECT_FALSE(tc::is_valid_tile_id("12-345-678"));
   EXPECT_FALSE(tc::is_valid_tile_id("12/345"));
   EXPECT_FALSE(tc::is_valid_tile_id("z/x/y"));
+  EXPECT_FALSE(tc::is_valid_tile_id("23/1/1"));
+  EXPECT_FALSE(tc::is_valid_tile_id("1/2/0"));
+  EXPECT_FALSE(tc::is_valid_tile_id("1/0/2"));
 }
 
 TEST(TileContract, ComputesKnownSha256)

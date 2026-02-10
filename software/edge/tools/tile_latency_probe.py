@@ -28,6 +28,12 @@ class TileLatencyProbe(Node):
         self.create_subscription(MapTile, "/map/tiles", self._on_tile, 20)
         self.create_timer(0.25, self._tick)
 
+    def wait_for_service_ready(self, timeout_sec: float) -> bool:
+        return self._client.wait_for_service(timeout_sec=timeout_sec)
+
+    def _now_ms(self) -> float:
+        return self.get_clock().now().nanoseconds / 1e6
+
     def _on_tile(self, msg: MapTile) -> None:
         if len(self._latencies_ms) >= self._sample_count:
             return
@@ -38,7 +44,6 @@ class TileLatencyProbe(Node):
 
         req = GetMapTileBytes.Request()
         req.tile_id = msg.tile_id
-        recv_ms = time.time() * 1000.0
         self._pending.add(msg.tile_id)
         future = self._client.call_async(req)
 
@@ -52,7 +57,8 @@ class TileLatencyProbe(Node):
             if not resp.found:
                 return
             published_ms = (resp.published_at.sec * 1000.0) + (resp.published_at.nanosec / 1e6)
-            latency = max(0.0, recv_ms - published_ms)
+            receive_complete_ms = self._now_ms()
+            latency = max(0.0, receive_complete_ms - published_ms)
             self._latencies_ms.append(latency)
 
         future.add_done_callback(_done)
@@ -106,7 +112,7 @@ def main() -> None:
     node = TileLatencyProbe(args.samples, args.timeout_sec, args.service)
 
     deadline = time.monotonic() + 15.0
-    while not node._client.wait_for_service(timeout_sec=0.5):
+    while not node.wait_for_service_ready(timeout_sec=0.5):
         if time.monotonic() >= deadline:
             node.get_logger().error("tile byte service not available")
             node.exit_code = 4

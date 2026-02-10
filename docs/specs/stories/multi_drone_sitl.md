@@ -14,5 +14,5 @@
 ## Validation
 
 ```bash
-python3 software/sim/tools/run_multi_drone_sitl.py --config software/sim/config/multi_drone.yaml
+python3 software/sim/tools/run_multi_drone_sitl.py --config software/sim/config/multi_drone.yaml --execute
 ```
