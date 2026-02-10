@@ -1,4 +1,5 @@
 import json
+import math
 import threading
 import time
 from types import SimpleNamespace
@@ -16,7 +17,7 @@ from aeris_msgs.msg import (
 )
 from aeris_msgs.srv import MissionCommand, VehicleCommand
 from geometry_msgs.msg import Point32, Polygon
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -161,6 +162,55 @@ def _publish_scout_odometry(
     assert _wait_until(
         lambda: normalized_id in mission_node._scout_vio_last_seen_monotonic
     )
+
+
+def _inject_scout_odometry(
+    mission_node: MissionNode,
+    observer: MissionObserver,
+    vehicle_id: str,
+    *,
+    x_m: float,
+    y_m: float,
+) -> None:
+    message = Odometry()
+    message.header.stamp = observer.get_clock().now().to_msg()
+    message.header.frame_id = "odom"
+    message.child_frame_id = "base_link"
+    message.pose.pose.position.x = float(x_m)
+    message.pose.pose.position.y = float(y_m)
+    message.pose.pose.position.z = 0.0
+    mission_node._handle_scout_odometry(vehicle_id, message)
+
+
+def _publish_occupancy_map(
+    observer: MissionObserver,
+    mission_node: MissionNode | None = None,
+    *,
+    width: int = 20,
+    height: int = 20,
+    resolution_m: float = 1.0,
+    origin_x: float = -10.0,
+    origin_y: float = -10.0,
+    occupied_indices: set[int] | None = None,
+) -> None:
+    publisher = observer.create_publisher(OccupancyGrid, "/map", 10)
+    message = OccupancyGrid()
+    message.header.stamp = observer.get_clock().now().to_msg()
+    message.header.frame_id = "map"
+    message.info.resolution = float(resolution_m)
+    message.info.width = int(width)
+    message.info.height = int(height)
+    message.info.origin.position.x = float(origin_x)
+    message.info.origin.position.y = float(origin_y)
+    total_cells = int(width) * int(height)
+    data = [0] * total_cells
+    for index in occupied_indices or set():
+        if 0 <= index < total_cells:
+            data[index] = 100
+    message.data = data
+    publisher.publish(message)
+    if mission_node is not None:
+        assert _wait_until(lambda: mission_node._occupancy_map_snapshot is not None)
 
 
 @pytest.fixture
@@ -594,6 +644,31 @@ def mission_harness_auto_gps_denied(ros_runtime: MultiThreadedExecutor):
             Parameter("navigation_position_source", value="auto"),
             Parameter("gps_denied_mode", value=True),
             Parameter("vio_odom_stale_sec", value=0.1),
+        ]
+    )
+    observer = MissionObserver()
+    ros_runtime.add_node(mission_node)
+    ros_runtime.add_node(observer)
+
+    assert observer.start_client.wait_for_service(timeout_sec=2.0)
+    assert observer.abort_client.wait_for_service(timeout_sec=2.0)
+
+    try:
+        yield mission_node, observer
+    finally:
+        ros_runtime.remove_node(observer)
+        ros_runtime.remove_node(mission_node)
+        observer.destroy_node()
+        mission_node.destroy_node()
+
+
+@pytest.fixture
+def mission_harness_vio_return(ros_runtime: MultiThreadedExecutor):
+    mission_node = MissionNode(
+        parameter_overrides=[
+            Parameter("navigation_position_source", value="vio_odometry"),
+            Parameter("gps_denied_mode", value=True),
+            Parameter("vio_odom_stale_sec", value=0.25),
         ]
     )
     observer = MissionObserver()
@@ -1094,6 +1169,57 @@ def test_vio_waypoint_progression_halts_on_stale_odometry(mission_harness_vio) -
     assert "stale" in mission_node._scout_vio_status.get("scout_1", "")
 
 
+def test_vio_breadcrumb_capture_records_state_and_timestamp(mission_harness_vio) -> None:
+    mission_node, observer = mission_harness_vio
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vio-breadcrumb-metadata"
+
+    _publish_scout_odometry(observer, mission_node, vehicle_id="scout1", x_m=3.25, y_m=-1.5)
+
+    breadcrumbs = mission_node._scout_vio_breadcrumbs.get("scout_1", [])
+    assert len(breadcrumbs) == 1
+    breadcrumb = breadcrumbs[0]
+    assert breadcrumb["x"] == pytest.approx(3.25)
+    assert breadcrumb["z"] == pytest.approx(-1.5)
+    assert breadcrumb["missionState"] == "SEARCHING"
+    assert breadcrumb["missionId"] == "vio-breadcrumb-metadata"
+    assert isinstance(breadcrumb["timestampSec"], float)
+    assert breadcrumb["timestampSec"] > 0.0
+
+
+def test_vio_breadcrumb_capture_prunes_and_downsamples_deterministically(
+    ros_runtime: MultiThreadedExecutor,
+) -> None:
+    mission_node = MissionNode(
+        parameter_overrides=[
+            Parameter("navigation_position_source", value="vio_odometry"),
+            Parameter("return_breadcrumb_limit_per_vehicle", value=3),
+            Parameter("return_breadcrumb_min_spacing_m", value=2.0),
+        ]
+    )
+    observer = MissionObserver()
+    ros_runtime.add_node(mission_node)
+    ros_runtime.add_node(observer)
+    try:
+        mission_node._state = "SEARCHING"
+        mission_node._mission_id = "vio-breadcrumb-bounds"
+
+        _inject_scout_odometry(mission_node, observer, "scout1", x_m=0.0, y_m=0.0)
+        _inject_scout_odometry(mission_node, observer, "scout1", x_m=0.6, y_m=0.2)
+        _inject_scout_odometry(mission_node, observer, "scout1", x_m=3.0, y_m=0.0)
+        _inject_scout_odometry(mission_node, observer, "scout1", x_m=6.0, y_m=0.0)
+        _inject_scout_odometry(mission_node, observer, "scout1", x_m=9.0, y_m=0.0)
+
+        breadcrumbs = mission_node._scout_vio_breadcrumbs.get("scout_1", [])
+        assert len(breadcrumbs) == 3
+        assert [round(entry["x"], 3) for entry in breadcrumbs] == [3.0, 6.0, 9.0]
+    finally:
+        ros_runtime.remove_node(observer)
+        ros_runtime.remove_node(mission_node)
+        observer.destroy_node()
+        mission_node.destroy_node()
+
+
 def test_vio_odometry_topic_map_accepts_per_scout_override(
     ros_runtime: MultiThreadedExecutor,
 ) -> None:
@@ -1113,6 +1239,342 @@ def test_vio_odometry_topic_map_accepts_per_scout_override(
     finally:
         ros_runtime.remove_node(mission_node)
         mission_node.destroy_node()
+
+
+def test_vio_recall_synthesizes_return_path_and_progress_payload(
+    mission_harness_vio_return, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_vio_return
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vio-recall-success"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-return",
+            waypoints=[{"x": 100.0, "z": 0.0, "altitude_m": 20.0}],
+            current_waypoint_index=0,
+            scout_position={"x": 0.0, "z": 0.0},
+        )
+    }
+    mission_node._set_scout_assignment("scout_1", "SEARCHING", label="SEARCHING:zone-return")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _publish_occupancy_map(observer, mission_node)
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=0.0, y_m=0.0)
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=3.0, y_m=0.0)
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=6.0, y_m=0.0)
+
+    uploaded: list[int] = []
+    started: list[dict[str, float]] = []
+    monkeypatch.setattr(
+        mission_node._mavlink_adapter,
+        "upload_mission_items_int",
+        lambda mission_id, waypoints: uploaded.append(len(waypoints)),
+    )
+    monkeypatch.setattr(
+        mission_node._mavlink_adapter,
+        "start_stream",
+        lambda mission_id, setpoint: started.append(dict(setpoint)),
+    )
+
+    request = SimpleNamespace(
+        command="RECALL",
+        vehicle_id="scout1",
+        mission_id="vio-recall-success",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert result.success
+    assert mission_node._vehicle_assignments["scout_1"] == "RETURNING"
+    assert mission_node._return_paths_by_vehicle["scout_1"]
+    assert not mission_node._return_fallback_reasons.get("scout_1")
+    assert uploaded and uploaded[-1] >= 2
+    assert started
+
+    captured: list[str] = []
+    monkeypatch.setattr(
+        mission_node._progress_string_pub, "publish", lambda message: captured.append(message.data)
+    )
+    monkeypatch.setattr(mission_node._progress_pub, "publish", lambda _: None)
+    mission_node._publish_progress_if_active()
+    payload = json.loads(captured[-1])
+    trajectory = payload["returnTrajectory"]
+    assert trajectory["vehicleId"] == "scout_1"
+    assert trajectory["state"] == "RETURNING"
+    assert len(trajectory["points"]) >= 2
+    assert "fallbackReason" not in trajectory
+
+
+def test_vio_recall_falls_back_to_px4_native_rtl_when_map_is_stale(
+    mission_harness_vio_return, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_vio_return
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vio-recall-fallback"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-return",
+            waypoints=[{"x": 100.0, "z": 0.0, "altitude_m": 20.0}],
+            current_waypoint_index=0,
+            scout_position={"x": 0.0, "z": 0.0},
+        )
+    }
+    mission_node._set_scout_assignment("scout_1", "SEARCHING", label="SEARCHING:zone-return")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=0.0, y_m=0.0)
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=2.0, y_m=0.0)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_return_to_launch", lambda: True)
+
+    request = SimpleNamespace(
+        command="RECALL",
+        vehicle_id="scout1",
+        mission_id="vio-recall-fallback",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert result.success
+    assert "scout_1" in mission_node._return_fallback_reasons
+    assert not mission_node._return_paths_by_vehicle.get("scout_1")
+    assert mission_node._vehicle_assignments["scout_1"] == "RETURNING"
+    assert mission_node._assignment_labels["scout_1"] == "RETURNING:fallback:px4-native-rtl"
+
+    captured: list[str] = []
+    monkeypatch.setattr(
+        mission_node._progress_string_pub, "publish", lambda message: captured.append(message.data)
+    )
+    monkeypatch.setattr(mission_node._progress_pub, "publish", lambda _: None)
+    mission_node._publish_progress_if_active()
+    payload = json.loads(captured[-1])
+    trajectory = payload["returnTrajectory"]
+    assert trajectory["state"] == "FALLBACK"
+    assert isinstance(trajectory.get("fallbackReason"), str)
+    assert trajectory["fallbackReason"]
+
+
+def test_vio_return_waypoint_builder_filters_stale_and_off_mission_breadcrumbs(
+    mission_harness_vio_return,
+) -> None:
+    mission_node, observer = mission_harness_vio_return
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vio-breadcrumb-filtering"
+    mission_node._mission_started_sec = mission_node._now_seconds() - 30.0
+    mission_node._active_scout_vehicle_id = "scout_1"
+
+    _publish_occupancy_map(observer, mission_node)
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=8.0, y_m=0.0)
+
+    now_sec = mission_node._now_seconds()
+    mission_node._scout_vio_breadcrumbs["scout_1"] = [
+        {
+            "x": 99.0,
+            "z": 99.0,
+            "timestampSec": now_sec - 4.0,
+            "missionState": "IDLE",
+            "missionId": "vio-breadcrumb-filtering",
+        },
+        {
+            "x": 1.0,
+            "z": 0.0,
+            "timestampSec": now_sec - (mission_node._return_breadcrumb_max_age_sec + 1.0),
+            "missionState": "SEARCHING",
+            "missionId": "vio-breadcrumb-filtering",
+        },
+        {
+            "x": 0.0,
+            "z": 0.0,
+            "timestampSec": now_sec - 10.0,
+            "missionState": "SEARCHING",
+            "missionId": "vio-breadcrumb-filtering",
+        },
+        {
+            "x": 4.0,
+            "z": 0.0,
+            "timestampSec": now_sec - 6.0,
+            "missionState": "TRACKING",
+            "missionId": "vio-breadcrumb-filtering",
+        },
+        {
+            "x": 7.0,
+            "z": 0.0,
+            "timestampSec": now_sec - 3.0,
+            "missionState": "SEARCHING",
+            "missionId": "other-mission",
+        },
+    ]
+
+    waypoints, error = mission_node._build_vio_return_waypoints("scout_1")
+    assert not error
+    assert waypoints is not None
+    assert [round(float(point["x"]), 2) for point in waypoints] == [8.0, 4.0, 0.0]
+
+
+def test_vio_return_execution_falls_back_when_map_becomes_stale_mid_return(
+    mission_harness_vio_return, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_vio_return
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vio-map-stale-mid-return"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-stale-mid-return",
+            waypoints=[{"x": 100.0, "z": 0.0, "altitude_m": 20.0}],
+            current_waypoint_index=0,
+            scout_position={"x": 0.0, "z": 0.0},
+        )
+    }
+    mission_node._set_scout_assignment(
+        "scout_1", "SEARCHING", label="SEARCHING:zone-stale-mid-return"
+    )
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _publish_occupancy_map(observer, mission_node)
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=0.0, y_m=0.0)
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=3.0, y_m=0.0)
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=6.0, y_m=0.0)
+
+    monkeypatch.setattr(
+        mission_node._mavlink_adapter, "upload_mission_items_int", lambda mission_id, waypoints: None
+    )
+    monkeypatch.setattr(
+        mission_node._mavlink_adapter, "start_stream", lambda mission_id, setpoint: None
+    )
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_return_to_launch", lambda: True)
+
+    request = SimpleNamespace(
+        command="RECALL",
+        vehicle_id="scout1",
+        mission_id="vio-map-stale-mid-return",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+    assert result.success
+    assert mission_node._return_paths_by_vehicle.get("scout_1")
+
+    mission_node._occupancy_map_received_monotonic = time.monotonic() - (
+        mission_node._return_required_freshness_sec + 0.5
+    )
+    mission_node._advance_return_plan_for_vehicle("scout_1")
+
+    assert "occupancy map became stale during return execution" in mission_node._return_fallback_reasons.get(
+        "scout_1", ""
+    )
+    assert not mission_node._return_paths_by_vehicle.get("scout_1")
+    assert mission_node._assignment_labels["scout_1"] == "RETURNING:fallback:px4-native-rtl"
+
+
+def test_enforce_mixed_returning_separation_applies_waypoint_mitigation(
+    mission_harness_vio_return, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_vio_return
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "mixed-returning-separation"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._return_separation_horizontal_m = 5.0
+    mission_node._return_separation_vertical_m = 3.0
+    mission_node._return_altitude_offset_m = 0.0
+    mission_node._mavlink_adapter._running = True
+
+    _publish_occupancy_map(observer, mission_node)
+
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-returning",
+            waypoints=[{"x": 0.0, "z": 0.0, "altitude_m": 20.0}],
+            current_waypoint_index=0,
+            scout_position={"x": 0.0, "z": 0.0},
+        ),
+        "scout_2": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-searching",
+            waypoints=[{"x": 1.0, "z": 1.0, "altitude_m": 20.0}],
+            current_waypoint_index=0,
+            scout_position={"x": 1.0, "z": 1.0},
+        ),
+    }
+    mission_node._scout_position_snapshot = {
+        "scout_1": {"x": 0.0, "z": 0.0},
+        "scout_2": {"x": 1.0, "z": 1.0},
+    }
+    mission_node._return_paths_by_vehicle["scout_1"] = [
+        {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+        {"x": -10.0, "z": 0.0, "altitude_m": 20.0},
+    ]
+    mission_node._return_path_index_by_vehicle["scout_1"] = 0
+    mission_node._set_scout_assignment("scout_1", "RETURNING", label="RETURNING:scout_1")
+    mission_node._set_scout_assignment("scout_2", "SEARCHING", label="SEARCHING:zone-searching")
+
+    updates: list[dict[str, float]] = []
+    monkeypatch.setattr(
+        mission_node._mavlink_adapter, "update_setpoint", lambda setpoint: updates.append(dict(setpoint))
+    )
+
+    mission_node._enforce_mixed_returning_separation()
+
+    waypoints = mission_node._return_paths_by_vehicle["scout_1"]
+    assert len(waypoints) == 3
+    mitigation = waypoints[0]
+    assert (
+        math.hypot(mitigation["x"] - 1.0, mitigation["z"] - 1.0)
+        >= mission_node._return_separation_horizontal_m
+    )
+    assert mitigation["altitude_m"] >= 23.5
+    assert updates
+
+
+def test_vio_recall_preserves_non_target_search_assignments(
+    mission_harness_vio_return, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_vio_return
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vio-recall-mixed-fleet"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-1",
+            waypoints=[{"x": 100.0, "z": 0.0, "altitude_m": 20.0}],
+            current_waypoint_index=0,
+            scout_position={"x": 0.0, "z": 0.0},
+        ),
+        "scout_2": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-2",
+            waypoints=[{"x": 110.0, "z": 10.0, "altitude_m": 20.0}],
+            current_waypoint_index=0,
+            scout_position={"x": 10.0, "z": 10.0},
+        ),
+    }
+    mission_node._set_scout_assignment("scout_1", "SEARCHING", label="SEARCHING:zone-1")
+    mission_node._set_scout_assignment("scout_2", "SEARCHING", label="SEARCHING:zone-2")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout2")
+    _publish_occupancy_map(observer, mission_node)
+    _inject_scout_odometry(mission_node, observer, "scout2", x_m=7.0, y_m=7.0)
+    _inject_scout_odometry(mission_node, observer, "scout2", x_m=5.0, y_m=5.0)
+    monkeypatch.setattr(
+        mission_node._mavlink_adapter, "upload_mission_items_int", lambda mission_id, waypoints: None
+    )
+    monkeypatch.setattr(
+        mission_node._mavlink_adapter, "start_stream", lambda mission_id, setpoint: None
+    )
+
+    request = SimpleNamespace(
+        command="RECALL",
+        vehicle_id="scout2",
+        mission_id="vio-recall-mixed-fleet",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert result.success
+    assert mission_node._vehicle_assignments["scout_2"] == "RETURNING"
+    assert mission_node._vehicle_assignments["scout_1"] == "SEARCHING"
 
 
 def test_start_mission_enables_ranger_overwatch_from_role_data(
