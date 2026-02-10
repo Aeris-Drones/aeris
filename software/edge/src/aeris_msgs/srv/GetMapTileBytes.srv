@@ -1,0 +1,8 @@
+string tile_id
+---
+bool found
+string content_type
+string hash_sha256
+uint32 byte_size
+builtin_interfaces/Time published_at
+uint8[] data

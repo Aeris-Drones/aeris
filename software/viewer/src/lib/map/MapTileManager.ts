@@ -13,6 +13,8 @@ export interface TileData {
 export interface MapStats {
   count: number;
   totalBytes: number;
+  latencyP95Ms: number | null;
+  lastLatencyMs: number | null;
 }
 
 export interface IngestResult {
@@ -25,15 +27,28 @@ export class MapTileManager {
   private maxTiles: number;
   private origin: GeoCoordinates | null;
   private totalBytes: number;
+  private latencySamplesMs: number[];
+  private lastLatencyMs: number | null;
 
   constructor(maxTiles: number = 500) {
     this.cache = new Map();
     this.maxTiles = maxTiles;
     this.origin = null;
     this.totalBytes = 0;
+    this.latencySamplesMs = [];
+    this.lastLatencyMs = null;
   }
 
-  public ingest(message: MapTileMessage, externalOrigin: GeoCoordinates | null): IngestResult | null {
+  public ingest(
+    message: MapTileMessage,
+    externalOrigin: GeoCoordinates | null,
+    latencyMs?: number
+  ): IngestResult | null {
+    if (!Number.isFinite(message.byte_size) || message.byte_size < 0) {
+      console.error('Ignoring map tile with invalid byte_size', message.byte_size);
+      return null;
+    }
+
     let coords: TileCoordinates;
     try {
       coords = parseTileId(message.tile_id);
@@ -79,6 +94,13 @@ export class MapTileManager {
 
     this.cache.set(key, tile);
     this.totalBytes += message.byte_size;
+    if (typeof latencyMs === 'number' && Number.isFinite(latencyMs) && latencyMs >= 0) {
+      this.latencySamplesMs.push(latencyMs);
+      this.lastLatencyMs = latencyMs;
+      if (this.latencySamplesMs.length > 512) {
+        this.latencySamplesMs.shift();
+      }
+    }
 
     if (this.cache.size > this.maxTiles) {
       const oldestKey = this.cache.keys().next().value;
@@ -92,67 +114,27 @@ export class MapTileManager {
 
   private getTileUrl(message: MapTileMessage): string | null {
     if (message.data) {
-      const byteCharacters = atob(message.data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      try {
+        const byteCharacters = atob(message.data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'image/png' });
+        return URL.createObjectURL(blob);
+      } catch (err) {
+        console.error('Failed to decode tile payload data', err);
+        return null;
       }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'image/png' });
-      return URL.createObjectURL(blob);
     }
 
     if (typeof document === 'undefined') {
       return null;
     }
 
-    const pngBytes = this.createPlaceholderTilePng(message.tile_id);
-    const blob = new Blob([pngBytes], { type: 'image/png' });
-    return URL.createObjectURL(blob);
-  }
-
-  private createPlaceholderTilePng(tileId: string): Uint8Array<ArrayBuffer> {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return new Uint8Array(new ArrayBuffer(0));
-
-    ctx.fillStyle = '#1f2937';
-    ctx.fillRect(0, 0, 256, 256);
-
-    ctx.strokeStyle = '#6b7280';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(1, 1, 254, 254);
-
-    ctx.strokeStyle = '#374151';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(256, 256);
-    ctx.moveTo(0, 256);
-    ctx.lineTo(256, 0);
-    ctx.stroke();
-
-    ctx.fillStyle = '#fbbf24';
-    ctx.font = '14px monospace';
-    ctx.fillText('MapTile', 10, 22);
-
-    ctx.fillStyle = '#e5e7eb';
-    ctx.font = '12px monospace';
-    const lines = wrapText(tileId, 28);
-    lines.slice(0, 4).forEach((line, index) => {
-      ctx.fillText(line, 10, 50 + index * 16);
-    });
-
-    const dataUrl = canvas.toDataURL('image/png');
-    const base64 = dataUrl.split(',')[1] ?? '';
-    const byteCharacters = atob(base64);
-    const bytes = new Uint8Array(new ArrayBuffer(byteCharacters.length));
-    for (let i = 0; i < byteCharacters.length; i++) {
-      bytes[i] = byteCharacters.charCodeAt(i);
-    }
-    return bytes;
+    console.warn('Skipping map tile render because payload bytes are missing', message.tile_id);
+    return null;
   }
 
   private removeTile(key: string) {
@@ -172,6 +154,8 @@ export class MapTileManager {
     return {
       count: this.cache.size,
       totalBytes: this.totalBytes,
+      latencyP95Ms: percentile(this.latencySamplesMs, 95),
+      lastLatencyMs: this.lastLatencyMs,
     };
   }
 
@@ -182,15 +166,14 @@ export class MapTileManager {
     this.cache.clear();
     this.totalBytes = 0;
     this.origin = null;
+    this.latencySamplesMs = [];
+    this.lastLatencyMs = null;
   }
 }
 
-function wrapText(text: string, maxLen: number): string[] {
-  const chunks: string[] = [];
-  let start = 0;
-  while (start < text.length) {
-    chunks.push(text.slice(start, start + maxLen));
-    start += maxLen;
-  }
-  return chunks.length ? chunks : [''];
+function percentile(values: number[], p: number): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
 }

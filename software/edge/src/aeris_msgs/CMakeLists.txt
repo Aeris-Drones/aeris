@@ -22,6 +22,7 @@ set(interface_files
   "msg/MissionState.msg"
   "msg/MissionProgress.msg"
   "srv/MapTile.srv"
+  "srv/GetMapTileBytes.srv"
   "srv/ThermalHotspot.srv"
   "srv/AcousticBearing.srv"
   "srv/GasIsopleth.srv"

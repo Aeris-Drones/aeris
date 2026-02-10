@@ -1,0 +1,18 @@
+map_tile_publisher:
+  ros__parameters:
+    use_sim_time: true
+    topic: /map/tiles
+    map_source: occupancy
+    occupancy_topic: /map
+    point_cloud_topic: /rtabmap/cloud_map
+    tile_service_name: /map/get_tile_bytes
+    queue_depth: 50
+    zoom: 18
+    tile_size_px: 256
+    publish_on_change_only: true
+    republish_interval_sec: 5.0
+    max_cached_tiles: 500
+    mbtiles_path: /tmp/aeris/map_tiles/live_map.mbtiles
+    origin_lat_deg: 37.7749
+    origin_lon_deg: -122.4194
+    layer_ids: ["occupancy", "fetch-service:/map/get_tile_bytes", "mime:image/png"]

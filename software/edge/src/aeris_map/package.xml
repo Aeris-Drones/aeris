@@ -2,20 +2,27 @@
 <package format="3">
   <name>aeris_map</name>
   <version>0.1.0</version>
-  <description>Minimal ROS 2 map node that publishes fake MapTile messages for DDS bring-up.</description>
+  <description>Map service that converts RTAB-Map occupancy output into MBTiles-backed tile descriptors and byte retrieval APIs.</description>
   <maintainer email="dev@aeris.local">Aeris Developers</maintainer>
   <license>proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>nav_msgs</depend>
+  <depend>sensor_msgs</depend>
   <depend>aeris_msgs</depend>
+  <depend>sqlite3</depend>
+  <depend>libpng-dev</depend>
+  <depend>libssl-dev</depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>ov_msckf</exec_depend>
   <exec_depend>rtabmap_slam</exec_depend>
   <exec_depend>rtabmap_util</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

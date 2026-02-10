@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from launch import LaunchDescription
@@ -8,9 +9,12 @@ from launch_ros.actions import Node
 
 def generate_launch_description() -> LaunchDescription:
     package_root = Path(__file__).resolve().parents[1]
+    cache_root = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache')))
+    mbtiles_default = str(cache_root / 'aeris' / 'map_tiles' / 'live_map.mbtiles')
 
     openvins_config_default = str(package_root / 'config' / 'openvins_sim.yaml')
     rtabmap_config_default = str(package_root / 'config' / 'rtabmap_vio_sim.yaml')
+    map_tile_config_default = str(package_root / 'config' / 'map_tile_stream.yaml')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     left_image_topic = LaunchConfiguration('left_image_topic')
@@ -19,6 +23,10 @@ def generate_launch_description() -> LaunchDescription:
     right_camera_info_topic = LaunchConfiguration('right_camera_info_topic')
     imu_topic = LaunchConfiguration('imu_topic')
     openvins_odom_topic = LaunchConfiguration('openvins_odom_topic')
+    map_tile_topic = LaunchConfiguration('map_tile_topic')
+    tile_service_name = LaunchConfiguration('tile_service_name')
+    mbtiles_path = LaunchConfiguration('mbtiles_path')
+    map_source = LaunchConfiguration('map_source')
     rtabmap_database_path = LaunchConfiguration('rtabmap_database_path')
     openvins_log_directory = LaunchConfiguration('openvins_log_directory')
 
@@ -72,10 +80,30 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    map_tile_node = Node(
+        package='aeris_map',
+        executable='map_tile_publisher',
+        name='map_tile_publisher',
+        output='screen',
+        parameters=[
+            LaunchConfiguration('map_tile_config'),
+            {
+                'use_sim_time': use_sim_time,
+                'occupancy_topic': LaunchConfiguration('occupancy_topic'),
+                'point_cloud_topic': LaunchConfiguration('point_cloud_topic'),
+                'topic': map_tile_topic,
+                'tile_service_name': tile_service_name,
+                'mbtiles_path': mbtiles_path,
+                'map_source': map_source,
+            },
+        ],
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('openvins_config', default_value=openvins_config_default),
         DeclareLaunchArgument('rtabmap_config', default_value=rtabmap_config_default),
+        DeclareLaunchArgument('map_tile_config', default_value=map_tile_config_default),
         DeclareLaunchArgument('scout_model_name', default_value='scout1'),
         DeclareLaunchArgument(
             'left_image_topic',
@@ -111,9 +139,14 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument('occupancy_topic', default_value='/map'),
         DeclareLaunchArgument('point_cloud_topic', default_value='/rtabmap/cloud_map'),
+        DeclareLaunchArgument('map_tile_topic', default_value='/map/tiles'),
+        DeclareLaunchArgument('tile_service_name', default_value='/map/get_tile_bytes'),
+        DeclareLaunchArgument('mbtiles_path', default_value=mbtiles_default),
+        DeclareLaunchArgument('map_source', default_value='occupancy'),
         DeclareLaunchArgument('map_frame', default_value='map'),
         DeclareLaunchArgument('odom_frame', default_value='odom'),
         DeclareLaunchArgument('base_frame', default_value='base_link'),
         openvins_node,
         rtabmap_node,
+        map_tile_node,
     ])
