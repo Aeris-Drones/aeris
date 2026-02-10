@@ -96,6 +96,10 @@ export const Scene3D = forwardRef<Scene3DHandle, unknown>((props, ref) => {
             <span className="text-white/60">Total Data:</span>
             <span>{(stats.totalBytes / 1024 / 1024).toFixed(2)} MB</span>
           </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-white/60">Tile Latency p95:</span>
+            <span>{stats.latencyP95Ms === null ? 'n/a' : `${stats.latencyP95Ms.toFixed(0)} ms`}</span>
+          </div>
           <div className="h-px bg-white/10 my-2" />
           <h3 className="font-bold text-emerald-400 mb-2">Vehicles</h3>
            <div className="flex justify-between gap-4">

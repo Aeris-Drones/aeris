@@ -5,6 +5,10 @@ export interface MapTileMessage {
   hash_sha256: string;
   byte_size: number;
   data?: string; // Base64 encoded payload
+  published_at?: {
+    sec: number;
+    nanosec: number;
+  };
 }
 
 export interface TileCoordinates {
@@ -37,10 +41,19 @@ export function parseTileId(tileId: string): TileCoordinates {
   if (parts.length !== 3) {
     throw new Error(`Invalid tile ID format: ${tileId}. Expected z/x/y`);
   }
+  if (!parts.every((part) => /^\d+$/.test(part))) {
+    throw new Error(`Invalid tile ID format: ${tileId}. Expected non-negative integers z/x/y`);
+  }
+  const z = parseInt(parts[0], 10);
+  const x = parseInt(parts[1], 10);
+  const y = parseInt(parts[2], 10);
+  if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y) || z < 0 || x < 0 || y < 0) {
+    throw new Error(`Invalid tile ID format: ${tileId}. Expected non-negative integers z/x/y`);
+  }
   return {
-    z: parseInt(parts[0], 10),
-    x: parseInt(parts[1], 10),
-    y: parseInt(parts[2], 10),
+    z,
+    x,
+    y,
   };
 }
 
