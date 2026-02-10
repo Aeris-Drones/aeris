@@ -121,7 +121,7 @@ export function VehicleCard({
                 {vehicle.assignment}
               </span>
             )}
-            {typeof vehicle.missionProgressPercent === 'number' && (
+            {Number.isFinite(vehicle.missionProgressPercent) && (
               <span className="font-mono text-foreground">
                 {vehicle.missionProgressPercent.toFixed(0)}%
               </span>
@@ -213,7 +213,7 @@ export function VehicleCard({
                 {vehicle.assignment}
               </span>
             )}
-            {typeof vehicle.missionProgressPercent === 'number' && (
+            {Number.isFinite(vehicle.missionProgressPercent) && (
               <span className="text-xs font-mono text-foreground">
                 {vehicle.missionProgressPercent.toFixed(0)}%
               </span>

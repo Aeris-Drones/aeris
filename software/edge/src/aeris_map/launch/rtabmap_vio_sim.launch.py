@@ -27,6 +27,8 @@ def generate_launch_description() -> LaunchDescription:
     tile_service_name = LaunchConfiguration('tile_service_name')
     mbtiles_path = LaunchConfiguration('mbtiles_path')
     map_source = LaunchConfiguration('map_source')
+    rtabmap_database_path = LaunchConfiguration('rtabmap_database_path')
+    openvins_log_directory = LaunchConfiguration('openvins_log_directory')
 
     openvins_node = Node(
         package='ov_msckf',
@@ -42,6 +44,8 @@ def generate_launch_description() -> LaunchDescription:
                 'topic_left_camera_info': left_camera_info_topic,
                 'topic_right_camera_info': right_camera_info_topic,
                 'topic_imu': imu_topic,
+                'output_odom_topic': openvins_odom_topic,
+                'log_directory': openvins_log_directory,
             },
         ],
         remappings=[
@@ -61,6 +65,7 @@ def generate_launch_description() -> LaunchDescription:
                 'frame_id': LaunchConfiguration('base_frame'),
                 'odom_frame_id': LaunchConfiguration('odom_frame'),
                 'map_frame_id': LaunchConfiguration('map_frame'),
+                'Rtabmap/DatabasePath': rtabmap_database_path,
             },
         ],
         remappings=[
@@ -99,12 +104,39 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('openvins_config', default_value=openvins_config_default),
         DeclareLaunchArgument('rtabmap_config', default_value=rtabmap_config_default),
         DeclareLaunchArgument('map_tile_config', default_value=map_tile_config_default),
-        DeclareLaunchArgument('left_image_topic', default_value='/scout1/stereo/left/image_raw'),
-        DeclareLaunchArgument('right_image_topic', default_value='/scout1/stereo/right/image_raw'),
-        DeclareLaunchArgument('left_camera_info_topic', default_value='/scout1/stereo/left/camera_info'),
-        DeclareLaunchArgument('right_camera_info_topic', default_value='/scout1/stereo/right/camera_info'),
-        DeclareLaunchArgument('imu_topic', default_value='/scout1/imu/data'),
-        DeclareLaunchArgument('openvins_odom_topic', default_value='/scout1/openvins/odom'),
+        DeclareLaunchArgument('scout_model_name', default_value='scout1'),
+        DeclareLaunchArgument(
+            'left_image_topic',
+            default_value=['/', LaunchConfiguration('scout_model_name'), '/stereo/left/image_raw'],
+        ),
+        DeclareLaunchArgument(
+            'right_image_topic',
+            default_value=['/', LaunchConfiguration('scout_model_name'), '/stereo/right/image_raw'],
+        ),
+        DeclareLaunchArgument(
+            'left_camera_info_topic',
+            default_value=['/', LaunchConfiguration('scout_model_name'), '/stereo/left/camera_info'],
+        ),
+        DeclareLaunchArgument(
+            'right_camera_info_topic',
+            default_value=['/', LaunchConfiguration('scout_model_name'), '/stereo/right/camera_info'],
+        ),
+        DeclareLaunchArgument(
+            'imu_topic',
+            default_value=['/', LaunchConfiguration('scout_model_name'), '/imu/data'],
+        ),
+        DeclareLaunchArgument(
+            'openvins_odom_topic',
+            default_value=['/', LaunchConfiguration('scout_model_name'), '/openvins/odom'],
+        ),
+        DeclareLaunchArgument(
+            'openvins_log_directory',
+            default_value=['/tmp/aeris/openvins/', LaunchConfiguration('scout_model_name')],
+        ),
+        DeclareLaunchArgument(
+            'rtabmap_database_path',
+            default_value=['/tmp/aeris/rtabmap/', LaunchConfiguration('scout_model_name'), '.db'],
+        ),
         DeclareLaunchArgument('occupancy_topic', default_value='/map'),
         DeclareLaunchArgument('point_cloud_topic', default_value='/rtabmap/cloud_map'),
         DeclareLaunchArgument('map_tile_topic', default_value='/map/tiles'),
