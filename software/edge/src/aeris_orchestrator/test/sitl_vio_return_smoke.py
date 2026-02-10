@@ -250,6 +250,7 @@ def run_smoke() -> int:
             final = points[-1]
             if not isinstance(final, dict):
                 raise RuntimeError("returnTrajectory.points final item invalid")
+            # Launch point is at origin (0, 0) based on this smoke test setup.
             launch_error_m = math.hypot(float(final.get("x", 0.0)), float(final.get("z", 0.0)))
             if launch_error_m > 2.0:
                 raise RuntimeError(

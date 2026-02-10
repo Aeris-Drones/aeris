@@ -1,3 +1,4 @@
+from collections import deque
 import json
 import math
 import re
@@ -382,12 +383,14 @@ class MissionNode(Node):
             "/map",
             self._handle_occupancy_map,
             queue_depth,
+            callback_group=self._serialized_callback_group,
         )
         self._fused_hazard_subscription = self.create_subscription(
             String,
             "/detections/fused",
             self._handle_fused_hazards,
             queue_depth,
+            callback_group=self._serialized_callback_group,
         )
         self._thermal_subscription = self.create_subscription(
             ThermalHotspot,
@@ -723,8 +726,8 @@ class MissionNode(Node):
         resolution = float(message.info.resolution)
         if not math.isfinite(resolution) or resolution <= 0.0:
             return
-        width = int(message.info.width)
-        height = int(message.info.height)
+        width = message.info.width
+        height = message.info.height
         if width <= 0 or height <= 0:
             return
         data = tuple(int(cell) for cell in message.data)
@@ -766,9 +769,9 @@ class MissionNode(Node):
     @classmethod
     def _extract_hazard_polygons(cls, payload: object) -> list[list[dict[str, float]]]:
         polygons: list[list[dict[str, float]]] = []
-        queue: list[object] = [payload]
+        queue: deque[object] = deque([payload])
         while queue:
-            current = queue.pop(0)
+            current = queue.popleft()
             if isinstance(current, dict):
                 for key in (
                     "polygons",

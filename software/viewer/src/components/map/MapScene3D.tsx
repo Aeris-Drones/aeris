@@ -170,16 +170,18 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
               ) : null
             )}
           {visibility.trajectories &&
-            Object.entries(returnTrajectories).map(([vehicleId, points]) => (
-              <FlightTrail3D
-                key={`return-trajectory-${vehicleId}`}
-                points={points}
-                color="#38bdf8"
-                opacity={0.95}
-                lineWidth={4}
-                dashed={false}
-              />
-            ))}
+            Object.entries(returnTrajectories).map(([vehicleId, points]) =>
+              points.length > 1 ? (
+                <FlightTrail3D
+                  key={`return-trajectory-${vehicleId}`}
+                  points={points}
+                  color="#38bdf8"
+                  opacity={0.95}
+                  lineWidth={4}
+                  dashed={false}
+                />
+              ) : null
+            )}
 
           {/* Drone markers */}
           {telemetryDrones.map((drone) => (

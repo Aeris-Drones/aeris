@@ -56,6 +56,7 @@ export function useVehicleTelemetry() {
     const handleProgressMessage = (message: ROSLIB.Message) => {
       try {
         const payload = JSON.parse((message as { data: string }).data) as {
+          vehicleId?: string;
           returnTrajectory?: {
             vehicleId?: string;
             points?: Array<{
@@ -69,8 +70,19 @@ export function useVehicleTelemetry() {
         if (!('returnTrajectory' in payload)) {
           return;
         }
-        if (!payload.returnTrajectory) {
-          setReturnTrajectories({});
+        if (payload.returnTrajectory === null) {
+          const vehicleId = (
+            payload.vehicleId ??
+            payload.returnTrajectory?.vehicleId ??
+            ''
+          ).trim();
+          if (vehicleId) {
+            setReturnTrajectories(previous => {
+              const next = { ...previous };
+              delete next[vehicleId];
+              return next;
+            });
+          }
           return;
         }
         const vehicleId = payload.returnTrajectory.vehicleId?.trim();
