@@ -10,6 +10,7 @@ import { FlightTrail3D } from './FlightTrail3D';
 import { ZoneOverlay3D, ZoneDrawingPreview } from './ZoneOverlay3D';
 import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
+import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 
 const mockDetections: Omit<DetectionMarker3DProps, 'isSelected' | 'onClick'>[] = [
   {
@@ -78,6 +79,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     onAddZonePoint,
   }, ref) => {
     const { vehicles, returnTrajectories } = useVehicleTelemetry();
+    const visibility = useLayerVisibility();
     const cameraControlsRef = useRef<CameraControls>(null);
 
     const telemetryDrones: Omit<DroneMarker3DProps, 'isSelected' | 'onClick'>[] = vehicles.map((vehicle) => {
@@ -157,25 +159,27 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
           <pointLight position={[0, 200, 0]} intensity={0.2} color="#4488ff" />
 
           {/* Flight trails (render before drones so trails appear behind) */}
-          {telemetryDrones.map((drone) =>
-            drone.showTrail && drone.trailPoints.length > 1 ? (
+          {visibility.trajectories &&
+            telemetryDrones.map((drone) =>
+              drone.showTrail && drone.trailPoints.length > 1 ? (
+                <FlightTrail3D
+                  key={`trail-${drone.vehicleId}`}
+                  points={drone.trailPoints}
+                  color={drone.status === 'active' ? '#22c55e' : '#f59e0b'}
+                />
+              ) : null
+            )}
+          {visibility.trajectories &&
+            Object.entries(returnTrajectories).map(([vehicleId, points]) => (
               <FlightTrail3D
-                key={`trail-${drone.vehicleId}`}
-                points={drone.trailPoints}
-                color={drone.status === 'active' ? '#22c55e' : '#f59e0b'}
+                key={`return-trajectory-${vehicleId}`}
+                points={points}
+                color="#38bdf8"
+                opacity={0.95}
+                lineWidth={4}
+                dashed={false}
               />
-            ) : null
-          )}
-          {Object.entries(returnTrajectories).map(([vehicleId, points]) => (
-            <FlightTrail3D
-              key={`return-trajectory-${vehicleId}`}
-              points={points}
-              color="#38bdf8"
-              opacity={0.95}
-              lineWidth={4}
-              dashed={false}
-            />
-          ))}
+            ))}
 
           {/* Drone markers */}
           {telemetryDrones.map((drone) => (
