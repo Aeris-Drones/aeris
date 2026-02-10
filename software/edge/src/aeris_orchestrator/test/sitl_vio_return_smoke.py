@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -175,6 +176,11 @@ def run_smoke() -> int:
     node = VioReturnSmokeNode()
     mission_id = f"sitl-vio-return-{int(time.time())}"
     start_monotonic = time.monotonic()
+    expect_fallback = os.environ.get("EXPECT_FALLBACK", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
     try:
         if not node.start_client.wait_for_service(timeout_sec=5.0):
             raise RuntimeError("start_mission service not available")
@@ -185,7 +191,8 @@ def run_smoke() -> int:
 
         _publish_scout_telemetry(node, vehicle_id="scout1", latitude=0.0, longitude=0.0)
         _publish_scout_telemetry(node, vehicle_id="scout2", latitude=0.0003, longitude=0.0003)
-        _publish_clear_occupancy_map(node)
+        if not expect_fallback:
+            _publish_clear_occupancy_map(node)
         _publish_odom_sequence(node, [(0.0, 0.0), (4.0, 0.0), (8.0, 0.0)], repeats=2)
 
         _start_mission(node, mission_id)
@@ -220,20 +227,34 @@ def run_smoke() -> int:
             raise RuntimeError(
                 f"returnTrajectory.vehicleId mismatch: {return_payload.get('vehicleId')}"
             )
-        if return_payload.get("fallbackReason"):
+        fallback_reason = str(return_payload.get("fallbackReason", "")).strip()
+        if expect_fallback:
+            if not fallback_reason:
+                raise RuntimeError(
+                    "Expected fallbackReason in fallback path, but it was missing"
+                )
+            if str(return_payload.get("state", "")).upper() != "FALLBACK":
+                raise RuntimeError(
+                    f"Expected returnTrajectory.state=FALLBACK, got {return_payload.get('state')}"
+                )
+        elif fallback_reason:
             raise RuntimeError(
-                f"Unexpected fallbackReason in success path: {return_payload.get('fallbackReason')}"
+                f"Unexpected fallbackReason in success path: {fallback_reason}"
             )
 
         points = return_payload.get("points")
-        if not isinstance(points, list) or len(points) < 2:
-            raise RuntimeError("returnTrajectory.points must contain at least 2 points")
-        final = points[-1]
-        if not isinstance(final, dict):
-            raise RuntimeError("returnTrajectory.points final item invalid")
-        launch_error_m = math.hypot(float(final.get("x", 0.0)), float(final.get("z", 0.0)))
-        if launch_error_m > 2.0:
-            raise RuntimeError(f"Launch-point error too high: {launch_error_m:.3f}m > 2.0m")
+        launch_error_m = 0.0
+        if not expect_fallback:
+            if not isinstance(points, list) or len(points) < 2:
+                raise RuntimeError("returnTrajectory.points must contain at least 2 points")
+            final = points[-1]
+            if not isinstance(final, dict):
+                raise RuntimeError("returnTrajectory.points final item invalid")
+            launch_error_m = math.hypot(float(final.get("x", 0.0)), float(final.get("z", 0.0)))
+            if launch_error_m > 2.0:
+                raise RuntimeError(
+                    f"Launch-point error too high: {launch_error_m:.3f}m > 2.0m"
+                )
 
         update_latency_sec = node.latest_progress.received_monotonic - recall_sent_monotonic
         if update_latency_sec > 1.0:
@@ -242,12 +263,20 @@ def run_smoke() -> int:
             )
 
         total_elapsed = time.monotonic() - start_monotonic
-        print(
-            "SITL VIO return smoke passed: "
-            f"launch_error_m={launch_error_m:.3f}, "
-            f"update_latency_sec={update_latency_sec:.3f}, "
-            f"elapsed_sec={total_elapsed:.3f}"
-        )
+        if expect_fallback:
+            print(
+                "SITL VIO return fallback smoke passed: "
+                f"fallback_reason={fallback_reason}, "
+                f"update_latency_sec={update_latency_sec:.3f}, "
+                f"elapsed_sec={total_elapsed:.3f}"
+            )
+        else:
+            print(
+                "SITL VIO return smoke passed: "
+                f"launch_error_m={launch_error_m:.3f}, "
+                f"update_latency_sec={update_latency_sec:.3f}, "
+                f"elapsed_sec={total_elapsed:.3f}"
+            )
         return 0
     except Exception as exc:  # noqa: BLE001
         print(f"SITL VIO return smoke failed: {exc}", file=sys.stderr)
