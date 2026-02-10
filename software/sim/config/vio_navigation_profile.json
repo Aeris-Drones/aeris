@@ -1,7 +1,7 @@
 {
   "launch": {
     "world": "software/sim/worlds/disaster_scene.sdf",
-    "vehicles_config": "software/sim/config/multi_drone_gps_denied.yaml",
+    "vehicles_config": "software/sim/config/multi_drone_gps_denied.json",
     "scout_model_name": "scout1",
     "gps_denied_mode": true,
     "position_source_mode": "vio_odometry"
@@ -20,6 +20,8 @@
     "ground_truth_topic": "/model/scout1/odometry",
     "max_rms_m": 3.0,
     "max_error_m": 8.0,
+    "max_time_offset_sec": 0.25,
+    "min_samples": 100,
     "output_dir": "output/vio_navigation_drift",
     "run_id": "latest"
   }

@@ -121,6 +121,10 @@ def _publish_scout_odometry(
 ) -> None:
     publisher = node.scout_odom_pubs.get(vehicle_id)
     if publisher is None:
+        available = ", ".join(sorted(node.scout_odom_pubs.keys()))
+        node.get_logger().warning(
+            f"No odometry publisher configured for '{vehicle_id}'. Available: {available}"
+        )
         return
     msg = Odometry()
     msg.header.stamp = node.get_clock().now().to_msg()
@@ -130,6 +134,24 @@ def _publish_scout_odometry(
     msg.pose.pose.position.y = float(y_m)
     msg.pose.pose.position.z = 0.0
     publisher.publish(msg)
+
+
+def _wait_for_state_with_fresh_odometry(
+    node: TrackingSmokeNode,
+    *,
+    expected_state: str,
+    timeout_sec: float = 8.0,
+    sleep_sec: float = 0.05,
+) -> bool:
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        _publish_scout_odometry(node, "scout1", x_m=0.0, y_m=0.0)
+        _publish_scout_odometry(node, "scout2", x_m=4.0, y_m=4.0)
+        rclpy.spin_once(node, timeout_sec=0.05)
+        if expected_state in node.state_history:
+            return True
+        time.sleep(sleep_sec)
+    return False
 
 
 def _publish_gas_detection(node: TrackingSmokeNode, *, x: float, y: float) -> None:
@@ -200,7 +222,9 @@ def run_smoke() -> int:
             node.get_logger().info("No mission progress yet; continuing after telemetry warmup")
 
         _start_mission(node, mission_id)
-        if not _wait_until(node, lambda: "SEARCHING" in node.state_history, timeout_sec=8.0):
+        if not _wait_for_state_with_fresh_odometry(
+            node, expected_state="SEARCHING", timeout_sec=8.0
+        ):
             raise RuntimeError("Mission never reached SEARCHING")
 
         if not _wait_until(
@@ -222,7 +246,11 @@ def run_smoke() -> int:
                 raise RuntimeError(
                     f"Expected position source '{expected_position_source}', got '{mode}'"
                 )
-            vehicle_sources = node.latest_progress.payload.get("vehiclePositionSources", {})
+            vehicle_sources = node.latest_progress.payload.get("vehiclePositionSources")
+            if not isinstance(vehicle_sources, dict):
+                raise RuntimeError(
+                    "vehiclePositionSources is missing or invalid in mission progress payload"
+                )
             scout_source = str(vehicle_sources.get("scout_1", ""))
             if not scout_source.startswith(expected_position_source):
                 raise RuntimeError(

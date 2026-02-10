@@ -5,9 +5,9 @@ The `software/sim` tree hosts the Gazebo (Ignition/Fortress) assets used during 
 ## Current components
 - `worlds/aeris_block.world`: ground plane + sun with a static camera pole that publishes `/camera/image` for Phase 1 testing. TODO markers remain for plume sources, thermal beacons, and street geometry.
 - `launch/sim_block.launch.py`: ROS 2 launch file that runs `ign gazebo` (Fortress) with the world and starts `ros_gz_bridge parameter_bridge /camera/image@sensor_msgs/msg/Image@ignition.msgs.Image`.
-- `launch/multi_drone_sim.launch.py`: multi-vehicle SITL bootstrap that now includes Scout stereo/IMU bridge defaults for VIO/SLAM.
-- `config/multi_drone_gps_denied.yaml`: GPS-denied SITL profile with external-vision-oriented EKF defaults for scout vehicles.
-- `config/vio_navigation_profile.yaml`: shared GPS-denied launch + drift KPI profile for repeatable validation runs.
+- `launch/multi_drone_sim.launch.py`: multi-vehicle SITL bootstrap with Scout stereo/IMU bridge defaults for VIO/SLAM and optional mission-node startup (`launch_orchestrator:=true` by default).
+- `config/multi_drone_gps_denied.json`: GPS-denied SITL profile with external-vision-oriented EKF defaults for scout vehicles.
+- `config/vio_navigation_profile.json`: shared GPS-denied launch + drift KPI profile for repeatable validation runs.
 - `tools/validate_slam_topics.sh`: smoke validation for stereo/IMU/OpenVINS/RTAB-Map topic availability and rates.
 - `tools/validate_loop_closure.sh`: loop-closure evidence capture helper (`/rtabmap/info` + TF snapshot).
 - `tools/validate_vio_navigation_drift.py`: compares `/scout*/openvins/odom` against ground-truth odometry and writes RMS/max drift artifacts.
@@ -50,14 +50,15 @@ source /workspace/aeris/install/setup.bash
 ros2 launch software/sim/launch/multi_drone_sim.launch.py \
   world:=software/sim/worlds/disaster_scene.sdf \
   scout_model_name:=scout1 \
-  vehicles_config:=software/sim/config/multi_drone_gps_denied.yaml \
+  vehicles_config:=software/sim/config/multi_drone_gps_denied.json \
   gps_denied_mode:=true \
-  position_source_mode:=vio_odometry
+  position_source_mode:=vio_odometry \
+  launch_orchestrator:=true
 
 # Drift KPI evidence (10-minute profile)
 source /workspace/aeris/install/setup.bash
 python3 software/sim/tools/validate_vio_navigation_drift.py \
-  --profile software/sim/config/vio_navigation_profile.yaml \
+  --profile software/sim/config/vio_navigation_profile.json \
   --run-id latest
 ```
 

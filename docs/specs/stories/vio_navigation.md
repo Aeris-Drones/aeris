@@ -18,10 +18,14 @@ source install/setup.bash
 ros2 launch software/sim/launch/multi_drone_sim.launch.py \
   world:=software/sim/worlds/disaster_scene.sdf \
   scout_model_name:=scout1 \
-  vehicles_config:=software/sim/config/multi_drone_gps_denied.yaml \
+  vehicles_config:=software/sim/config/multi_drone_gps_denied.json \
   gps_denied_mode:=true \
-  position_source_mode:=vio_odometry
+  position_source_mode:=vio_odometry \
+  launch_orchestrator:=true
 ```
+
+`launch_orchestrator:=true` starts `aeris_orchestrator mission` with matching
+`gps_denied_mode` and `navigation_position_source` runtime parameters.
 
 ## 3. Launch OpenVINS + RTAB-Map
 
@@ -45,7 +49,7 @@ Expected keys:
 
 ```bash
 python3 software/sim/tools/validate_vio_navigation_drift.py \
-  --profile software/sim/config/vio_navigation_profile.yaml \
+  --profile software/sim/config/vio_navigation_profile.json \
   --run-id latest
 ```
 

@@ -144,8 +144,11 @@ def _publish_scout_odometry(
     x_m: float = 0.0,
     y_m: float = 0.0,
 ) -> None:
+    normalized_id = mission_node._normalize_vehicle_id(vehicle_id)
     topic_token = mission_node._vehicle_model_topic_token(vehicle_id)
-    odometry_topic = f"/{topic_token}/openvins/odom"
+    odometry_topic = mission_node._scout_odometry_topics.get(
+        normalized_id, f"/{topic_token}/openvins/odom"
+    )
     publisher = observer.create_publisher(Odometry, odometry_topic, 10)
     message = Odometry()
     message.header.stamp = observer.get_clock().now().to_msg()
@@ -155,7 +158,6 @@ def _publish_scout_odometry(
     message.pose.pose.position.y = float(y_m)
     message.pose.pose.position.z = 0.0
     publisher.publish(message)
-    normalized_id = mission_node._normalize_vehicle_id(vehicle_id)
     assert _wait_until(
         lambda: normalized_id in mission_node._scout_vio_last_seen_monotonic
     )
@@ -561,6 +563,55 @@ def mission_harness_vio(ros_runtime: MultiThreadedExecutor):
         mission_node.destroy_node()
 
 
+@pytest.fixture
+def mission_harness_auto(ros_runtime: MultiThreadedExecutor):
+    mission_node = MissionNode(
+        parameter_overrides=[
+            Parameter("navigation_position_source", value="auto"),
+            Parameter("vio_odom_stale_sec", value=0.1),
+        ]
+    )
+    observer = MissionObserver()
+    ros_runtime.add_node(mission_node)
+    ros_runtime.add_node(observer)
+
+    assert observer.start_client.wait_for_service(timeout_sec=2.0)
+    assert observer.abort_client.wait_for_service(timeout_sec=2.0)
+
+    try:
+        yield mission_node, observer
+    finally:
+        ros_runtime.remove_node(observer)
+        ros_runtime.remove_node(mission_node)
+        observer.destroy_node()
+        mission_node.destroy_node()
+
+
+@pytest.fixture
+def mission_harness_auto_gps_denied(ros_runtime: MultiThreadedExecutor):
+    mission_node = MissionNode(
+        parameter_overrides=[
+            Parameter("navigation_position_source", value="auto"),
+            Parameter("gps_denied_mode", value=True),
+            Parameter("vio_odom_stale_sec", value=0.1),
+        ]
+    )
+    observer = MissionObserver()
+    ros_runtime.add_node(mission_node)
+    ros_runtime.add_node(observer)
+
+    assert observer.start_client.wait_for_service(timeout_sec=2.0)
+    assert observer.abort_client.wait_for_service(timeout_sec=2.0)
+
+    try:
+        yield mission_node, observer
+    finally:
+        ros_runtime.remove_node(observer)
+        ros_runtime.remove_node(mission_node)
+        observer.destroy_node()
+        mission_node.destroy_node()
+
+
 def _start_searching_mission(
     mission_node: MissionNode,
     observer: MissionObserver,
@@ -796,6 +847,85 @@ def test_detection_selection_falls_back_to_most_recent_seen_without_positions(
     selected = mission_node._select_tracking_scout_endpoint({"x": 0.0, "z": 0.0})
     assert selected is not None
     assert selected.vehicle_id == "scout_2"
+
+
+def test_tracking_selection_uses_vio_distance_when_configured(
+    mission_harness_vio,
+) -> None:
+    mission_node, observer = mission_harness_vio
+    now = time.monotonic()
+    mission_node._scout_last_seen_monotonic = {
+        "scout_1": now,
+        "scout_2": now,
+    }
+    # Telemetry suggests scout_1 is closer, but VIO should take precedence.
+    mission_node._scout_position_snapshot = {
+        "scout_1": {"x": 0.0, "z": 0.0},
+        "scout_2": {"x": 100.0, "z": 100.0},
+    }
+    _publish_scout_odometry(observer, mission_node, vehicle_id="scout1", x_m=100.0, y_m=100.0)
+    _publish_scout_odometry(observer, mission_node, vehicle_id="scout2", x_m=1.0, y_m=1.0)
+
+    selected = mission_node._select_tracking_scout_endpoint({"x": 0.0, "z": 0.0})
+    assert selected is not None
+    assert selected.vehicle_id == "scout_2"
+
+
+def test_auto_position_source_falls_back_to_telemetry_and_prefers_fresh_vio(
+    mission_harness_auto,
+) -> None:
+    mission_node, observer = mission_harness_auto
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "auto-source"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-auto",
+            waypoints=[
+                {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+                {"x": 5.0, "z": 0.0, "altitude_m": 20.0},
+            ],
+            current_waypoint_index=0,
+            scout_position={"x": -1.0, "z": 0.0},
+        )
+    }
+
+    # No VIO available yet -> auto falls back to telemetry behavior.
+    mission_node._advance_search_plan_for_vehicle("scout_1")
+    assert mission_node._vehicle_position_sources["scout_1"] == "telemetry_geodetic"
+
+    # Fresh VIO sample available -> auto switches to VIO.
+    _publish_scout_odometry(observer, mission_node, vehicle_id="scout1", x_m=0.0, y_m=0.0)
+    mission_node._advance_search_plan_for_vehicle("scout_1")
+    assert mission_node._vehicle_position_sources["scout_1"] == "vio_odometry"
+    assert mission_node._scout_plans["scout_1"].current_waypoint_index == 1
+
+
+def test_auto_position_source_respects_gps_denied_vio_requirement(
+    mission_harness_auto_gps_denied,
+) -> None:
+    mission_node, observer = mission_harness_auto_gps_denied
+    del observer
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "auto-gps-denied"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-auto-gps-denied",
+            waypoints=[
+                {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+                {"x": 10.0, "z": 0.0, "altitude_m": 20.0},
+            ],
+            current_waypoint_index=0,
+            scout_position={"x": 0.0, "z": 0.0},
+        )
+    }
+
+    mission_node._advance_search_plan_for_vehicle("scout_1")
+    assert mission_node._vehicle_position_sources["scout_1"] == "vio_odometry:unavailable"
+    assert mission_node._scout_plans["scout_1"].current_waypoint_index == 0
 
 
 def test_start_mission_creates_distinct_scout_zone_assignments(mission_harness) -> None:

@@ -84,20 +84,26 @@ def execute(vehicles, *, gps_denied: bool = False, external_vision: bool = False
         if gps_denied:
             env.setdefault("AERIS_GPS_DENIED_MODE", "1")
             env.setdefault("PX4_SIM_GPS_DISABLED", "1")
-            env.setdefault("EKF2_GPS_CTRL", "0")
-            env.setdefault("EKF2_HGT_REF", "Vision")
+            env.setdefault("PX4_PARAM_EKF2_GPS_CTRL", "0")
+            env.setdefault("PX4_PARAM_EKF2_HGT_REF", "Vision")
         if external_vision:
             env.setdefault("AERIS_EXTERNAL_VISION_MODE", "1")
             env.setdefault("PX4_SIM_EXTERNAL_VISION", "1")
-            env.setdefault("EKF2_EV_CTRL", "3")
+            env.setdefault("PX4_PARAM_EKF2_EV_CTRL", "3")
 
         raw_px4_env = vehicle.get("px4_env", {})
-        if isinstance(raw_px4_env, dict):
-            for key, value in raw_px4_env.items():
-                key_name = str(key).strip()
-                if not key_name:
-                    continue
-                env[key_name] = str(value)
+        if raw_px4_env:
+            if not isinstance(raw_px4_env, dict):
+                print(
+                    f"Warning: {vehicle['name']} px4_env is not a dict; ignoring override",
+                    file=sys.stderr,
+                )
+            else:
+                for key, value in raw_px4_env.items():
+                    key_name = str(key).strip()
+                    if not key_name:
+                        continue
+                    env[key_name] = str(value)
 
         cmd = [px4_bin, "-i", env["PX4_INSTANCE"], "-d"]
         print(f"Launching {vehicle['name']}: {' '.join(cmd)}")
@@ -146,12 +152,12 @@ def main():
     parser.add_argument(
         "--gps-denied",
         action="store_true",
-        help="Enable GPS-denied profile defaults (EKF2_GPS_CTRL=0, vision altitude ref).",
+        help="Enable GPS-denied profile defaults (PX4_PARAM_EKF2_GPS_CTRL=0, vision altitude ref).",
     )
     parser.add_argument(
         "--external-vision",
         action="store_true",
-        help="Enable external vision profile defaults (EKF2_EV_CTRL=3).",
+        help="Enable external vision profile defaults (PX4_PARAM_EKF2_EV_CTRL=3).",
     )
     args = parser.parse_args()
 

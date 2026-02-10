@@ -9,9 +9,9 @@
       "px4_sys_autostart": 4001,
       "px4_sim_model": "gz_scout",
       "px4_env": {
-        "EKF2_GPS_CTRL": "0",
-        "EKF2_EV_CTRL": "3",
-        "EKF2_HGT_REF": "Vision"
+        "PX4_PARAM_EKF2_GPS_CTRL": "0",
+        "PX4_PARAM_EKF2_EV_CTRL": "3",
+        "PX4_PARAM_EKF2_HGT_REF": "Vision"
       },
       "sensor_bridge": {
         "left_image_topic": "/scout1/stereo/left/image_raw",
@@ -35,9 +35,9 @@
       "px4_sys_autostart": 4001,
       "px4_sim_model": "gz_scout",
       "px4_env": {
-        "EKF2_GPS_CTRL": "0",
-        "EKF2_EV_CTRL": "3",
-        "EKF2_HGT_REF": "Vision"
+        "PX4_PARAM_EKF2_GPS_CTRL": "0",
+        "PX4_PARAM_EKF2_EV_CTRL": "3",
+        "PX4_PARAM_EKF2_HGT_REF": "Vision"
       },
       "sensor_bridge": {
         "left_image_topic": "/scout2/stereo/left/image_raw",

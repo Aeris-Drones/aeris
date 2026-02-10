@@ -176,6 +176,11 @@ class MissionNode(Node):
         )
         if (
             self._gps_denied_mode
+            and self._navigation_position_source == self._POSITION_SOURCE_AUTO
+        ):
+            self._navigation_position_source = self._POSITION_SOURCE_VIO
+        if (
+            self._gps_denied_mode
             and self._navigation_position_source == self._POSITION_SOURCE_TELEMETRY
         ):
             self._navigation_position_source = self._POSITION_SOURCE_VIO
@@ -622,6 +627,8 @@ class MissionNode(Node):
         if not math.isfinite(x_m) or not math.isfinite(y_m):
             self._set_vio_status(normalized_vehicle_id, "invalid pose values")
             return
+        # Mission search/tracking geometry stores planar coordinates as x/z.
+        # ROS odometry publishes horizontal coordinates as x/y, so y maps to z.
         self._scout_vio_position_snapshot[normalized_vehicle_id] = {
             "x": x_m,
             "z": y_m,
@@ -630,26 +637,51 @@ class MissionNode(Node):
         self._set_vio_status(normalized_vehicle_id, "")
 
     def _fresh_vio_position_for_vehicle(
-        self, vehicle_id: str
+        self, vehicle_id: str, *, update_status: bool = True
     ) -> dict[str, float] | None:
         normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
         snapshot = self._scout_vio_position_snapshot.get(normalized_vehicle_id)
         if snapshot is None:
-            self._set_vio_status(normalized_vehicle_id, "no odometry samples received")
+            if update_status:
+                self._set_vio_status(normalized_vehicle_id, "no odometry samples received")
             return None
         last_seen = self._scout_vio_last_seen_monotonic.get(normalized_vehicle_id)
         if last_seen is None:
-            self._set_vio_status(normalized_vehicle_id, "odometry timestamp unavailable")
+            if update_status:
+                self._set_vio_status(normalized_vehicle_id, "odometry timestamp unavailable")
             return None
         age_sec = time.monotonic() - last_seen
         if age_sec > self._vio_odom_stale_sec:
-            self._set_vio_status(
-                normalized_vehicle_id,
-                f"stale odometry (window {self._vio_odom_stale_sec:.3f}s)",
-            )
+            if update_status:
+                self._set_vio_status(
+                    normalized_vehicle_id,
+                    f"stale odometry (window {self._vio_odom_stale_sec:.3f}s)",
+                )
             return None
-        self._set_vio_status(normalized_vehicle_id, "")
+        if update_status:
+            self._set_vio_status(normalized_vehicle_id, "")
         return {"x": float(snapshot["x"]), "z": float(snapshot["z"])}
+
+    def _resolve_position_source_for_vehicle(
+        self, vehicle_id: str, *, for_selection: bool = False
+    ) -> tuple[str, dict[str, float] | None]:
+        if self._navigation_position_source == self._POSITION_SOURCE_TELEMETRY:
+            return self._POSITION_SOURCE_TELEMETRY, None
+        if self._navigation_position_source == self._POSITION_SOURCE_VIO:
+            return self._POSITION_SOURCE_VIO, self._fresh_vio_position_for_vehicle(
+                vehicle_id, update_status=not for_selection
+            )
+
+        # AUTO mode: prefer fresh VIO when available, otherwise telemetry unless
+        # GPS-denied mode explicitly requires VIO.
+        vio_position = self._fresh_vio_position_for_vehicle(
+            vehicle_id, update_status=not for_selection
+        )
+        if vio_position is not None:
+            return self._POSITION_SOURCE_VIO, vio_position
+        if self._gps_denied_mode:
+            return self._POSITION_SOURCE_VIO, None
+        return self._POSITION_SOURCE_TELEMETRY, None
 
     def _vehicle_position_source_snapshot(self) -> dict[str, str]:
         sources: dict[str, str] = {}
@@ -869,10 +901,12 @@ class MissionNode(Node):
 
     def _active_scout_position(self) -> dict[str, float]:
         if self._active_scout_vehicle_id:
-            if self._navigation_position_source == self._POSITION_SOURCE_VIO:
-                snapshot = self._fresh_vio_position_for_vehicle(self._active_scout_vehicle_id)
-                if snapshot is not None:
-                    return {"x": snapshot["x"], "z": snapshot["z"]}
+            source_mode, vio_snapshot = self._resolve_position_source_for_vehicle(
+                self._active_scout_vehicle_id
+            )
+            if source_mode == self._POSITION_SOURCE_VIO:
+                if vio_snapshot is not None:
+                    return {"x": vio_snapshot["x"], "z": vio_snapshot["z"]}
             else:
                 snapshot = self._scout_position_snapshot.get(self._active_scout_vehicle_id)
                 if snapshot is not None:
@@ -1008,8 +1042,19 @@ class MissionNode(Node):
         with_position: list[tuple[float, float, str, ScoutEndpoint]] = []
         without_position: list[tuple[float, str, ScoutEndpoint]] = []
         for endpoint in online:
-            last_seen = self._scout_last_seen_monotonic.get(endpoint.vehicle_id, -math.inf)
-            position = self._scout_position_snapshot.get(endpoint.vehicle_id)
+            position_source, vio_position = self._resolve_position_source_for_vehicle(
+                endpoint.vehicle_id, for_selection=True
+            )
+            if position_source == self._POSITION_SOURCE_VIO:
+                last_seen = self._scout_vio_last_seen_monotonic.get(
+                    endpoint.vehicle_id, -math.inf
+                )
+                position = vio_position
+            else:
+                last_seen = self._scout_last_seen_monotonic.get(
+                    endpoint.vehicle_id, -math.inf
+                )
+                position = self._scout_position_snapshot.get(endpoint.vehicle_id)
             if position is None:
                 without_position.append((-last_seen, endpoint.vehicle_id, endpoint))
                 continue
@@ -1859,8 +1904,9 @@ class MissionNode(Node):
         if waypoint is None:
             return
 
-        if self._navigation_position_source == self._POSITION_SOURCE_VIO:
-            position = self._fresh_vio_position_for_vehicle(vehicle_id)
+        source_mode, vio_position = self._resolve_position_source_for_vehicle(vehicle_id)
+        if source_mode == self._POSITION_SOURCE_VIO:
+            position = vio_position
             if position is None:
                 self._vehicle_position_sources[vehicle_id] = "vio_odometry:unavailable"
                 return
@@ -1894,7 +1940,7 @@ class MissionNode(Node):
                 )
             return
 
-        if self._navigation_position_source == self._POSITION_SOURCE_VIO:
+        if source_mode == self._POSITION_SOURCE_VIO:
             return
 
         step = self._simulated_scout_speed_mps * self._control_loop_period
@@ -2192,13 +2238,17 @@ class MissionNode(Node):
         if waypoint is None:
             return
 
-        if self._navigation_position_source == self._POSITION_SOURCE_VIO:
-            tracking_vehicle_id = self._tracking_context.assigned_scout_vehicle_id
-            if not tracking_vehicle_id:
-                tracking_vehicle_id = self._active_scout_vehicle_id
-            if not tracking_vehicle_id:
-                return
-            position = self._fresh_vio_position_for_vehicle(tracking_vehicle_id)
+        tracking_vehicle_id = self._tracking_context.assigned_scout_vehicle_id
+        if not tracking_vehicle_id:
+            tracking_vehicle_id = self._active_scout_vehicle_id
+        if not tracking_vehicle_id:
+            return
+
+        source_mode, vio_position = self._resolve_position_source_for_vehicle(
+            tracking_vehicle_id
+        )
+        if source_mode == self._POSITION_SOURCE_VIO:
+            position = vio_position
             if position is None:
                 self._vehicle_position_sources[tracking_vehicle_id] = (
                     "vio_odometry:unavailable"
@@ -2221,7 +2271,7 @@ class MissionNode(Node):
             self._advance_waypoint_index()
             return
 
-        if self._navigation_position_source == self._POSITION_SOURCE_VIO:
+        if source_mode == self._POSITION_SOURCE_VIO:
             return
 
         step = self._simulated_scout_speed_mps * self._control_loop_period
