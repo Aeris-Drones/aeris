@@ -52,8 +52,12 @@ def validate(vehicles):
                 )
 
 
-def summarize(vehicles):
+def summarize(vehicles, *, gps_denied: bool = False, external_vision: bool = False):
     lines = ["Multi-drone configuration:"]
+    lines.append(
+        f"- profile: gps_denied={'on' if gps_denied else 'off'}, "
+        f"external_vision={'on' if external_vision else 'off'}"
+    )
     for v in vehicles:
         lines.append(
             f"- {v['name']} model={v.get('model')} port={v['mavlink_udp_port']} pose={v['pose']}"
@@ -61,7 +65,7 @@ def summarize(vehicles):
     return "\n".join(lines)
 
 
-def execute(vehicles):
+def execute(vehicles, *, gps_denied: bool = False, external_vision: bool = False):
     px4_bin = os.environ.get("PX4_BIN") or shutil.which("px4")
     if not px4_bin:
         raise RuntimeError(
@@ -76,6 +80,25 @@ def execute(vehicles):
         env.setdefault("PX4_GZ_MODEL_POSE", vehicle["pose"])
         env.setdefault("PX4_INSTANCE", str(vehicle.get("px4_instance", idx + 1)))
         env.setdefault("PX4_MAVLINK_UDP_PRT", str(vehicle["mavlink_udp_port"]))
+
+        if gps_denied:
+            env.setdefault("AERIS_GPS_DENIED_MODE", "1")
+            env.setdefault("PX4_SIM_GPS_DISABLED", "1")
+            env.setdefault("EKF2_GPS_CTRL", "0")
+            env.setdefault("EKF2_HGT_REF", "Vision")
+        if external_vision:
+            env.setdefault("AERIS_EXTERNAL_VISION_MODE", "1")
+            env.setdefault("PX4_SIM_EXTERNAL_VISION", "1")
+            env.setdefault("EKF2_EV_CTRL", "3")
+
+        raw_px4_env = vehicle.get("px4_env", {})
+        if isinstance(raw_px4_env, dict):
+            for key, value in raw_px4_env.items():
+                key_name = str(key).strip()
+                if not key_name:
+                    continue
+                env[key_name] = str(value)
+
         cmd = [px4_bin, "-i", env["PX4_INSTANCE"], "-d"]
         print(f"Launching {vehicle['name']}: {' '.join(cmd)}")
         processes.append((vehicle["name"], subprocess.Popen(cmd, env=env)))
@@ -120,6 +143,16 @@ def main():
         "--vehicles",
         help="Comma-separated vehicle names to include (default: all)",
     )
+    parser.add_argument(
+        "--gps-denied",
+        action="store_true",
+        help="Enable GPS-denied profile defaults (EKF2_GPS_CTRL=0, vision altitude ref).",
+    )
+    parser.add_argument(
+        "--external-vision",
+        action="store_true",
+        help="Enable external vision profile defaults (EKF2_EV_CTRL=3).",
+    )
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -133,10 +166,20 @@ def main():
     if not vehicles:
         raise ValueError("No vehicles selected after filtering")
     validate(vehicles)
-    print(summarize(vehicles))
+    print(
+        summarize(
+            vehicles,
+            gps_denied=args.gps_denied,
+            external_vision=args.external_vision,
+        )
+    )
 
     if args.execute:
-        execute(vehicles)
+        execute(
+            vehicles,
+            gps_denied=args.gps_denied,
+            external_vision=args.external_vision,
+        )
     else:
         print("Validation complete. Re-run with --execute to start SITL once PX4 is installed.")
 

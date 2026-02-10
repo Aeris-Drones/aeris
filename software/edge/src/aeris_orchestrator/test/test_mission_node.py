@@ -16,6 +16,7 @@ from aeris_msgs.msg import (
 )
 from aeris_msgs.srv import MissionCommand, VehicleCommand
 from geometry_msgs.msg import Point32, Polygon
+from nav_msgs.msg import Odometry
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -132,6 +133,31 @@ def _publish_ranger_telemetry(
     normalized_id = mission_node._normalize_vehicle_id(vehicle_id)
     assert _wait_until(
         lambda: normalized_id in mission_node._ranger_last_seen_monotonic
+    )
+
+
+def _publish_scout_odometry(
+    observer: MissionObserver,
+    mission_node: MissionNode,
+    vehicle_id: str = "scout1",
+    *,
+    x_m: float = 0.0,
+    y_m: float = 0.0,
+) -> None:
+    topic_token = mission_node._vehicle_model_topic_token(vehicle_id)
+    odometry_topic = f"/{topic_token}/openvins/odom"
+    publisher = observer.create_publisher(Odometry, odometry_topic, 10)
+    message = Odometry()
+    message.header.stamp = observer.get_clock().now().to_msg()
+    message.header.frame_id = "odom"
+    message.child_frame_id = "base_link"
+    message.pose.pose.position.x = float(x_m)
+    message.pose.pose.position.y = float(y_m)
+    message.pose.pose.position.z = 0.0
+    publisher.publish(message)
+    normalized_id = mission_node._normalize_vehicle_id(vehicle_id)
+    assert _wait_until(
+        lambda: normalized_id in mission_node._scout_vio_last_seen_monotonic
     )
 
 
@@ -511,6 +537,30 @@ def mission_harness_multi_vehicle(ros_runtime: MultiThreadedExecutor):
         mission_node.destroy_node()
 
 
+@pytest.fixture
+def mission_harness_vio(ros_runtime: MultiThreadedExecutor):
+    mission_node = MissionNode(
+        parameter_overrides=[
+            Parameter("navigation_position_source", value="vio_odometry"),
+            Parameter("vio_odom_stale_sec", value=0.1),
+        ]
+    )
+    observer = MissionObserver()
+    ros_runtime.add_node(mission_node)
+    ros_runtime.add_node(observer)
+
+    assert observer.start_client.wait_for_service(timeout_sec=2.0)
+    assert observer.abort_client.wait_for_service(timeout_sec=2.0)
+
+    try:
+        yield mission_node, observer
+    finally:
+        ros_runtime.remove_node(observer)
+        ros_runtime.remove_node(mission_node)
+        observer.destroy_node()
+        mission_node.destroy_node()
+
+
 def _start_searching_mission(
     mission_node: MissionNode,
     observer: MissionObserver,
@@ -859,6 +909,82 @@ def test_search_plan_completion_waits_for_final_waypoint_arrival(mission_harness
     assert mission_node._search_plan_progress_percent(plan) == pytest.approx(100.0)
 
 
+def test_vio_waypoint_progression_uses_live_odometry(mission_harness_vio) -> None:
+    mission_node, observer = mission_harness_vio
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vio-progress"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-vio",
+            waypoints=[
+                {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+                {"x": 5.0, "z": 0.0, "altitude_m": 20.0},
+            ],
+            current_waypoint_index=0,
+            scout_position={"x": -2.0, "z": 0.0},
+        )
+    }
+
+    _publish_scout_odometry(observer, mission_node, vehicle_id="scout1", x_m=0.0, y_m=0.0)
+    mission_node._advance_search_plan_for_vehicle("scout_1")
+
+    plan = mission_node._scout_plans["scout_1"]
+    assert plan.current_waypoint_index == 1
+    assert plan.scout_position == pytest.approx({"x": 0.0, "z": 0.0})
+    assert mission_node._vehicle_position_sources["scout_1"] == "vio_odometry"
+
+
+def test_vio_waypoint_progression_halts_on_stale_odometry(mission_harness_vio) -> None:
+    mission_node, observer = mission_harness_vio
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vio-stale"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-vio",
+            waypoints=[
+                {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+                {"x": 10.0, "z": 0.0, "altitude_m": 20.0},
+            ],
+            current_waypoint_index=1,
+            scout_position={"x": 0.0, "z": 0.0},
+        )
+    }
+
+    _publish_scout_odometry(observer, mission_node, vehicle_id="scout1", x_m=0.0, y_m=0.0)
+    time.sleep(0.15)
+    mission_node._advance_search_plan_for_vehicle("scout_1")
+
+    plan = mission_node._scout_plans["scout_1"]
+    assert plan.current_waypoint_index == 1
+    assert mission_node._vehicle_position_sources["scout_1"] == "vio_odometry:unavailable"
+    assert "stale" in mission_node._scout_vio_status.get("scout_1", "")
+
+
+def test_vio_odometry_topic_map_accepts_per_scout_override(
+    ros_runtime: MultiThreadedExecutor,
+) -> None:
+    mission_node = MissionNode(
+        parameter_overrides=[
+            Parameter("navigation_position_source", value="vio_odometry"),
+            Parameter(
+                "scout_odometry_topics_json",
+                value='{"scout1":"/custom/scout1/odom","scout2":"/custom/scout2/odom"}',
+            ),
+        ]
+    )
+    try:
+        ros_runtime.add_node(mission_node)
+        assert mission_node._scout_odometry_topics["scout_1"] == "/custom/scout1/odom"
+        assert mission_node._scout_odometry_topics["scout_2"] == "/custom/scout2/odom"
+    finally:
+        ros_runtime.remove_node(mission_node)
+        mission_node.destroy_node()
+
+
 def test_start_mission_enables_ranger_overwatch_from_role_data(
     mission_harness_multi_vehicle,
 ) -> None:
@@ -1044,6 +1170,8 @@ def test_progress_payload_includes_vehicle_assignment_labels_and_progress(
     assert payload["vehicleAssignments"]["scout_1"] == "SEARCHING"
     assert payload["vehicleAssignmentLabels"]["scout_1"] == "SEARCHING:zone-1"
     assert payload["vehicleProgress"]["scout_1"] == pytest.approx(100.0, abs=1e-3)
+    assert payload["positionSourceMode"] == mission_node._navigation_position_source
+    assert "scout_1" in payload["vehiclePositionSources"]
     assert "vehicleOnline" in payload
 
 def test_vehicle_command_targets_only_requested_endpoint(

@@ -16,6 +16,8 @@ WORLD_PATH=${WORLD_PATH:-software/sim/worlds/basic_world.sdf}
 WORLD_NAME=${WORLD_NAME:-$(basename "${WORLD_PATH}")}
 WORLD_NAME=${WORLD_NAME%.*}
 SCOUT_MODEL_NAME=${SCOUT_MODEL_NAME:-scout1}
+GPS_DENIED_MODE=${GPS_DENIED_MODE:-false}
+POSITION_SOURCE_MODE=${POSITION_SOURCE_MODE:-telemetry_geodetic}
 
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
@@ -100,6 +102,7 @@ if [[ -z "${SIM_BIN:-}" ]]; then
 fi
 
 echo "Launching Gazebo with world: ${WORLD_PATH} using ${SIM_BIN}"
+echo "GPS-denied mode: ${GPS_DENIED_MODE} (position source: ${POSITION_SOURCE_MODE})"
 echo "IGN_GAZEBO_RESOURCE_PATH=${IGN_GAZEBO_RESOURCE_PATH:-}" >&2
 echo "IGN_GAZEBO_SYSTEM_PLUGIN_PATH=${IGN_GAZEBO_SYSTEM_PLUGIN_PATH:-}" >&2
 ${SIM_BIN} "${WORLD_PATH}" ${SIM_ARGS:-} &

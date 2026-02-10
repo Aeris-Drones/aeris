@@ -16,6 +16,17 @@ ros2 launch software/sim/launch/multi_drone_sim.launch.py \
   scout_model_name:=scout1
 ```
 
+## Start Disaster Scene + SITL (GPS-Denied VIO Mode)
+
+```bash
+ros2 launch software/sim/launch/multi_drone_sim.launch.py \
+  world:=software/sim/worlds/disaster_scene.sdf \
+  scout_model_name:=scout1 \
+  vehicles_config:=software/sim/config/multi_drone_gps_denied.yaml \
+  gps_denied_mode:=true \
+  position_source_mode:=vio_odometry
+```
+
 ## Start OpenVINS + RTAB-Map
 
 ```bash
@@ -32,4 +43,12 @@ SCOUT_NAME=scout1 ./software/sim/tools/validate_slam_topics.sh
 
 ```bash
 OUTPUT_DIR=output/rtabmap_loop_closure ./software/sim/tools/validate_loop_closure.sh
+```
+
+## VIO Drift Validation (10-Minute Run)
+
+```bash
+python3 software/sim/tools/validate_vio_navigation_drift.py \
+  --profile software/sim/config/vio_navigation_profile.yaml \
+  --run-id latest
 ```

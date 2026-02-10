@@ -15,6 +15,7 @@ from aeris_msgs.msg import (
     ThermalHotspot,
 )
 from aeris_msgs.srv import MissionCommand, VehicleCommand
+from nav_msgs.msg import Odometry
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -94,6 +95,14 @@ class MissionNode(Node):
     _VEHICLE_COMMAND_STATE_ACTIVE: Final[str] = "ACTIVE"
     _VEHICLE_COMMAND_STATE_HOLDING: Final[str] = "HOLDING"
     _VEHICLE_COMMAND_STATE_RETURNING: Final[str] = "RETURNING"
+    _POSITION_SOURCE_TELEMETRY: Final[str] = "telemetry_geodetic"
+    _POSITION_SOURCE_VIO: Final[str] = "vio_odometry"
+    _POSITION_SOURCE_AUTO: Final[str] = "auto"
+    _SUPPORTED_POSITION_SOURCES: Final[set[str]] = {
+        _POSITION_SOURCE_TELEMETRY,
+        _POSITION_SOURCE_VIO,
+        _POSITION_SOURCE_AUTO,
+    }
 
     def __init__(self, *, parameter_overrides: list[Parameter] | None = None) -> None:
         super().__init__(
@@ -154,6 +163,27 @@ class MissionNode(Node):
         )
         self._telemetry_geodetic_to_local_enabled = bool(
             self.declare_parameter("telemetry_geodetic_to_local_enabled", True).value
+        )
+        self._gps_denied_mode = bool(
+            self.declare_parameter("gps_denied_mode", False).value
+        )
+        self._navigation_position_source = self._normalize_position_source(
+            str(
+                self.declare_parameter(
+                    "navigation_position_source", self._POSITION_SOURCE_TELEMETRY
+                ).value
+            )
+        )
+        if (
+            self._gps_denied_mode
+            and self._navigation_position_source == self._POSITION_SOURCE_TELEMETRY
+        ):
+            self._navigation_position_source = self._POSITION_SOURCE_VIO
+        self._vio_odom_stale_sec = max(
+            0.0, float(self.declare_parameter("vio_odom_stale_sec", 1.0).value)
+        )
+        self._scout_odometry_topics_json = str(
+            self.declare_parameter("scout_odometry_topics_json", "").value
         )
         self._scout_endpoints_json = str(
             self.declare_parameter(
@@ -232,6 +262,10 @@ class MissionNode(Node):
         self._scout_last_seen_monotonic: dict[str, float] = {}
         self._scout_position_snapshot: dict[str, dict[str, float]] = {}
         self._scout_geodetic_snapshot: dict[str, dict[str, float]] = {}
+        self._scout_vio_position_snapshot: dict[str, dict[str, float]] = {}
+        self._scout_vio_last_seen_monotonic: dict[str, float] = {}
+        self._scout_vio_status: dict[str, str] = {}
+        self._vehicle_position_sources: dict[str, str] = {}
         self._telemetry_geodetic_origin: dict[str, float] | None = None
         self._active_scout_vehicle_id = ""
         self._vehicle_assignments: dict[str, str] = {}
@@ -239,6 +273,7 @@ class MissionNode(Node):
         self._scout_plans: dict[str, MissionPlanState] = {}
         self._zone_polygons_by_vehicle: dict[str, list[dict[str, float]]] = {}
         self._scout_endpoints = self._parse_scout_endpoints()
+        self._scout_odometry_topics = self._build_scout_odometry_topic_map()
         self._ranger_endpoints = self._parse_ranger_endpoints()
         self._ranger_last_seen_monotonic: dict[str, float] = {}
         self._active_ranger_vehicle_id = ""
@@ -282,6 +317,19 @@ class MissionNode(Node):
             self._handle_vehicle_telemetry,
             queue_depth,
         )
+        self._scout_odometry_subscriptions = []
+        for vehicle_id in sorted(self._scout_odometry_topics.keys()):
+            odom_topic = self._scout_odometry_topics[vehicle_id]
+            self._scout_odometry_subscriptions.append(
+                self.create_subscription(
+                    Odometry,
+                    odom_topic,
+                    lambda message, target_vehicle_id=vehicle_id: self._handle_scout_odometry(
+                        target_vehicle_id, message
+                    ),
+                    queue_depth,
+                )
+            )
         self._thermal_subscription = self.create_subscription(
             ThermalHotspot,
             "thermal/hotspots",
@@ -347,7 +395,9 @@ class MissionNode(Node):
             "progress topic=/orchestrator/mission_progress, "
             f"loop={self._control_loop_period:.3f}s budget={self._loop_budget_ms:.2f}ms, "
             f"mavlink={self._scout_mavlink_host}:{self._scout_mavlink_udp_port}, "
-            f"scout_endpoints={len(self._scout_endpoints)}"
+            f"scout_endpoints={len(self._scout_endpoints)}, "
+            f"position_source={self._navigation_position_source}, "
+            f"vio_topics={len(self._scout_odometry_topics)}"
         )
 
     def destroy_node(self) -> bool:
@@ -406,6 +456,7 @@ class MissionNode(Node):
         self._last_detection_event = None
         self._vehicle_assignments.clear()
         self._assignment_labels.clear()
+        self._vehicle_position_sources.clear()
         self._scout_plans.clear()
         self._zone_polygons_by_vehicle.clear()
         self._active_ranger_vehicle_id = ""
@@ -479,6 +530,136 @@ class MissionNode(Node):
         if match:
             normalized = f"{match.group(1)}_{match.group(2)}"
         return normalized
+
+    def _normalize_position_source(self, value: str) -> str:
+        normalized = value.strip().lower().replace("-", "_")
+        aliases = {
+            "telemetry": self._POSITION_SOURCE_TELEMETRY,
+            "telemetry_geodetic": self._POSITION_SOURCE_TELEMETRY,
+            "vio": self._POSITION_SOURCE_VIO,
+            "vio_odometry": self._POSITION_SOURCE_VIO,
+            "gps_denied_vio": self._POSITION_SOURCE_VIO,
+            "auto": self._POSITION_SOURCE_AUTO,
+        }
+        candidate = aliases.get(normalized, normalized)
+        if candidate in self._SUPPORTED_POSITION_SOURCES:
+            return candidate
+        self.get_logger().warning(
+            "Invalid navigation_position_source '%s'; falling back to '%s'"
+            % (value, self._POSITION_SOURCE_TELEMETRY)
+        )
+        return self._POSITION_SOURCE_TELEMETRY
+
+    def _vehicle_model_topic_token(self, vehicle_id: str) -> str:
+        token = self._normalize_vehicle_id(vehicle_id)
+        return re.sub(r"_([0-9]+)$", r"\1", token)
+
+    def _default_odometry_topic_for_vehicle(self, vehicle_id: str) -> str:
+        return f"/{self._vehicle_model_topic_token(vehicle_id)}/openvins/odom"
+
+    def _build_scout_odometry_topic_map(self) -> dict[str, str]:
+        topics_by_vehicle = {
+            endpoint.vehicle_id: self._default_odometry_topic_for_vehicle(endpoint.vehicle_id)
+            for endpoint in self._scout_endpoints
+        }
+        raw_json = self._scout_odometry_topics_json.strip()
+        if not raw_json:
+            return topics_by_vehicle
+
+        try:
+            payload = json.loads(raw_json)
+        except json.JSONDecodeError:
+            self.get_logger().warning(
+                "Invalid scout_odometry_topics_json; using default odometry topics"
+            )
+            return topics_by_vehicle
+
+        if isinstance(payload, dict):
+            for raw_vehicle_id, raw_topic in payload.items():
+                vehicle_id = self._normalize_vehicle_id(str(raw_vehicle_id))
+                topic = str(raw_topic).strip()
+                if not vehicle_id or not topic:
+                    continue
+                topics_by_vehicle[vehicle_id] = topic
+            return topics_by_vehicle
+
+        if isinstance(payload, list):
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                vehicle_id = self._normalize_vehicle_id(str(item.get("vehicle_id", "")))
+                topic = str(item.get("topic", "")).strip()
+                if not vehicle_id or not topic:
+                    continue
+                topics_by_vehicle[vehicle_id] = topic
+            return topics_by_vehicle
+
+        self.get_logger().warning(
+            "Unsupported scout_odometry_topics_json payload; using default odometry topics"
+        )
+        return topics_by_vehicle
+
+    def _set_vio_status(self, vehicle_id: str, reason: str) -> None:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        previous_reason = self._scout_vio_status.get(normalized_vehicle_id, "")
+        if reason:
+            self._scout_vio_status[normalized_vehicle_id] = reason
+            if reason != previous_reason:
+                self.get_logger().warning(
+                    "VIO odometry unavailable for %s: %s" % (normalized_vehicle_id, reason)
+                )
+            return
+        if previous_reason:
+            self._scout_vio_status.pop(normalized_vehicle_id, None)
+            self.get_logger().info(
+                "VIO odometry restored for %s" % normalized_vehicle_id
+            )
+
+    def _handle_scout_odometry(self, vehicle_id: str, message: Odometry) -> None:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        x_m = float(message.pose.pose.position.x)
+        y_m = float(message.pose.pose.position.y)
+        if not math.isfinite(x_m) or not math.isfinite(y_m):
+            self._set_vio_status(normalized_vehicle_id, "invalid pose values")
+            return
+        self._scout_vio_position_snapshot[normalized_vehicle_id] = {
+            "x": x_m,
+            "z": y_m,
+        }
+        self._scout_vio_last_seen_monotonic[normalized_vehicle_id] = time.monotonic()
+        self._set_vio_status(normalized_vehicle_id, "")
+
+    def _fresh_vio_position_for_vehicle(
+        self, vehicle_id: str
+    ) -> dict[str, float] | None:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        snapshot = self._scout_vio_position_snapshot.get(normalized_vehicle_id)
+        if snapshot is None:
+            self._set_vio_status(normalized_vehicle_id, "no odometry samples received")
+            return None
+        last_seen = self._scout_vio_last_seen_monotonic.get(normalized_vehicle_id)
+        if last_seen is None:
+            self._set_vio_status(normalized_vehicle_id, "odometry timestamp unavailable")
+            return None
+        age_sec = time.monotonic() - last_seen
+        if age_sec > self._vio_odom_stale_sec:
+            self._set_vio_status(
+                normalized_vehicle_id,
+                f"stale odometry (window {self._vio_odom_stale_sec:.3f}s)",
+            )
+            return None
+        self._set_vio_status(normalized_vehicle_id, "")
+        return {"x": float(snapshot["x"]), "z": float(snapshot["z"])}
+
+    def _vehicle_position_source_snapshot(self) -> dict[str, str]:
+        sources: dict[str, str] = {}
+        for endpoint in self._scout_endpoints:
+            vehicle_id = endpoint.vehicle_id
+            source = self._vehicle_position_sources.get(vehicle_id)
+            if source is None:
+                source = self._navigation_position_source
+            sources[vehicle_id] = source
+        return dict(sorted(sources.items()))
 
     def _parse_scout_endpoints(self) -> list[ScoutEndpoint]:
         endpoints: list[ScoutEndpoint] = []
@@ -688,9 +869,14 @@ class MissionNode(Node):
 
     def _active_scout_position(self) -> dict[str, float]:
         if self._active_scout_vehicle_id:
-            snapshot = self._scout_position_snapshot.get(self._active_scout_vehicle_id)
-            if snapshot is not None:
-                return {"x": snapshot["x"], "z": snapshot["z"]}
+            if self._navigation_position_source == self._POSITION_SOURCE_VIO:
+                snapshot = self._fresh_vio_position_for_vehicle(self._active_scout_vehicle_id)
+                if snapshot is not None:
+                    return {"x": snapshot["x"], "z": snapshot["z"]}
+            else:
+                snapshot = self._scout_position_snapshot.get(self._active_scout_vehicle_id)
+                if snapshot is not None:
+                    return {"x": snapshot["x"], "z": snapshot["z"]}
         if self._plan_state.scout_position:
             return {
                 "x": float(self._plan_state.scout_position.get("x", 0.0)),
@@ -1673,7 +1859,17 @@ class MissionNode(Node):
         if waypoint is None:
             return
 
-        position = plan.scout_position
+        if self._navigation_position_source == self._POSITION_SOURCE_VIO:
+            position = self._fresh_vio_position_for_vehicle(vehicle_id)
+            if position is None:
+                self._vehicle_position_sources[vehicle_id] = "vio_odometry:unavailable"
+                return
+            self._vehicle_position_sources[vehicle_id] = "vio_odometry"
+            plan.scout_position["x"] = float(position["x"])
+            plan.scout_position["z"] = float(position["z"])
+        else:
+            self._vehicle_position_sources[vehicle_id] = "telemetry_geodetic"
+            position = plan.scout_position
         delta_x = waypoint["x"] - position["x"]
         delta_z = waypoint["z"] - position["z"]
         distance = math.hypot(delta_x, delta_z)
@@ -1696,6 +1892,9 @@ class MissionNode(Node):
                     "IDLE",
                     label=f"IDLE:{plan.zone_id}:complete",
                 )
+            return
+
+        if self._navigation_position_source == self._POSITION_SOURCE_VIO:
             return
 
         step = self._simulated_scout_speed_mps * self._control_loop_period
@@ -1993,13 +2192,36 @@ class MissionNode(Node):
         if waypoint is None:
             return
 
-        position = self._plan_state.scout_position
+        if self._navigation_position_source == self._POSITION_SOURCE_VIO:
+            tracking_vehicle_id = self._tracking_context.assigned_scout_vehicle_id
+            if not tracking_vehicle_id:
+                tracking_vehicle_id = self._active_scout_vehicle_id
+            if not tracking_vehicle_id:
+                return
+            position = self._fresh_vio_position_for_vehicle(tracking_vehicle_id)
+            if position is None:
+                self._vehicle_position_sources[tracking_vehicle_id] = (
+                    "vio_odometry:unavailable"
+                )
+                return
+            self._vehicle_position_sources[tracking_vehicle_id] = "vio_odometry"
+            self._plan_state.scout_position["x"] = float(position["x"])
+            self._plan_state.scout_position["z"] = float(position["z"])
+        else:
+            if self._active_scout_vehicle_id:
+                self._vehicle_position_sources[self._active_scout_vehicle_id] = (
+                    "telemetry_geodetic"
+                )
+            position = self._plan_state.scout_position
         delta_x = waypoint["x"] - position["x"]
         delta_z = waypoint["z"] - position["z"]
         distance = math.hypot(delta_x, delta_z)
 
         if distance <= self._waypoint_reached_threshold_m:
             self._advance_waypoint_index()
+            return
+
+        if self._navigation_position_source == self._POSITION_SOURCE_VIO:
             return
 
         step = self._simulated_scout_speed_mps * self._control_loop_period
@@ -2337,6 +2559,8 @@ class MissionNode(Node):
                 "vehicleAssignmentLabels": assignment_labels,
                 "vehicleProgress": vehicle_progress,
                 "vehicleOnline": vehicle_online,
+                "positionSourceMode": self._navigation_position_source,
+                "vehiclePositionSources": self._vehicle_position_source_snapshot(),
                 "trackingPreservedNonTargetVehicles": list(
                     self._tracking_context.preserved_non_target_vehicle_ids
                 ),

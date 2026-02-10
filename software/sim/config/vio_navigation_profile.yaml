@@ -1,0 +1,26 @@
+{
+  "launch": {
+    "world": "software/sim/worlds/disaster_scene.sdf",
+    "vehicles_config": "software/sim/config/multi_drone_gps_denied.yaml",
+    "scout_model_name": "scout1",
+    "gps_denied_mode": true,
+    "position_source_mode": "vio_odometry"
+  },
+  "orchestrator": {
+    "navigation_position_source": "vio_odometry",
+    "vio_odom_stale_sec": 0.75,
+    "scout_odometry_topics_json": {
+      "scout1": "/scout1/openvins/odom",
+      "scout2": "/scout2/openvins/odom"
+    }
+  },
+  "drift_validation": {
+    "duration_sec": 600,
+    "vio_topic": "/scout1/openvins/odom",
+    "ground_truth_topic": "/model/scout1/odometry",
+    "max_rms_m": 3.0,
+    "max_error_m": 8.0,
+    "output_dir": "output/vio_navigation_drift",
+    "run_id": "latest"
+  }
+}

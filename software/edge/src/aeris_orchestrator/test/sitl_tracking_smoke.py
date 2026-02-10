@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ import rclpy
 from aeris_msgs.msg import GasIsopleth, MissionState, Telemetry
 from aeris_msgs.srv import MissionCommand
 from geometry_msgs.msg import Point32, Polygon
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from std_msgs.msg import String
 
@@ -51,6 +53,10 @@ class TrackingSmokeNode(Node):
             String, "/mission/progress", self._on_progress, 10
         )
         self.telemetry_pub = self.create_publisher(Telemetry, "/vehicle/telemetry", 10)
+        self.scout_odom_pubs = {
+            "scout1": self.create_publisher(Odometry, "/scout1/openvins/odom", 10),
+            "scout2": self.create_publisher(Odometry, "/scout2/openvins/odom", 10),
+        }
         self.gas_pub = self.create_publisher(GasIsopleth, "gas/isopleth", 10)
         self.tracking_resolution_pub = self.create_publisher(
             String, "/mission/tracking_resolution", 10
@@ -110,6 +116,22 @@ def _publish_ranger_telemetry(
     node.telemetry_pub.publish(msg)
 
 
+def _publish_scout_odometry(
+    node: TrackingSmokeNode, vehicle_id: str, *, x_m: float, y_m: float
+) -> None:
+    publisher = node.scout_odom_pubs.get(vehicle_id)
+    if publisher is None:
+        return
+    msg = Odometry()
+    msg.header.stamp = node.get_clock().now().to_msg()
+    msg.header.frame_id = "odom"
+    msg.child_frame_id = "base_link"
+    msg.pose.pose.position.x = float(x_m)
+    msg.pose.pose.position.y = float(y_m)
+    msg.pose.pose.position.z = 0.0
+    publisher.publish(msg)
+
+
 def _publish_gas_detection(node: TrackingSmokeNode, *, x: float, y: float) -> None:
     msg = GasIsopleth()
     now = node.get_clock().now().nanoseconds / 1e9
@@ -160,6 +182,7 @@ def run_smoke() -> int:
     rclpy.init()
     node = TrackingSmokeNode()
     mission_id = f"sitl-tracking-{int(time.time())}"
+    expected_position_source = os.environ.get("EXPECTED_POSITION_SOURCE", "").strip()
     try:
         if not node.start_client.wait_for_service(timeout_sec=5.0):
             raise RuntimeError("start_mission service not available")
@@ -170,6 +193,8 @@ def run_smoke() -> int:
         _publish_scout_telemetry(
             node, "scout2", latitude=0.00045, longitude=0.00045
         )
+        _publish_scout_odometry(node, "scout1", x_m=0.0, y_m=0.0)
+        _publish_scout_odometry(node, "scout2", x_m=4.0, y_m=4.0)
         _publish_ranger_telemetry(node, "ranger1", latitude=0.0002, longitude=0.0001)
         if not _wait_until(node, lambda: node.latest_progress is not None, timeout_sec=2.0):
             node.get_logger().info("No mission progress yet; continuing after telemetry warmup")
@@ -191,6 +216,18 @@ def run_smoke() -> int:
             if node.latest_progress
             else {}
         )
+        if expected_position_source:
+            mode = node.latest_progress.payload.get("positionSourceMode")
+            if mode != expected_position_source:
+                raise RuntimeError(
+                    f"Expected position source '{expected_position_source}', got '{mode}'"
+                )
+            vehicle_sources = node.latest_progress.payload.get("vehiclePositionSources", {})
+            scout_source = str(vehicle_sources.get("scout_1", ""))
+            if not scout_source.startswith(expected_position_source):
+                raise RuntimeError(
+                    f"scout_1 position source mismatch: expected {expected_position_source}, got {scout_source}"
+                )
         if not str(labels.get("scout_1", "")).startswith("SEARCHING:"):
             raise RuntimeError("scout_1 did not receive partition assignment label")
         if not str(labels.get("scout_2", "")).startswith("SEARCHING:"):
@@ -201,6 +238,7 @@ def run_smoke() -> int:
             raise RuntimeError("ranger_1 did not receive OVERWATCH assignment label")
 
         _publish_gas_detection(node, x=50.0, y=50.0)
+        _publish_scout_odometry(node, "scout2", x_m=50.0, y_m=50.0)
         if not _wait_until(
             node, lambda: "TRACKING" in node.state_history, timeout_sec=8.0
         ):
