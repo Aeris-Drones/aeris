@@ -101,3 +101,9 @@ For return-to-launch specific checks (canonical `returnTrajectory`, launch error
 ```bash
 python3 software/edge/src/aeris_orchestrator/test/sitl_vio_return_smoke.py
 ```
+
+For fallback-path checks (`returnTrajectory.fallbackReason` required):
+
+```bash
+EXPECT_FALLBACK=1 python3 software/edge/src/aeris_orchestrator/test/sitl_vio_return_smoke.py
+```

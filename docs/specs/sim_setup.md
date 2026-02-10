@@ -94,6 +94,12 @@ Run smoke validation:
 python3 software/edge/src/aeris_orchestrator/test/sitl_vio_return_smoke.py
 ```
 
+Run fallback-path smoke validation (asserts `fallbackReason` emission):
+
+```bash
+EXPECT_FALLBACK=1 python3 software/edge/src/aeris_orchestrator/test/sitl_vio_return_smoke.py
+```
+
 Pass/fail thresholds:
 - arrival horizontal error at launch point `<= 2.0 m`
 - trajectory update latency `<= 1.0 s`
