@@ -77,7 +77,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     drawingPriority = 1,
     onAddZonePoint,
   }, ref) => {
-    const { vehicles } = useVehicleTelemetry();
+    const { vehicles, returnTrajectories } = useVehicleTelemetry();
     const cameraControlsRef = useRef<CameraControls>(null);
 
     const telemetryDrones: Omit<DroneMarker3DProps, 'isSelected' | 'onClick'>[] = vehicles.map((vehicle) => {
@@ -166,6 +166,16 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
               />
             ) : null
           )}
+          {Object.entries(returnTrajectories).map(([vehicleId, points]) => (
+            <FlightTrail3D
+              key={`return-trajectory-${vehicleId}`}
+              points={points}
+              color="#38bdf8"
+              opacity={0.95}
+              lineWidth={4}
+              dashed={false}
+            />
+          ))}
 
           {/* Drone markers */}
           {telemetryDrones.map((drone) => (

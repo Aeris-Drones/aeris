@@ -64,3 +64,37 @@ python3 software/sim/tools/validate_vio_navigation_drift.py \
   --profile software/sim/config/vio_navigation_profile.json \
   --run-id latest
 ```
+
+## VIO Return-to-Launch Validation (GPS-Denied)
+
+Trigger recall for an active scout:
+
+```bash
+ros2 service call /vehicle_command aeris_msgs/srv/VehicleCommand \
+  "{command: RECALL, vehicle_id: scout1, mission_id: <ACTIVE_MISSION_ID>}"
+```
+
+Check canonical return telemetry extension:
+
+```bash
+ros2 topic echo /mission/progress --once
+```
+
+Required `returnTrajectory` keys:
+- `vehicleId`
+- `state`
+- `points`
+- `etaSec`
+- `lastUpdatedSec`
+- optional `fallbackReason`
+
+Run smoke validation:
+
+```bash
+python3 software/edge/src/aeris_orchestrator/test/sitl_vio_return_smoke.py
+```
+
+Pass/fail thresholds:
+- arrival horizontal error at launch point `<= 2.0 m`
+- trajectory update latency `<= 1.0 s`
+- fallback reason emitted on map/VIO freshness or synthesis failure
