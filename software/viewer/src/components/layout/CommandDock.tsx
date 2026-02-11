@@ -2,23 +2,9 @@
 
 import { ReactNode } from 'react';
 
-/**
- * CommandDock - Bottom fixed command bar container
- * 
- * Per spec Section 3.2:
- * - Position: Bottom fixed
- * - Size: ~140px height
- * - Purpose: Fleet/Detections/Controls cards
- * 
- * Note: MissionCard removed - time/progress now in StatusPill
- */
-
 interface CommandDockProps {
-  /** Slot for FleetCard */
   fleetCard: ReactNode;
-  /** Slot for DetectionsCard */
   detectionsCard: ReactNode;
-  /** Slot for ControlsCard */
   controlsCard: ReactNode;
 }
 

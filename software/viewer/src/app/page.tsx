@@ -1,31 +1,5 @@
 'use client';
 
-/**
- * V2 Dashboard - Phase 8 Implementation
- * 
- * Per spec Section 8 Phase 8: Alerts & Polish (Week 8)
- * Goal: Alert system and final polish
- * 
- * Phase 1 (Complete): Design tokens, layout, StatusPill, CommandDock container
- * Phase 2 (Complete): 3D map, DroneMarker3D, DetectionMarker3D, FlightTrail3D
- * Phase 3 (Complete): FleetCard, DetectionsCard, ControlsCard, Progress in StatusPill
- * Phase 4 (Complete): DetectionSheet, DetectionCard, FleetSheet, VehicleCard
- * Phase 5 (Complete): LayersPanel, Layer visibility context
- * Phase 6 (Complete): ZoneToolbar, ZoneOverlay3D, click-to-draw zones
- * Phase 7 (Complete): PiPVideoFeed, Vehicle switcher tabs, Mock placeholder, Expand button
- * Phase 8 (Current):
- * ✓ AlertStack component
- * ✓ Alert severity styling
- * ✓ Auto-dismiss logic
- * - Audio cues (optional)
- * - Animation polish pass
- * - Touch gesture refinement
- * - Keyboard shortcuts
- * - Performance optimization
- * 
- * Deliverable: Production-ready dashboard
- */
-
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { GCSLayout } from '@/components/layout/GCSLayout';
 import { StatusPill, MissionPhase } from '@/components/layout/StatusPill';
@@ -96,7 +70,6 @@ export default function V2Page() {
 }
 
 function V2PageContent() {
-  // Zone context
   const {
     zones,
     selectedZoneId,
@@ -105,8 +78,7 @@ function V2PageContent() {
     isDrawing,
     addPoint,
   } = useZoneContext();
-  
-  // Selection state for markers
+
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
   
@@ -130,13 +102,8 @@ function V2PageContent() {
   } = useMissionControl();
   const { vehicles: telemetryVehicles } = useVehicleTelemetry();
 
-  // Detection state
   const [detections, setDetections] = useState<Detection[]>(mockDetections);
-
-  // PiP video feed state
   const [pipVehicleId, setPipVehicleId] = useState<string | null>(null);
-
-  // Ref for camera control
   const mapRef = useRef<MapScene3DHandle>(null);
 
   const fleetVehicles = useMemo<VehicleInfo[]>(() => {
@@ -172,7 +139,6 @@ function V2PageContent() {
     [fleetVehicles]
   );
 
-  // Vehicle handlers (defined before useEffect to avoid dependency issues)
   const handleLocateVehicle = useCallback((id: string) => {
     setSelectedDroneId(id);
     if (mapRef.current) {
@@ -233,7 +199,6 @@ function V2PageContent() {
     }
   }, [detections]);
 
-  // Detection handlers
   const handleConfirmDetection = useCallback((id: string) => {
     setDetections(prev => prev.map(d => 
       d.id === id ? { ...d, status: 'confirmed' as const } : d
@@ -263,11 +228,9 @@ function V2PageContent() {
   }, []);
 
   const handleRTH = useCallback((id: string) => {
-    // Would send RTH command
     void id;
   }, []);
 
-  // Bell click - toggle toasts: show stored alerts when opening, dismiss all toasts when closing
   const handleAlertClick = useCallback(() => {
     areAlertsOpenRef.current = !areAlertsOpenRef.current;
     if (areAlertsOpenRef.current) {
@@ -277,7 +240,6 @@ function V2PageContent() {
     dismissAllAlerts();
   }, [storedAlerts]);
 
-  // Keyboard shortcuts per spec Section 5.2
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is typing in an input
@@ -325,7 +287,6 @@ function V2PageContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [missionPhase, isPaused, pauseMission, resumeMission, handleLocateVehicle, fleetVehicles]);
 
-  // Calculate stats
   const activeVehicles = fleetVehicles.filter(v => v.status === 'active' || v.status === 'warning');
   const avgBattery = Math.round(
     fleetVehicles.reduce((sum, v) => sum + v.battery, 0) / (fleetVehicles.length || 1)
@@ -334,7 +295,6 @@ function V2PageContent() {
     activeVehicles.reduce((sum, v) => sum + v.altitude, 0) / (activeVehicles.length || 1)
   );
 
-  // Detection stats
   const thermalCount = detections.filter(d => d.sensorType === 'thermal').length;
   const acousticCount = detections.filter(d => d.sensorType === 'acoustic').length;
   const gasCount = detections.filter(d => d.sensorType === 'gas').length;

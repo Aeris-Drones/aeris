@@ -5,13 +5,6 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Zap, AlertTriangle, XCircle, Bell } from 'lucide-react';
 
-/**
- * StatusPill - Top center floating status bar
- * 
- * Per spec Section 4.1 - Uses shadcn Badge component
- * Per spec Section 9.1: StatusPill = Badge (custom layout, pulsing dot)
- */
-
 export type MissionPhase =
   | 'IDLE'
   | 'PLANNING'
@@ -32,7 +25,6 @@ export interface StatusPillProps {
   onAlertClick?: () => void;
 }
 
-// Per spec Section 4.1 Visual States
 const phaseConfig: Record<MissionPhase, { 
   label: string; 
   variant: 'default' | 'success' | 'info' | 'danger' | 'secondary';
