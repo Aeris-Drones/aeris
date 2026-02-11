@@ -1,5 +1,8 @@
+# Goal: Request acoustic bearing measurement at a specific time
 builtin_interfaces/Time target_time
 ---
+# Result: Detected bearing with confidence metrics
 aeris_msgs/AcousticBearing bearing
 ---
+# Feedback: Processing progress (0.0 to 100.0)
 float32 progress_percent

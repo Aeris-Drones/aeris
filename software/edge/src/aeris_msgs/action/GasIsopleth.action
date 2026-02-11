@@ -1,5 +1,8 @@
+# Goal: Request gas concentration mapping at a specific time
 builtin_interfaces/Time target_time
 ---
+# Result: Gas concentration contour data
 aeris_msgs/GasIsopleth isopleth
 ---
+# Feedback: Mapping progress (0.0 to 100.0)
 float32 progress_percent

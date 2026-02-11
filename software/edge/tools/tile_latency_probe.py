@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Measure /map/tiles descriptor-to-byte-fetch latency distribution."""
+"""End-to-end map tile latency profiler for viewer performance validation.
+
+Measures the distribution of latencies from MapTile publication to
+successful byte retrieval via the GetMapTileBytes service. Reports
+average and P95 latencies to characterize viewer responsiveness.
+"""
 
 import argparse
 import statistics
@@ -15,6 +20,13 @@ from aeris_msgs.srv import GetMapTileBytes
 
 
 class TileLatencyProbe(Node):
+    """Profiles tile retrieval latency by sampling descriptor-to-byte delays.
+
+    Subscribes to tile announcements, then measures round-trip time to fetch
+    the actual tile bytes via service call. Tracks latency distribution and
+    exits with success only if P95 latency stays within threshold (2s).
+    """
+
     def __init__(self, sample_count: int, timeout_sec: float, service_name: str) -> None:
         super().__init__("tile_latency_probe")
         self._sample_count = sample_count

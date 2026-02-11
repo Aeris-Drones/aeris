@@ -1,4 +1,9 @@
-"""Applies probabilistic drop/delay to emulate a lossy mesh link."""
+"""Impairment relay for mesh network simulation.
+
+Emulates lossy wireless links by probabilistically dropping messages
+and introducing configurable delays. Used for testing system resilience
+before deployment to physical mesh networks.
+"""
 
 import collections
 import random
@@ -12,7 +17,11 @@ from std_msgs.msg import String
 
 
 class ImpairmentRelay(Node):
-    """Relays String topics with tunable drop probability and delay."""
+    """Relays String topics with configurable loss and latency.
+
+    Parameters are dynamically reconfigurable via ROS parameter updates,
+    allowing runtime adjustment of link characteristics without restart.
+    """
 
     def __init__(self) -> None:
         super().__init__("impairment_relay")

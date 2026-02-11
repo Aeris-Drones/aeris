@@ -1,3 +1,11 @@
+"""Unit tests for search pattern generation and polygon partitioning.
+
+Tests verify geometric algorithms for:
+- Lawnmower and spiral waypoint generation within polygon bounds
+- Deterministic polygon partitioning for multi-scout coverage
+- Vehicle ID normalization for consistent internal naming
+"""
+
 import pytest
 
 from aeris_orchestrator.search_patterns import (

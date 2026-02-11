@@ -1,4 +1,10 @@
-"""MAVLink adapter abstraction for autonomous mission waypoint streaming."""
+"""MAVLink adapter abstraction for autonomous mission waypoint streaming.
+
+Translates internal mission waypoints (x/z local coordinates) to MAVLink
+LOCAL_NED frames expected by PX4/ArduPilot autopilots. Manages separate
+command and streaming connections to support multi-vehicle dispatch
+without interrupting active setpoint streams on other endpoints.
+"""
 
 from __future__ import annotations
 
@@ -422,7 +428,8 @@ class MavlinkAdapter:
         return True
 
     def _heartbeat_indicates_rtl(self, heartbeat) -> bool:
-        # PX4 encodes main/sub mode in custom_mode.
+        # Decode PX4 custom_mode bitfield: main mode in bits 16-23, sub mode in bits 24-31.
+        # AUTO mode (main=4) with RTL submode (5) indicates successful RTL activation.
         custom_mode = int(getattr(heartbeat, "custom_mode", -1))
         if custom_mode >= 0:
             px4_main_mode = (custom_mode >> 16) & 0xFF
@@ -518,8 +525,8 @@ class MavlinkAdapter:
         return False
 
     def _send_local_ned_setpoint(self, setpoint: Setpoint) -> None:
-        # Our mission plan uses x/east and z/north in meters. MAVLink local NED expects
-        # x=north, y=east, z=down.
+        # Coordinate frame mapping: mission planning uses x=east, z=north (top-down view)
+        # while MAVLink LOCAL_NED expects x=north, y=east, z=down (right-handed frame).
         north_m = float(setpoint.get("z", 0.0))
         east_m = float(setpoint.get("x", 0.0))
         altitude_m = float(setpoint.get("altitude_m", 0.0))

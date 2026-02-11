@@ -1,18 +1,36 @@
 map_tile_publisher:
   ros__parameters:
     use_sim_time: true
+
+    # Topic configuration for map tile streaming to ground station.
     topic: /map/tiles
+    tile_service_name: /map/get_tile_bytes
+
+    # Map source selection: 'occupancy' for 2D grid maps, 'pointcloud' for 3D.
+    # Pointcloud tiles require higher bandwidth but preserve elevation data.
     map_source: occupancy
     occupancy_topic: /map
     point_cloud_topic: /rtabmap/cloud_map
-    tile_service_name: /map/get_tile_bytes
+
+    # Tile generation parameters tuned for 256x256 PNG tiles at zoom level 18.
+    # This balances detail vs bandwidth for typical 4G uplink constraints.
     queue_depth: 50
     zoom: 18
     tile_size_px: 256
+
+    # Caching strategy: only publish changed tiles to reduce bandwidth,
+    # with periodic full republish to ensure ground station consistency.
     publish_on_change_only: true
     republish_interval_sec: 5.0
     max_cached_tiles: 500
+
+    # MBTiles SQLite cache for offline map persistence and resume capability.
     mbtiles_path: /tmp/aeris/map_tiles/live_map.mbtiles
+
+    # WGS84 origin for global tile coordinate reference.
+    # Default location: San Francisco (used for sim scenarios).
     origin_lat_deg: 37.7749
     origin_lon_deg: -122.4194
+
+    # Layer identifiers for multi-layer map composition in ground station UI.
     layer_ids: ["occupancy", "fetch-service:/map/get_tile_bytes", "mime:image/png"]

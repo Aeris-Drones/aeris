@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""High-rate ROS 2 publisher for transport validation."""
+"""DDS transport stress tester for validating message throughput.
+
+Publishes high-rate messages with configurable payload sizes to measure
+DDS layer performance, identify dropped messages, and characterize
+latency under load. Used for network capacity planning and QoS tuning.
+"""
 
 import argparse
 import time
@@ -10,6 +15,12 @@ from std_msgs.msg import String
 
 
 class FloodPublisher(Node):
+    """Publishes messages at sustained high rates to stress-test DDS transport.
+
+    Generates sequential messages with fixed-size payloads to measure
+    throughput and detect message loss in the DDS layer.
+    """
+
     def __init__(self, topic: str, rate_hz: float, payload_size: int) -> None:
         super().__init__("dds_flood_publisher")
         self._publisher = self.create_publisher(String, topic, 10)

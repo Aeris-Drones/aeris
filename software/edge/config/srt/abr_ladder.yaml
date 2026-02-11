@@ -1,3 +1,6 @@
+# ABR (Adaptive Bitrate) ladder configuration for SRT video streaming.
+# Defines quality tiers from 360p to 1080p with bitrate constraints
+# for reliable transmission over variable-bandwidth mesh networks.
 version: 1
 ladder:
   - name: base_360p

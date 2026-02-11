@@ -1,4 +1,9 @@
-"""Buffers MapTile traffic while the mesh link is down and replays later."""
+"""Store-and-forward buffer for map tiles during mesh outages.
+
+Maintains a local buffer of MapTile messages when the mesh link is
+disconnected and automatically replays them upon reconnection.
+Prevents map data loss during transient network failures.
+"""
 
 import copy
 from typing import List
@@ -11,7 +16,12 @@ from aeris_msgs.msg import MapTile
 
 
 class StoreForwardTiles(Node):
-    """Simple store-and-forward shim driven by a `link_up` parameter."""
+    """Buffers and replays map tiles based on link state.
+
+    The link_up parameter controls forwarding behavior:
+    - When True: tiles pass through immediately
+    - When False: tiles are buffered for later replay
+    """
 
     def __init__(self) -> None:
         super().__init__("store_forward_tiles")

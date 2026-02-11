@@ -1,3 +1,16 @@
+"""Integration tests for mission_node state machine and vehicle coordination.
+
+Test coverage includes:
+- Mission lifecycle: START, SEARCHING, TRACKING, ABORTED
+- Multi-vehicle assignment and zone partitioning
+- Detection-triggered tracking with nearest-scout selection
+- VIO odometry integration for GPS-denied navigation
+- Return-to-launch path planning from breadcrumb trails
+- Ranger overwatch orbit management and failover
+- Vehicle command service (HOLD, RECALL, RESUME)
+- Position source selection: telemetry vs VIO odometry
+"""
+
 import json
 import math
 import threading

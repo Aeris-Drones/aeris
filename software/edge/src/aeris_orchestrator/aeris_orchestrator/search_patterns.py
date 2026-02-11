@@ -1,4 +1,10 @@
-"""Deterministic search pattern planning utilities for mission orchestration."""
+"""Deterministic search pattern planning utilities for mission orchestration.
+
+Generates lawnmower (boustrophedon) and spiral waypoint patterns within
+arbitrary convex or concave polygon boundaries. Supports multi-vehicle
+area partitioning via axis-aligned bounding box subdivision to distribute
+search workload across coordinated scout teams.
+"""
 
 from __future__ import annotations
 

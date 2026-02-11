@@ -1,5 +1,9 @@
 #pragma once
 
+// Gazebo plugin providing cinematic camera control via ROS 2 services.
+// Supports preset views (wide, tracking, POV, orbit) and custom animation paths
+// for automated mission recording and operator presentation modes.
+
 #include <atomic>
 #include <map>
 #include <memory>

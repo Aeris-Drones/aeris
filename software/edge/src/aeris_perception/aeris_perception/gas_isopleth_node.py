@@ -1,4 +1,9 @@
-"""Publishes synthetic GasIsopleth polygons to exercise tile consumers."""
+"""Synthetic gas plume simulator for testing map visualization pipelines.
+
+Generates time-varying isopleth polygons that mimic drifting gas plumes,
+allowing validation of gas concentration overlays without requiring
+actual chemical sensors.
+"""
 
 import math
 from typing import List
@@ -12,7 +17,12 @@ from geometry_msgs.msg import Point32, Polygon
 
 
 class GasIsoplethNode(Node):
-    """Publishes slowly moving rectangles that mimic a plume outline."""
+    """Generates synthetic gas plume contours with realistic drift and diffusion.
+
+    Produces time-varying rectangular polygons that simulate plume boundaries
+    moving with wind drift. Used to validate gas visualization overlays
+    and downstream alerting logic without hardware dependencies.
+    """
 
     def __init__(self) -> None:
         super().__init__("gas_isopleth")

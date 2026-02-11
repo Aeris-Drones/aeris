@@ -1,5 +1,8 @@
+# Goal: Request a specific map tile by unique identifier
 string tile_id
 ---
+# Result: Map tile data with imagery and metadata
 aeris_msgs/MapTile tile
 ---
+# Feedback: Download/processing progress (0.0 to 100.0)
 float32 progress_percent

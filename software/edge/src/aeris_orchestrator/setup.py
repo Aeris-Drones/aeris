@@ -16,7 +16,7 @@ setup(
     zip_safe=True,
     maintainer="Aeris Developers",
     maintainer_email="dev@aeris.local",
-    description="Minimal Aeris orchestrator heartbeat publisher.",
+    description="Aeris orchestrator package for multi-vehicle mission coordination.",
     license="proprietary",
     tests_require=["pytest"],
     entry_points={

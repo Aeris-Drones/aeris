@@ -1,3 +1,6 @@
-builtin_interfaces/Time target_time
+# Request thermal hotspot detection data at a specific point in time.
+# Used by search-and-rescue missions to retrieve detected heat signatures.
+builtin_interfaces/Time target_time  # Timestamp for temporal data lookup
 ---
+# Hotspot result containing bounding box and temperature estimate.
 aeris_msgs/ThermalHotspot hotspot

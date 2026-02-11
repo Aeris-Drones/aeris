@@ -1,4 +1,10 @@
-"""Shared vehicle-id normalization for orchestrator modules."""
+"""Shared vehicle-id normalization for orchestrator modules.
+
+Enforces consistent vehicle identifier formatting across ROS topic names,
+configuration payloads, and inter-node communication. Handles common
+variations (case, hyphen/underscore, concatenated numbers) to ensure
+reliable endpoint matching regardless of input source conventions.
+"""
 
 from __future__ import annotations
 

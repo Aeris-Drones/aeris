@@ -1,3 +1,5 @@
+# CMake build configuration for the Aeris camera controller Gazebo plugin.
+# Builds a ROS 2 service-enabled plugin for cinematic camera control in simulation.
 cmake_minimum_required(VERSION 3.16)
 project(aeris_camera_controller)
 

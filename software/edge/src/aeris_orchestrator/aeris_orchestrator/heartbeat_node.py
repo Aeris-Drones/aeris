@@ -7,7 +7,13 @@ from std_msgs.msg import String
 
 
 class HeartbeatNode(Node):
-    """Minimal orchestrator heartbeat publisher for early bring-up."""
+    """Minimal orchestrator heartbeat publisher for early bring-up.
+
+Provides a lightweight liveness signal used by system health monitors
+to verify orchestrator process availability before full mission
+capabilities are initialized. The heartbeat format includes host
+identity to aid distributed debugging across multi-node deployments.
+"""
 
     def __init__(self) -> None:
         super().__init__("aeris_orchestrator_heartbeat")

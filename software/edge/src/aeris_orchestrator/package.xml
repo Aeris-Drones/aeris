@@ -2,7 +2,7 @@
 <package format="3">
   <name>aeris_orchestrator</name>
   <version>0.1.0</version>
-  <description>Minimal Aeris orchestrator node that publishes a heartbeat for system bring-up.</description>
+  <description>Multi-vehicle mission orchestration with MAVLink integration for autonomous search and tracking. Coordinates scout and ranger vehicle roles, sensor-triggered tracking behaviors, and GPS-denied navigation modes.</description>
   <maintainer email="dev@aeris.local">Aeris Developers</maintainer>
   <license>proprietary</license>
 

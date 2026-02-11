@@ -1,4 +1,8 @@
-"""Launches synthetic perception heads plus mesh impairment shims."""
+"""Launch file for perception pipeline demonstration.
+
+Spawns synthetic sensor publishers (thermal, acoustic, gas) and mesh network
+impairment shims to simulate degraded communication conditions for bench testing.
+"""
 
 from launch import LaunchDescription
 from launch.actions import LogInfo

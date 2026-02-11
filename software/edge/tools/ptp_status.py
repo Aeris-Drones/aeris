@@ -1,4 +1,9 @@
-"""Summarize linuxptp offset/state from phc2sys logs or a one-shot query."""
+"""PTP clock synchronization status reporter for distributed timing validation.
+
+Parses phc2sys logs or queries the daemon directly to report current
+clock offset and synchronization state. Used to verify sub-microsecond
+timing accuracy required for multi-sensor data fusion.
+"""
 
 from __future__ import annotations
 

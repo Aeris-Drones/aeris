@@ -1,4 +1,9 @@
-"""Publishes synthetic AcousticBearing detections at ~1 Hz."""
+"""Synthetic acoustic bearing publisher for testing sound source localization.
+
+Generates random bearing measurements simulating a 4-channel microphone array.
+Used in SITL scenarios to validate tracking behavior triggered by acoustic
+detections. Supports runtime frequency adjustment via ROS parameters.
+"""
 
 import random
 
@@ -10,7 +15,7 @@ from aeris_msgs.msg import AcousticBearing
 
 
 class AcousticBearingNode(Node):
-    """Publishes bearings with configurable frequency."""
+    """Publishes synthetic acoustic bearing measurements."""
 
     def __init__(self) -> None:
         super().__init__("acoustic_bearing")

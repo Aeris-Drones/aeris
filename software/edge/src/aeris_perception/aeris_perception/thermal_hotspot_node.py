@@ -1,4 +1,9 @@
-"""Publishes synthetic ThermalHotspot detections."""
+"""Synthetic thermal hotspot generator for testing detection pipelines.
+
+Simulates thermal camera detections by publishing randomized bounding
+boxes with temperature and confidence values. Enables validation of
+hotspot tracking and alerting without thermal hardware.
+"""
 
 import random
 from typing import List
@@ -11,7 +16,12 @@ from aeris_msgs.msg import ThermalHotspot
 
 
 class ThermalHotspotNode(Node):
-    """Continuously publishes random hotspots at a configurable rate."""
+    """Generates synthetic thermal detections with randomized geometry.
+
+    Publishes bounding boxes with randomized positions, sizes, and temperatures
+    to simulate thermal camera output. Configurable rate allows stress-testing
+    of downstream consumers under varying detection frequencies.
+    """
 
     def __init__(self) -> None:
         super().__init__("thermal_hotspot")

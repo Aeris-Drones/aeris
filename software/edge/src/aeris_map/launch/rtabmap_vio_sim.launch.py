@@ -1,3 +1,13 @@
+"""Launch VIO-based SLAM pipeline with OpenVINS + RTAB-Map + tile streaming.
+
+This launch file orchestrates the visual-inertial odometry pipeline for simulation:
+1. OpenVINS provides fast, accurate odometry from stereo+IMU
+2. RTAB-Map builds occupancy grids and point clouds for navigation
+3. Map tile publisher streams tiles to the ground station for operator awareness
+
+All topic names are parameterized to support multi-vehicle scenarios via
+namespace prefixes (e.g., /scout1/, /scout2/)."""
+
 import os
 from pathlib import Path
 
@@ -8,6 +18,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description() -> LaunchDescription:
+    # Resolve config paths relative to this launch file location.
     package_root = Path(__file__).resolve().parents[1]
     cache_root = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache')))
     mbtiles_default = str(cache_root / 'aeris' / 'map_tiles' / 'live_map.mbtiles')
@@ -30,6 +41,8 @@ def generate_launch_description() -> LaunchDescription:
     rtabmap_database_path = LaunchConfiguration('rtabmap_database_path')
     openvins_log_directory = LaunchConfiguration('openvins_log_directory')
 
+    # OpenVINS: Multi-State Constraint Kalman Filter for visual-inertial odometry.
+    # Publishes high-rate odometry (200Hz) fused from stereo cameras and IMU.
     openvins_node = Node(
         package='ov_msckf',
         executable='run_subscribe_msckf',
@@ -53,6 +66,8 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # RTAB-Map: Real-time appearance-based mapping with loop closure detection.
+    # Consumes OpenVINS odometry and builds occupancy grids for path planning.
     rtabmap_node = Node(
         package='rtabmap_slam',
         executable='rtabmap',
@@ -80,6 +95,8 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    # Map tile publisher: Converts RTAB-Map output to MBTiles format for streaming.
+    # Enables ground station operators to monitor mapping progress in real-time.
     map_tile_node = Node(
         package='aeris_map',
         executable='map_tile_publisher',

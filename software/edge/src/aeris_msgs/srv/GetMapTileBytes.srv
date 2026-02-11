@@ -1,8 +1,11 @@
-string tile_id
+# Request raw binary data for a specific map tile by ID.
+# Used by ground station clients to fetch tile payloads without ROS message overhead.
+string tile_id  # Unique tile identifier (format: "{z}/{x}/{y}")
 ---
-bool found
-string content_type
-string hash_sha256
-uint32 byte_size
-builtin_interfaces/Time published_at
-uint8[] data
+# Tile payload response with content metadata for caching and validation.
+bool found           # Whether the tile exists in the cache
+string content_type  # MIME type (e.g., "image/png", "application/x-protobuf")
+string hash_sha256   # Content hash for client-side cache validation
+uint32 byte_size     # Uncompressed payload size for buffer allocation
+builtin_interfaces/Time published_at  # Tile generation timestamp for freshness checks
+uint8[] data         # Binary tile payload

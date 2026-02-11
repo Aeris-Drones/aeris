@@ -1,3 +1,5 @@
+# Build configuration for aeris_msgs ROS 2 interface package.
+# Defines message, service, and action types for Aeris drone ecosystem.
 cmake_minimum_required(VERSION 3.8)
 project(aeris_msgs)
 

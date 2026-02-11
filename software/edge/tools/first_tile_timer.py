@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Measure elapsed time to first /map/tiles sample, anchored to mission liftoff."""
+"""Mission startup latency benchmark for map tile generation.
+
+Measures wall-clock time from mission liftoff (or immediate start) to
+the first MapTile publication. Used to characterize end-to-end system
+startup performance and identify bottlenecks in the mapping pipeline.
+"""
 
 import argparse
 import sys
@@ -12,7 +17,12 @@ from aeris_msgs.msg import MapTile, MissionState
 
 
 class FirstTileTimer(Node):
-    """Measures wall clock time until the first MapTile arrives."""
+    """Measures latency from mission start to first map tile availability.
+
+    Supports two trigger modes: immediate (timer starts at node startup)
+    or liftoff (timer starts when a specific MissionState is observed).
+    Exits with code 0 on success, non-zero on timeout or error.
+    """
 
     def __init__(
         self,

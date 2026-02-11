@@ -1,5 +1,8 @@
 #include "aeris/camera/CameraControllerPlugin.hpp"
 
+// Implementation of the cinematic camera controller plugin.
+// Integrates with Ignition Gazebo's simulation loop and ROS 2 for external control.
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
