@@ -1,12 +1,5 @@
 'use client';
 
-/**
- * Sonner Toast Component
- * shadcn-compatible wrapper for sonner toasts
- * 
- * Per spec Section 9.1: AlertStack uses Toast (modified)
- */
-
 import { Toaster as Sonner, toast } from 'sonner';
 import { cn } from '@/lib/utils';
 

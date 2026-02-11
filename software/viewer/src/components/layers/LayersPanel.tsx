@@ -1,11 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { 
-  Map, 
-  Flame, 
-  Wind, 
-  AudioLines, 
+import {
+  Map,
+  Flame,
+  Wind,
+  AudioLines,
   Route,
   ChevronDown,
   ChevronUp,
@@ -17,18 +17,6 @@ import { cn } from '@/lib/utils';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 import { useZoneContext } from '@/context/ZoneContext';
 import type { ZonePriority } from '@/types/zone';
-
-/**
- * LayersPanel - Floating layer toggle panel
- * 
- * Per spec Section 4.2 / Phase 5:
- * - Toggle visibility of map overlays
- * - Collapsible for more map space
- * - Clean, minimal design
- * 
- * Phase 6 addition:
- * - Zone drawing buttons by priority
- */
 
 interface LayerItem {
   id: 'map' | 'thermal' | 'acoustic' | 'gas' | 'trajectories';
@@ -83,7 +71,6 @@ export function LayersPanel() {
       'bg-black/60 backdrop-blur-md',
       'border border-white/10'
     )}>
-      {/* Header */}
       <button
         onClick={() => setCollapsed(true)}
         className={cn(
@@ -100,7 +87,6 @@ export function LayersPanel() {
         <ChevronUp className="h-3 w-3" />
       </button>
 
-      {/* Layer toggles */}
       <div className="py-1">
         {layers.map((layer) => {
           const Icon = layer.icon;
@@ -113,17 +99,16 @@ export function LayersPanel() {
               className={cn(
                 'w-full flex items-center gap-3 px-3 py-2',
                 'transition-all duration-150',
-                enabled 
-                  ? 'text-white hover:bg-white/5' 
+                enabled
+                  ? 'text-white hover:bg-white/5'
                   : 'text-white/30 hover:text-white/50 hover:bg-white/5'
               )}
             >
-              {/* Checkbox indicator */}
               <div className={cn(
                 'h-4 w-4 rounded border flex items-center justify-center',
                 'transition-colors duration-150',
-                enabled 
-                  ? 'bg-white/20 border-white/40' 
+                enabled
+                  ? 'bg-white/20 border-white/40'
                   : 'border-white/20'
               )}>
                 {enabled && (
@@ -131,17 +116,14 @@ export function LayersPanel() {
                 )}
               </div>
 
-              {/* Icon */}
               <Icon className={`h-4 w-4 transition-colors duration-150 ${enabled ? layer.color : 'text-white/30'}`} />
 
-              {/* Label */}
               <span className="text-xs">{layer.label}</span>
             </button>
           );
         })}
       </div>
 
-      {/* Zone Drawing Section */}
       <div className="border-t border-white/5 py-2">
         <div className="px-3 pb-2">
           <div className="flex items-center gap-2 text-white/50">
@@ -163,7 +145,7 @@ export function LayersPanel() {
                 'flex-1 px-2 py-1.5 rounded text-[10px] font-medium',
                 'border border-white/10',
                 'transition-all duration-150',
-                isDrawing 
+                isDrawing
                   ? 'opacity-30 cursor-not-allowed'
                   : 'hover:bg-white/10 active:scale-95'
               )}

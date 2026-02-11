@@ -1,11 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { 
-  X, 
+import {
+  X,
   Maximize2,
   Minimize2,
-  Signal, 
+  Signal,
   SignalZero,
   Battery,
   ArrowUp,
@@ -14,22 +14,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * PiPVideoFeed - Picture-in-picture drone camera feed
- * 
- * Per spec Section 4.2 / Phase 7:
- * - Floating video window (~200px)
- * - Vehicle switcher tabs
- * - Mock placeholder when no stream
- * - Expand to fullscreen option
- * - Close button
- * 
- * Design principles:
- * - Minimal, clean aesthetic
- * - No excessive decoration
- * - Functional first
- */
-
 interface Vehicle {
   id: string;
   name: string;
@@ -37,25 +21,15 @@ interface Vehicle {
 }
 
 interface PiPVideoFeedProps {
-  /** Currently selected vehicle ID */
   vehicleId: string;
-  /** Current vehicle name */
   vehicleName: string;
-  /** Video stream URL (mock for now) */
   streamUrl?: string;
-  /** Battery percentage */
   batteryPercent: number;
-  /** Current altitude in meters */
   altitude: number;
-  /** Whether the feed is live */
   isLive: boolean;
-  /** All available vehicles for switcher */
   allVehicles: Vehicle[];
-  /** Called when switching vehicle */
   onVehicleSwitch: (id: string) => void;
-  /** Called when closing the PiP */
   onClose: () => void;
-  /** Called when expanding to fullscreen */
   onExpand: () => void;
 }
 
@@ -89,7 +63,6 @@ export function PiPVideoFeed({
     setIsExpanded(!isExpanded);
   };
 
-  // Expanded fullscreen view
   if (isExpanded) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm">
@@ -99,7 +72,6 @@ export function PiPVideoFeed({
           'border border-white/10',
           'shadow-2xl'
         )}>
-          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
             <div className="flex items-center gap-3">
               {isLive ? (
@@ -133,7 +105,6 @@ export function PiPVideoFeed({
             </div>
           </div>
 
-          {/* Video Area - larger */}
           <div className="relative aspect-video bg-black">
             {streamUrl ? (
               <div className="absolute inset-0 flex items-center justify-center">
@@ -148,7 +119,6 @@ export function PiPVideoFeed({
               </div>
             )}
 
-            {/* Status overlay */}
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-6">
@@ -173,7 +143,6 @@ export function PiPVideoFeed({
             </div>
           </div>
 
-          {/* Vehicle Switcher */}
           {allVehicles.length > 1 && (
             <div className="flex border-t border-white/10">
               {allVehicles.map((vehicle) => {
@@ -187,8 +156,8 @@ export function PiPVideoFeed({
                     className={cn(
                       'flex-1 px-4 py-3 text-center transition-colors',
                       'border-r border-white/5 last:border-r-0',
-                      isActive 
-                        ? 'bg-white/10 text-white' 
+                      isActive
+                        ? 'bg-white/10 text-white'
                         : 'text-white/40 hover:text-white/60 hover:bg-white/5'
                     )}
                   >
@@ -209,7 +178,6 @@ export function PiPVideoFeed({
     );
   }
 
-  // Compact PiP view
   return (
     <div className={cn(
       'w-56 rounded-lg overflow-hidden',
@@ -217,7 +185,6 @@ export function PiPVideoFeed({
       'border border-white/10',
       'shadow-xl shadow-black/50'
     )}>
-      {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
         <div className="flex items-center gap-2">
           {isLive ? (
@@ -251,7 +218,6 @@ export function PiPVideoFeed({
         </div>
       </div>
 
-      {/* Video Area */}
       <div className="relative aspect-video bg-black">
         {streamUrl ? (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -266,7 +232,6 @@ export function PiPVideoFeed({
           </div>
         )}
 
-        {/* Status overlay */}
         <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
           <div className="flex items-center justify-between text-[10px]">
             <div className="flex items-center gap-3">
@@ -290,7 +255,6 @@ export function PiPVideoFeed({
         </div>
       </div>
 
-      {/* Vehicle Switcher */}
       {allVehicles.length > 1 && (
         <div className="flex border-t border-white/5">
           {allVehicles.slice(0, 4).map((vehicle) => {
@@ -304,8 +268,8 @@ export function PiPVideoFeed({
                 className={cn(
                   'flex-1 px-2 py-2 text-center transition-colors',
                   'border-r border-white/5 last:border-r-0',
-                  isActive 
-                    ? 'bg-white/10 text-white' 
+                  isActive
+                    ? 'bg-white/10 text-white'
                     : 'text-white/40 hover:text-white/60 hover:bg-white/5'
                 )}
               >
