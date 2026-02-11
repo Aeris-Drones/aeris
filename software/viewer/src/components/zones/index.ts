@@ -1,3 +1,2 @@
 // Zone components exports
-export { ZoneDrawingTool } from './ZoneDrawingTool';
-export { ZoneListPanel } from './ZoneListPanel';
+// ZoneDrawingTool and ZoneListPanel removed - using ZoneToolbar only

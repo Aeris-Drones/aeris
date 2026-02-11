@@ -70,12 +70,8 @@ export function useVehicleTelemetry() {
         if (!('returnTrajectory' in payload)) {
           return;
         }
-        if (payload.returnTrajectory === null) {
-          const vehicleId = (
-            payload.vehicleId ??
-            payload.returnTrajectory?.vehicleId ??
-            ''
-          ).trim();
+        if (payload.returnTrajectory === null || payload.returnTrajectory === undefined) {
+          const vehicleId = (payload.vehicleId ?? '').trim();
           if (vehicleId) {
             setReturnTrajectories(previous => {
               const next = { ...previous };

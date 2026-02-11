@@ -7,9 +7,8 @@
  * computed state flags, and real-time detection statistics.
  */
 
-import { useEffect, useMemo, useCallback, useContext, useState } from 'react';
+import { useEffect, useMemo, useCallback, useState } from 'react';
 import { useMissionContext } from '@/context/MissionContext';
-import { DetectionContext } from '@/context/DetectionContext';
 import { useZoneContext } from '@/context/ZoneContext';
 import { useROSConnection } from './useROSConnection';
 import {
@@ -118,24 +117,10 @@ export function useMissionControl(): MissionControlState {
     setStartMissionError(null);
   }, []);
 
-  // Get detection stats from DetectionContext if available
-  let detectionStats = stats.detectionCounts;
-  let confirmedCount = stats.confirmedSurvivors;
-  let pendingCount = stats.pendingDetections;
-
-  const detectionContext = useContext(DetectionContext);
-  if (detectionContext) {
-    const detectionContextStats = detectionContext.stats;
-    detectionStats = {
-      thermal: detectionContextStats.byType.thermal ?? 0,
-      acoustic: detectionContextStats.byType.acoustic ?? 0,
-      gas: detectionContextStats.byType.gas ?? 0,
-      total: detectionContextStats.total,
-    };
-    confirmedCount = detectionContextStats.byStatus.confirmed ?? 0;
-    pendingCount = (detectionContextStats.byStatus.new ?? 0) +
-                   (detectionContextStats.byStatus.reviewing ?? 0);
-  }
+  // Get detection stats from mission stats
+  const detectionStats = stats.detectionCounts;
+  const confirmedCount = stats.confirmedSurvivors;
+  const pendingCount = stats.pendingDetections;
   
   // ============================================================================
   // ROS Integration
