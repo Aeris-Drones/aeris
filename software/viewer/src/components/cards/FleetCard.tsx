@@ -5,16 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, BatteryFull, BatteryMedium, BatteryLow, BatteryWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * FleetCard - Command Dock card showing fleet status
- * 
- * Per spec Section 4.3 - Compact view:
- * - Vehicle dots (colored by status)
- * - Active/Total count
- * - Average battery with proper icon
- * - Warning indicator if any
- */
-
 export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle';
 
 export interface VehicleInfo {
@@ -80,14 +70,13 @@ export function FleetCard({
         hasWarnings && 'border-[var(--warning)]/30'
       )}
     >
-      {/* Header */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wider text-white/50">
           Fleet
         </span>
         {hasWarnings && (
-          <Badge 
-            variant={criticalWarnings > 0 ? 'danger' : 'warning'} 
+          <Badge
+            variant={criticalWarnings > 0 ? 'danger' : 'warning'}
             className="flex items-center gap-1 px-2 py-0.5"
           >
             <AlertTriangle className="h-3.5 w-3.5" />
@@ -96,7 +85,6 @@ export function FleetCard({
         )}
       </div>
 
-      {/* Vehicle dots */}
       <div className="flex items-center gap-1.5">
         {vehicles.slice(0, 8).map((vehicle) => (
           <div
@@ -115,7 +103,6 @@ export function FleetCard({
         )}
       </div>
 
-      {/* Stats row */}
       <div className="flex items-center justify-between">
         <div className="flex items-baseline gap-1.5">
           <span className="font-mono text-xl font-bold text-white">
@@ -126,7 +113,6 @@ export function FleetCard({
           </span>
         </div>
 
-        {/* Battery indicator - using Lucide icon */}
         <div className={cn('flex items-center gap-1.5', getBatteryColor(avgBattery))}>
           {getBatteryIcon(avgBattery)}
           <span className="font-mono text-sm">

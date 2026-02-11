@@ -1,33 +1,9 @@
 'use client';
 
-/**
- * AERIS GCS Alert System
- * 
- * Per spec Section 4.6 & 9.1:
- * - Uses shadcn Toast (sonner) as base
- * - Stacks from top, max 5 visible
- * - Critical alerts cannot be auto-dismissed
- * - Warning alerts auto-dismiss after 30s
- * - Info alerts auto-dismiss after 10s
- * - Audio cue for critical (optional)
- * 
- * Alert Overlay per spec Section 3.4:
- * ┌─ ALERT STACK ─────────────────────────────────────────────────────────┐
- * │  🔴 CRITICAL: Scout-2 COMMS LOST - Last seen 45s ago      [LOCATE]   │
- * │  ⚠️ WARNING: Scout-3 battery 8% - Auto RTH in 30s          [ABORT]   │
- * │  ⚠️ WARNING: Gas concentration rising in Sector D      [VIEW MAP]    │
- * │                                            [DISMISS ALL] [MINIMIZE]   │
- * └───────────────────────────────────────────────────────────────────────┘
- */
-
 import { useCallback, useRef } from 'react';
 import { toast, Toaster } from 'sonner';
 import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export type AlertSeverity = 'critical' | 'warning' | 'info';
 
@@ -44,18 +20,10 @@ export interface Alert {
   dismissible: boolean;
 }
 
-// ============================================================================
-// Configuration per spec
-// ============================================================================
-
-// Toast auto-dismiss durations per spec Section 4.6:
-// - Critical: cannot be auto-dismissed (undefined = no auto-dismiss)
-// - Warning: 30 seconds
-// - Info: 10 seconds
 const TOAST_DURATIONS: Record<AlertSeverity, number | undefined> = {
-  critical: undefined, // No auto-dismiss
-  warning: 30000,      // 30 seconds
-  info: 10000,         // 10 seconds
+  critical: undefined,
+  warning: 30000,
+  info: 10000,
 };
 
 const SEVERITY_ICONS: Record<AlertSeverity, React.ReactNode> = {
@@ -63,10 +31,6 @@ const SEVERITY_ICONS: Record<AlertSeverity, React.ReactNode> = {
   warning: <AlertTriangle className="h-5 w-5 text-[var(--warning)]" />,
   info: <Info className="h-5 w-5 text-[var(--info)]" />,
 };
-
-// ============================================================================
-// Audio cue for critical alerts
-// ============================================================================
 
 function playCriticalAlertSound() {
   if (typeof window === 'undefined') return;
@@ -76,8 +40,7 @@ function playCriticalAlertSound() {
     if (!AudioContextClass) return;
 
     const audioContext = new AudioContextClass();
-    
-    // Two-beep pattern for critical alerts
+
     [0, 0.15].forEach((delay) => {
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
@@ -85,7 +48,7 @@ function playCriticalAlertSound() {
       oscillator.connect(gainNode);
       gainNode.connect(audioContext.destination);
 
-      oscillator.frequency.value = 880; // A5 note
+      oscillator.frequency.value = 880;
       oscillator.type = 'sine';
 
       const startTime = audioContext.currentTime + delay;
@@ -100,31 +63,23 @@ function playCriticalAlertSound() {
   }
 }
 
-// ============================================================================
-// Alert Toast Function
-// ============================================================================
-
 export function showAlert(alert: Omit<Alert, 'timestamp'>, options?: { playSound?: boolean }) {
   const { id, severity, title, description, action } = alert;
   const { playSound = true } = options || {};
 
-  // Play sound for critical alerts (only on new alerts, not re-shows)
   if (playSound && severity === 'critical') {
     playCriticalAlertSound();
   }
 
-  // Map severity to sonner type
-  const toastFn = severity === 'critical' ? toast.error : 
-                  severity === 'warning' ? toast.warning : 
+  const toastFn = severity === 'critical' ? toast.error :
+                  severity === 'warning' ? toast.warning :
                   toast.info;
 
-  // Auto-dismiss based on severity per spec
-  // The actual alerts persist in the AlertPanel (accessed via bell icon)
   toastFn(title, {
     id,
     description,
     duration: TOAST_DURATIONS[severity],
-    dismissible: severity !== 'critical', // Critical alerts require explicit action
+    dismissible: severity !== 'critical',
     icon: SEVERITY_ICONS[severity],
     action: action ? {
       label: action.label,
@@ -159,16 +114,11 @@ export function dismissAllAlerts() {
   toast.dismiss();
 }
 
-// ============================================================================
-// AlertToaster - The toast container component
-// ============================================================================
-
 interface AlertToasterProps {
-  /** Maximum visible toasts */
   visibleToasts?: number;
 }
 
-export function AlertToaster({ 
+export function AlertToaster({
   visibleToasts = 5,
 }: AlertToasterProps) {
   return (
@@ -199,10 +149,6 @@ export function AlertToaster({
   );
 }
 
-// ============================================================================
-// useAlerts Hook - for managing alert state
-// ============================================================================
-
 interface UseAlertsOptions {
   enableAudio?: boolean;
 }
@@ -221,7 +167,6 @@ export function useAlerts(options: UseAlertsOptions = {}) {
 
     alertsRef.current.set(id, fullAlert);
 
-    // Play sound for critical alerts
     if (enableAudio && alert.severity === 'critical') {
       playCriticalAlertSound();
     }
@@ -247,9 +192,5 @@ export function useAlerts(options: UseAlertsOptions = {}) {
     getAlerts: () => Array.from(alertsRef.current.values()),
   };
 }
-
-// ============================================================================
-// Re-export for convenience
-// ============================================================================
 
 export { toast, Toaster } from 'sonner';

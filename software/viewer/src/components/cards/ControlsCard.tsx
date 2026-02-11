@@ -7,15 +7,6 @@ import { ShimmerButton } from '@/components/ui/shimmer-button';
 import { Play, Pause, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * ControlsCard - Command Dock card with mission controls
- * 
- * Per spec Section 4.3:
- * - START: Green gradient, disabled during mission (uses ShimmerButton)
- * - PAUSE/RESUME: Yellow, toggles based on state
- * - ABORT: Red, 5-second countdown confirmation
- */
-
 export type MissionPhase =
   | 'IDLE'
   | 'PLANNING'
@@ -57,14 +48,13 @@ export function ControlsCard({
   onAbort,
 }: ControlsCardProps) {
   const [abortCountdown, setAbortCountdown] = useState<number | null>(null);
-  
+
   const isIdle = missionPhase === 'IDLE';
   const isActive =
     missionPhase === 'PLANNING' ||
     missionPhase === 'SEARCHING' ||
     missionPhase === 'TRACKING';
 
-  // Handle abort countdown
   useEffect(() => {
     if (abortCountdown === null) return;
 
@@ -84,24 +74,20 @@ export function ControlsCard({
 
   const handleAbortClick = useCallback(() => {
     if (abortCountdown !== null) {
-      // Cancel if clicked again during countdown
       setAbortCountdown(null);
     } else {
-      // Start 5-second countdown
       setAbortCountdown(5);
     }
   }, [abortCountdown]);
 
   return (
     <Card className="flex h-full flex-col justify-between p-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wider text-white/50">
           Controls
         </span>
       </div>
 
-      {/* Button row */}
       <div className="space-y-2">
         {isIdle && (
           <div className="space-y-1">
@@ -130,7 +116,6 @@ export function ControlsCard({
           </div>
         )}
         <div className="flex items-stretch gap-3">
-        {/* START button - only show when idle */}
         {isIdle && (
           <ShimmerButton
             className="flex-1 px-5 py-2.5 text-sm font-semibold"
@@ -145,7 +130,6 @@ export function ControlsCard({
           </ShimmerButton>
         )}
 
-        {/* PAUSE/RESUME button - only show when active */}
         {isActive && (
           <Button
             variant="outline"
@@ -171,7 +155,6 @@ export function ControlsCard({
           </Button>
         )}
 
-        {/* ABORT button - show when active */}
         {isActive && (
           <Button
             variant="outline"
@@ -194,7 +177,6 @@ export function ControlsCard({
           </Button>
         )}
 
-        {/* Completed/Aborted state */}
         {(missionPhase === 'COMPLETE' || missionPhase === 'ABORTED') && (
           <ShimmerButton
             className="flex-1 px-5 py-2.5 text-sm font-semibold"
@@ -211,7 +193,6 @@ export function ControlsCard({
         </div>
       </div>
 
-      {/* Status hint */}
       <div className="text-center">
         <span className="text-[10px] text-white/40">
           {isIdle && 'Ready to start mission'}
