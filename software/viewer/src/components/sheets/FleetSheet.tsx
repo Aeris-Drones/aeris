@@ -13,12 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Plane, Battery, AlertTriangle, OctagonX, Pause } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * FleetSheet - Premium expanded sheet for fleet management
- * 
- * Per spec: Fleet Actions: RECALL ALL, HOLD POSITIONS
- */
-
 interface FleetSheetProps {
   vehicles: VehicleInfo[];
   selectedVehicleId?: string | null;
@@ -49,7 +43,7 @@ export function FleetSheet({
 
   const handleLocate = (id: string) => {
     onLocate(id);
-    setOpen(false); // Close sheet when locating
+    setOpen(false);
   };
   const activeCount = vehicles.filter(v => v.status === 'active' || v.status === 'warning').length;
   const warningCount = vehicles.filter(v => v.status === 'warning' || v.status === 'error').length;
@@ -64,7 +58,6 @@ export function FleetSheet({
       </DrawerTrigger>
       <DrawerContent className="max-h-[85vh] bg-[#0a0a0f]/95 backdrop-blur-2xl border-white/[0.06]">
         <div className="mx-auto w-full max-w-3xl">
-          {/* Header */}
           <DrawerHeader className="pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -93,7 +86,6 @@ export function FleetSheet({
             </div>
           </DrawerHeader>
 
-          {/* Fleet summary bar */}
           <div className="flex items-center gap-2 px-4 py-4 border-b border-white/[0.04]">
             {vehicles.map((v) => (
               <div
@@ -112,7 +104,6 @@ export function FleetSheet({
             ))}
           </div>
 
-          {/* Vehicle grid */}
           <div className="max-h-[45vh] overflow-y-auto px-4 py-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {vehicles.map((vehicle) => (
@@ -135,7 +126,6 @@ export function FleetSheet({
             )}
           </div>
 
-          {/* Fleet Actions */}
           <div className="flex items-center justify-center gap-3 px-4 py-4 border-t border-white/[0.04]">
             <Button
               variant="outline"

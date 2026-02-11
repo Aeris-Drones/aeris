@@ -4,16 +4,6 @@ import { Button } from '@/components/ui/button';
 import { MapPin, Video, Home, Signal, Gauge, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * VehicleCard - Premium grid card for fleet sheet
- * 
- * Tesla/SpaceX-inspired design:
- * - Status indicator glow
- * - Battery arc visualization
- * - Clean metric tiles
- * - Subtle glass morphism
- */
-
 export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle';
 
 export interface VehicleInfo {
@@ -34,38 +24,38 @@ export interface VehicleCardProps {
   onRTH?: () => void;
 }
 
-const statusConfig: Record<VehicleStatus, { 
-  label: string; 
+const statusConfig: Record<VehicleStatus, {
+  label: string;
   color: string;
   glow: string;
   dot: string;
 }> = {
-  active: { 
-    label: 'ACTIVE', 
+  active: {
+    label: 'ACTIVE',
     color: 'text-emerald-400',
     glow: 'shadow-[0_0_30px_rgba(52,211,153,0.15)]',
     dot: 'bg-emerald-400'
   },
-  warning: { 
-    label: 'WARNING', 
+  warning: {
+    label: 'WARNING',
     color: 'text-amber-400',
     glow: 'shadow-[0_0_30px_rgba(251,191,36,0.15)]',
     dot: 'bg-amber-400'
   },
-  error: { 
-    label: 'ERROR', 
+  error: {
+    label: 'ERROR',
     color: 'text-red-400',
     glow: 'shadow-[0_0_30px_rgba(248,113,113,0.2)]',
     dot: 'bg-red-400'
   },
-  returning: { 
-    label: 'RTH', 
+  returning: {
+    label: 'RTH',
     color: 'text-cyan-400',
     glow: 'shadow-[0_0_30px_rgba(34,211,238,0.15)]',
     dot: 'bg-cyan-400'
   },
-  idle: { 
-    label: 'STANDBY', 
+  idle: {
+    label: 'STANDBY',
     color: 'text-white/40',
     glow: '',
     dot: 'bg-white/40'
@@ -84,15 +74,13 @@ function getBatteryStroke(battery: number): string {
   return 'stroke-red-400';
 }
 
-// Battery arc SVG component - more compact
 function BatteryArc({ battery }: { battery: number }) {
   const radius = 26;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - battery / 100);
-  
+
   return (
     <svg className="h-16 w-16 -rotate-90" viewBox="0 0 60 60">
-      {/* Background arc */}
       <circle
         cx="30"
         cy="30"
@@ -102,7 +90,6 @@ function BatteryArc({ battery }: { battery: number }) {
         strokeWidth="3"
         className="text-white/[0.06]"
       />
-      {/* Battery arc */}
       <circle
         cx="30"
         cy="30"
@@ -138,7 +125,6 @@ export function VehicleCard({
         vehicle.status === 'error' && 'border-red-500/20'
       )}
     >
-      {/* Header - more compact */}
       <div className="flex items-start justify-between p-3 pb-0">
         <div className="flex flex-col gap-0.5">
           <span className="text-lg font-light text-white">{vehicle.name}</span>
@@ -149,8 +135,7 @@ export function VehicleCard({
             </span>
           </div>
         </div>
-        
-        {/* Battery gauge - smaller */}
+
         <div className="relative">
           <BatteryArc battery={vehicle.battery} />
           <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -162,7 +147,6 @@ export function VehicleCard({
         </div>
       </div>
 
-      {/* Metrics grid - more compact */}
       <div className="grid grid-cols-3 gap-px bg-white/[0.02] mx-3 my-2 rounded-lg overflow-hidden">
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Gauge className="h-3 w-3 text-white/30" />
@@ -181,7 +165,6 @@ export function VehicleCard({
         </div>
       </div>
 
-      {/* Actions - more compact */}
       <div className="flex items-center gap-1.5 p-3 pt-0">
         <Button
           variant="ghost"
