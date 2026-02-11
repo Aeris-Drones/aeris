@@ -426,13 +426,26 @@ export function useMissionControl(): MissionControlState {
     publishCommand('COMPLETE');
   }, [contextComplete, publishCommand]);
 
+  // Sync detection stats from MissionContext to local state.
+  // Only call updateStats when values actually change to prevent infinite loops.
   useEffect(() => {
     updateStats({
       detectionCounts: detectionStats,
       confirmedSurvivors: confirmedCount,
       pendingDetections: pendingCount,
     });
-  }, [detectionStats, confirmedCount, pendingCount, updateStats]);
+    // Note: updateStats is stable (from context), but we only want to run
+    // this effect when the actual stat values change, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    detectionStats.thermal,
+    detectionStats.acoustic,
+    detectionStats.gas,
+    detectionStats.total,
+    confirmedCount,
+    pendingCount,
+    updateStats,
+  ]);
 
   const computedState = useMemo(() => {
     const controlFlags = computeMissionControlFlags({

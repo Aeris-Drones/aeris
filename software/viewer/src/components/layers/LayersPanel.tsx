@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  Map,
+  Map as MapIcon,
   Flame,
   Wind,
   AudioLines,
@@ -28,7 +28,7 @@ interface LayerItem {
 
 /** Map layer definitions with sensor-consistent color coding */
 const layers: LayerItem[] = [
-  { id: 'map', label: 'Base Map', icon: Map, color: 'text-white' },
+  { id: 'map', label: 'Base Map', icon: MapIcon, color: 'text-white' },
   { id: 'thermal', label: 'Thermal', icon: Flame, color: 'text-orange-400' },
   { id: 'acoustic', label: 'Acoustic', icon: AudioLines, color: 'text-sky-400' },
   { id: 'gas', label: 'Gas', icon: Wind, color: 'text-amber-400' },
