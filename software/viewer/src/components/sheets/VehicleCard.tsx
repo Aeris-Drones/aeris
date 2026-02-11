@@ -7,19 +7,19 @@ import { cn } from '@/lib/utils';
 /**
  * Vehicle operational status for UI display.
  *
- * - active: Normal flight operations
- * - warning: Non-critical issues (low battery, degraded signal)
- * - error: Critical faults requiring immediate attention
- * - returning: Return-to-home (RTH) in progress
- * - idle: On ground, powered and ready
+ * Status values drive visual styling (colors, glow effects) and available actions
+ * in the GCS. Critical statuses (error, returning) receive heightened visual
+ * prominence to ensure operator awareness during multi-vehicle operations.
  */
 export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle';
 
 /**
  * Core telemetry snapshot for a single vehicle.
  *
- * Note: altitude is in meters above takeoff. linkQuality and coverage
- * are percentages (0-100) representing telemetry health and search coverage.
+ * Data is received via ROS telemetry topics and normalized for UI consumption.
+ * Altitude is relative to takeoff (AMSL offset applied upstream). Percentage
+ * fields (battery, linkQuality, coverage) are clamped 0-100 by the telemetry
+ * adapter to prevent display anomalies.
  */
 export interface VehicleInfo {
   id: string;
@@ -31,6 +31,14 @@ export interface VehicleInfo {
   coverage?: number;
 }
 
+/**
+ * Props for the VehicleCard component.
+ *
+ * Callbacks integrate with the map viewport (onLocate), video streaming
+ * service (onViewFeed), and mission commander (onRTH). All callbacks are
+ * expected to be memoized by the parent to prevent unnecessary re-renders
+ * in the vehicle list.
+ */
 export interface VehicleCardProps {
   vehicle: VehicleInfo;
   isSelected: boolean;
@@ -40,8 +48,11 @@ export interface VehicleCardProps {
 }
 
 /**
- * Visual styling configuration for each vehicle status.
- * Glow effects indicate severity/urgency level.
+ * Visual styling configuration mapped by vehicle status.
+ *
+ * Glow intensity correlates with operational urgency to draw operator
+ * attention during high-stress scenarios (error, returning). Colors align
+ * with aviation standards: green (normal), amber (caution), red (warning).
  */
 const statusConfig: Record<VehicleStatus, {
   label: string;
@@ -82,10 +93,10 @@ const statusConfig: Record<VehicleStatus, {
 };
 
 /**
- * Battery color thresholds:
- * - >50%: Green (healthy)
- * - 20-50%: Amber (caution)
- * - <20%: Red (critical - land immediately)
+ * Returns the appropriate color class for a given battery percentage.
+ *
+ * Thresholds align with operator training: <20% requires immediate RTH
+ * per flight safety protocols. Colors match statusConfig for consistency.
  */
 function getBatteryColor(battery: number): string {
   if (battery > 50) return 'text-emerald-400';
@@ -93,6 +104,10 @@ function getBatteryColor(battery: number): string {
   return 'text-red-400';
 }
 
+/**
+ * Returns the SVG stroke color class for the battery arc indicator.
+ * Mirrors getBatteryColor logic for visual consistency.
+ */
 function getBatteryStroke(battery: number): string {
   if (battery > 50) return 'stroke-emerald-400';
   if (battery > 20) return 'stroke-amber-400';
@@ -100,8 +115,10 @@ function getBatteryStroke(battery: number): string {
 }
 
 /**
- * Circular battery indicator using SVG stroke-dasharray.
- * Shows remaining charge as an arc around the battery percentage.
+ * Circular battery indicator using SVG stroke-dasharray technique.
+ *
+ * Renders a progress arc that depletes counter-clockwise as battery drains.
+ * The -90deg rotation ensures the arc starts at 12 o'clock position.
  */
 function BatteryArc({ battery }: { battery: number }) {
   const radius = 26;
@@ -135,13 +152,15 @@ function BatteryArc({ battery }: { battery: number }) {
 }
 
 /**
- * Individual vehicle card displaying telemetry and quick actions.
+ * Displays a single vehicle's telemetry and provides quick actions.
  *
- * Features:
- * - Circular battery indicator with color-coded thresholds
- * - Status badge with pulsing indicator
- * - Telemetry grid (altitude, link quality, coverage)
- * - Quick actions: locate on map, view video feed, return-to-home
+ * This component is rendered for each vehicle in the fleet sheet. It receives
+ * pre-normalized telemetry data from the vehicle store and delegates actions
+ * to the parent component to maintain loose coupling with map/video services.
+ *
+ * Performance: The component is optimized for frequent re-renders as telemetry
+ * updates arrive (typically 1-10Hz per vehicle). Avoid adding heavy computations
+ * or effects here; preprocess data in the telemetry adapter instead.
  */
 export function VehicleCard({
   vehicle,

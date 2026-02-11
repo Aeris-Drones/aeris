@@ -5,10 +5,7 @@ import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 
-/**
- * Props for the DetectionMarker3D component.
- * Represents a sensor detection (thermal, acoustic, or gas) in the 3D scene.
- */
+/** Props for the DetectionMarker3D component - represents a sensor detection in the 3D scene */
 export interface DetectionMarker3DProps {
   /** Unique detection identifier */
   id: string;
@@ -26,14 +23,14 @@ export interface DetectionMarker3DProps {
   onClick: () => void;
 }
 
-/** Color mapping by sensor type for consistent visual language */
+/** Color mapping by sensor type for consistent visual language across the GCS */
 const SENSOR_COLORS = {
-  thermal: '#f97316',  // Orange-red - heat signature
-  acoustic: '#3b82f6', // Blue - sound waves
-  gas: '#eab308',      // Yellow - chemical warning
+  thermal: '#f97316',
+  acoustic: '#3b82f6',
+  gas: '#eab308',
 };
 
-/** Human-readable labels for sensor types */
+/** Human-readable labels for sensor types - displayed in the marker UI */
 const SENSOR_LABELS = {
   thermal: 'THERMAL',
   acoustic: 'ACOUSTIC',
@@ -41,19 +38,28 @@ const SENSOR_LABELS = {
 };
 
 /**
- * DetectionMarker3D - 3D marker for sensor detections.
+ * 3D marker for sensor detections (thermal, acoustic, gas) in the Three.js scene.
  *
- * Visual Design:
- * - Shape varies by sensor type: sphere (thermal), cone (acoustic), octahedron (gas)
- * - Pulsing animation for new detections to draw attention
- * - Ground glow effect using point light
- * - Vertical beacon line for visibility from distance
- * - Selection ring and confirmed indicator
+ * Visual design uses distinct shapes per sensor type for quick identification:
+ * - Thermal: Sphere (radiating heat)
+ * - Acoustic: Cone (directional sound)
+ * - Gas: Octahedron (chemical/plume shape)
  *
- * Animation:
- * - Pulse ring scales with sine wave for new/selected detections
- * - Point light intensity varies for breathing effect
- * - Higher frequency animation for new detections, slower for selected
+ * Animation effects draw attention to new detections and selected items through
+ * pulsing rings and breathing light effects.
+ *
+ * @example
+ * ```tsx
+ * <DetectionMarker3D
+ *   id="det-001"
+ *   position={[100, 0, 200]}
+ *   sensorType="thermal"
+ *   confidence={0.85}
+ *   status="new"
+ *   isSelected={false}
+ *   onClick={() => selectDetection('det-001')}
+ * />
+ * ```
  */
 export function DetectionMarker3D({
   position,
@@ -72,10 +78,10 @@ export function DetectionMarker3D({
   const isConfirmed = status === 'confirmed';
 
   /**
-   * Per-frame animation for pulsing effects.
+   * Per-frame animation loop for pulsing effects.
    *
-   * Pulse ring: Scales with sine wave when new or selected
-   * Glow light: Intensity breathes based on selection/new state
+   * Pulse ring scales with sine wave when new or selected.
+   * Glow light intensity breathes based on state:
    * - Selected: Higher base intensity, slower pulse
    * - New: Medium intensity, faster pulse
    * - Default: Low steady intensity
@@ -96,10 +102,7 @@ export function DetectionMarker3D({
 
   /**
    * Memoized geometry selection based on sensor type.
-   * Each sensor has a distinct shape for quick visual identification:
-   * - Thermal: Sphere (radiating heat)
-   * - Acoustic: Cone (directional sound)
-   * - Gas: Octahedron (chemical/plume shape)
+   * Each sensor has a distinct shape for quick visual identification.
    */
   const markerGeometry = useMemo(() => {
     switch (sensorType) {
@@ -121,7 +124,6 @@ export function DetectionMarker3D({
         onClick();
       }}
     >
-      {/* Ground glow - point light for atmospheric effect */}
       <pointLight
         ref={glowRef}
         position={[0, 5, 0]}
@@ -130,7 +132,6 @@ export function DetectionMarker3D({
         distance={40}
       />
 
-      {/* Pulse ring - animated for new or selected detections */}
       {(isNew || isSelected) && (
         <mesh
           ref={pulseRef}
@@ -147,7 +148,6 @@ export function DetectionMarker3D({
         </mesh>
       )}
 
-      {/* Selection ring - white ring when selected */}
       {isSelected && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.3, 0]}>
           <ringGeometry args={[14, 16, 32]} />
@@ -160,7 +160,6 @@ export function DetectionMarker3D({
         </mesh>
       )}
 
-      {/* Main marker geometry - positioned at different heights based on shape */}
       <mesh position={[0, sensorType === 'acoustic' ? 8 : 6, 0]}>
         {markerGeometry}
         <meshStandardMaterial
@@ -172,7 +171,6 @@ export function DetectionMarker3D({
         />
       </mesh>
 
-      {/* Confirmed indicator - green sphere above marker */}
       {isConfirmed && (
         <mesh position={[0, 16, 0]}>
           <sphereGeometry args={[3, 12, 12]} />
@@ -184,7 +182,6 @@ export function DetectionMarker3D({
         </mesh>
       )}
 
-      {/* Vertical beacon line - extends upward for visibility */}
       <mesh position={[0, 20, 0]}>
         <cylinderGeometry args={[0.3, 0.3, 40, 8]} />
         <meshBasicMaterial
@@ -194,7 +191,6 @@ export function DetectionMarker3D({
         />
       </mesh>
 
-      {/* Info label - HTML overlay with sensor type and confidence */}
       <Html
         position={[0, 35, 0]}
         center

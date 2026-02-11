@@ -5,54 +5,60 @@ import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 
-/**
- * Props for the DroneMarker3D component.
- * Position uses Three.js coordinate system: [x, y, z] where y is up (altitude).
- */
+/** Props for the DroneMarker3D component - uses Three.js coordinate system where y is up */
 export interface DroneMarker3DProps {
   /** World position [x, y, z] - y represents altitude above ground */
   position: [number, number, number];
   /** Heading in degrees, 0 = north/+z, increases clockwise */
   heading: number;
-  /** Unique vehicle identifier */
+  /** Unique vehicle identifier - displayed in the marker label */
   vehicleId: string;
-  /** Display name for the vehicle */
+  /** Display name for the vehicle - shown in the marker UI */
   vehicleName: string;
-  /** Operational status - drives color and visual indicators */
+  /** Operational status - drives color coding and visual indicators */
   status: 'active' | 'warning' | 'error' | 'returning';
-  /** Whether this drone is currently selected */
+  /** Whether this drone is currently selected - enables selection effects */
   isSelected: boolean;
-  /** Whether to show the flight trail */
+  /** Whether to show the flight trail - controlled by layer visibility */
   showTrail: boolean;
-  /** Array of world positions for the flight trail */
+  /** Array of world positions for the flight trail visualization */
   trailPoints: [number, number, number][];
-  /** Click handler for selection */
+  /** Click handler for selection - typically updates selection state in parent */
   onClick: () => void;
 }
 
-/** Status color mapping for visual feedback */
+/** Status color mapping for visual feedback across the GCS */
 const STATUS_COLORS = {
-  active: '#22c55e',    // Green - normal operation
-  warning: '#f59e0b',   // Amber - attention needed
-  error: '#ef4444',     // Red - critical issue
-  returning: '#3b82f6', // Blue - return to launch mode
+  active: '#22c55e',
+  warning: '#f59e0b',
+  error: '#ef4444',
+  returning: '#3b82f6',
 };
 
 /**
- * DroneMarker3D - 3D visual representation of a drone in the scene.
+ * 3D visual representation of a drone in the Three.js scene.
  *
- * Visual Elements:
- * - Ground ring: Status-colored ring at ground level showing position projection
- * - Selection pulse: Animated ring when selected
- * - Altitude line: Vertical line from ground to drone showing height
- * - Drone body: Box body with X-shaped arms and motor pods
- * - Nose cone: Direction indicator colored by status
- * - Label: HTML overlay showing vehicle name and ID
+ * Renders a detailed drone model with status-driven color coding, selection effects,
+ * and an altitude indicator. The visual design includes a ground ring for position
+ * reference, a vertical altitude line, and an HTML label overlay.
  *
- * Coordinate System Notes:
- * - The ground ring uses rotation [-PI/2, 0, 0] to lay flat on XZ plane
- * - Altitude line height is derived from position[1] (y-coordinate)
- * - Heading rotation is applied to the body group on the Y axis
+ * Coordinate system: Three.js standard where y is up. Heading rotation is applied
+ * to the body group on the Y axis.
+ *
+ * @example
+ * ```tsx
+ * <DroneMarker3D
+ *   position={[100, 50, 200]}
+ *   heading={45}
+ *   vehicleId="UAV-001"
+ *   vehicleName="Alpha"
+ *   status="active"
+ *   isSelected={selectedId === 'UAV-001'}
+ *   showTrail={true}
+ *   trailPoints={[[100, 50, 190], [100, 50, 200]]}
+ *   onClick={() => selectDrone('UAV-001')}
+ * />
+ * ```
  */
 export function DroneMarker3D({
   position,
@@ -69,11 +75,10 @@ export function DroneMarker3D({
   const statusColor = STATUS_COLORS[status];
 
   /**
-   * Animation loop for selection effects.
-   * Runs on every frame via useFrame.
+   * Per-frame animation loop for selection effects.
    *
-   * Selection ring: Slow continuous rotation
-   * Pulse ring: Sine wave scaling for breathing effect
+   * Selection ring rotates continuously when selected.
+   * Pulse ring scales with sine wave for breathing effect.
    */
   useFrame((state) => {
     if (ringRef.current && isSelected) {
@@ -85,7 +90,6 @@ export function DroneMarker3D({
     }
   });
 
-  // Convert heading from degrees to radians for Three.js rotation
   const headingRad = (heading * Math.PI) / 180;
 
   return (
@@ -97,7 +101,6 @@ export function DroneMarker3D({
         onClick();
       }}
     >
-      {/* Ground ring - shows drone position projected to ground plane */}
       <mesh
         ref={ringRef}
         rotation={[-Math.PI / 2, 0, 0]}
@@ -112,7 +115,6 @@ export function DroneMarker3D({
         />
       </mesh>
 
-      {/* Selection pulse ring - animated breathing effect when selected */}
       {isSelected && (
         <mesh
           ref={pulseRef}
@@ -129,15 +131,12 @@ export function DroneMarker3D({
         </mesh>
       )}
 
-      {/* Altitude line - vertical dashed line from ground to drone */}
       <mesh position={[0, -position[1] / 2, 0]}>
         <cylinderGeometry args={[0.3, 0.3, position[1], 8]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0.15} />
       </mesh>
 
-      {/* Drone body group - rotated by heading */}
       <group rotation={[0, headingRad, 0]}>
-        {/* Main body - centered box */}
         <mesh castShadow>
           <boxGeometry args={[8, 3, 8]} />
           <meshStandardMaterial
@@ -147,7 +146,6 @@ export function DroneMarker3D({
           />
         </mesh>
 
-        {/* X-shaped arms - two crossed boxes at 45 degrees */}
         <mesh position={[0, 0, 0]} rotation={[0, Math.PI / 4, 0]}>
           <boxGeometry args={[20, 1.5, 2]} />
           <meshStandardMaterial color="#1a1a2a" />
@@ -157,7 +155,6 @@ export function DroneMarker3D({
           <meshStandardMaterial color="#1a1a2a" />
         </mesh>
 
-        {/* Motor pods at arm ends */}
         {[
           [8, 0, 8],
           [-8, 0, 8],
@@ -170,7 +167,6 @@ export function DroneMarker3D({
           </mesh>
         ))}
 
-        {/* Direction indicator (nose cone) - shows heading direction */}
         <mesh position={[0, 0, -6]} rotation={[Math.PI / 2, 0, 0]}>
           <coneGeometry args={[2, 4, 8]} />
           <meshStandardMaterial
@@ -181,7 +177,6 @@ export function DroneMarker3D({
         </mesh>
       </group>
 
-      {/* Name label - HTML overlay positioned above drone */}
       <Html
         position={[0, 15, 0]}
         center

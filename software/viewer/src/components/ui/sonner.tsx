@@ -5,6 +5,20 @@ import { cn } from '@/lib/utils';
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
+/**
+ * Toast notification container for the GCS.
+ *
+ * Wraps the Sonner toast library with application-specific styling.
+ * Provides visual feedback for mission events, system status changes,
+ * and operator action confirmations.
+ *
+ * Toast variants (error, warning, success, info) use color-coded
+ * left borders for quick visual identification during high-tempo operations.
+ *
+ * @example
+ * toast.error('Connection lost');
+ * toast.success('Mission uploaded');
+ */
 function Toaster({ ...props }: ToasterProps) {
   return (
     <Sonner

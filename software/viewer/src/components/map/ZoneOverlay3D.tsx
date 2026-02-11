@@ -7,8 +7,8 @@ import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
 import { calculateZoneCentroid } from '@/types/zone';
 
 /**
- * Color mapping for zone priority levels.
- * Higher priority (1) gets more urgent colors.
+ * Priority color scheme: lower numbers indicate higher operational priority.
+ * Red (1) = immediate attention, Orange (2) = elevated, Yellow (3) = standard.
  */
 const priorityColors: Record<ZonePriority, { line: string; fill: string }> = {
   1: { line: '#ef4444', fill: '#ef4444' }, // Red - highest priority
@@ -16,47 +16,35 @@ const priorityColors: Record<ZonePriority, { line: string; fill: string }> = {
   3: { line: '#eab308', fill: '#eab308' }, // Yellow - lowest priority
 };
 
-/**
- * Props for the ZoneOverlay3D component.
- */
 interface ZoneOverlay3DProps {
-  /** Zone data including polygon points, priority, and status */
   zone: PriorityZone;
-  /** Whether this zone is currently selected */
   isSelected: boolean;
-  /** Click handler for zone selection */
   onClick?: () => void;
 }
 
 /**
- * Converts ZonePoint array to Three.js Vector3 array.
- * Note: Y-coordinate is set explicitly since zones exist on the XZ ground plane.
- *
- * @param points - Array of zone points with x, z coordinates
- * @param y - Height offset for the line (default: 1 unit above ground)
- * @returns Array of Vector3 points for Three.js Line
+ * Converts zone points to Three.js vectors with height offset.
+ * Zones are defined on the XZ ground plane; Y is added for rendering elevation.
  */
 function pointsToVector3(points: ZonePoint[], y: number = 1): THREE.Vector3[] {
   return points.map(p => new THREE.Vector3(p.x, y, p.z));
 }
 
 /**
- * ZoneOverlay3D - Renders a priority zone on the 3D map.
+ * Renders a priority zone polygon on the 3D map with visual state indicators.
  *
- * Visual Components:
- * - Fill: Semi-transparent polygon showing zone area
- * - Outline: Colored line around the perimeter
- * - Labels: Zone name and priority level at centroid
+ * Coordinate transformation is required because:
+ * - Zone data uses XZ ground plane (y=0 in world space)
+ * - Three.js Shape works in XY plane, so we negate Z and rotate -90° on X
  *
- * Coordinate System Notes:
- * - Zones are defined on the XZ ground plane (y=0)
- * - Fill geometry uses Shape which works in XY plane, hence the -z conversion
- * - Rotation [-PI/2, 0, 0] lays the shape flat on the XZ plane
+ * Visual states communicate operational status:
+ * - Completed: Dashed outline indicates no longer active
+ * - Skipped: Reduced opacity shows it was bypassed
+ * - Selected: Thicker border for focus indication
  *
- * State Visuals:
- * - Completed zones: Dashed outline, grayed out
- * - Skipped zones: Grayed out with reduced opacity
- * - Selected zones: Thicker outline, higher fill opacity
+ * @param zone - Zone data from mission planning system
+ * @param isSelected - Whether this zone is currently focused
+ * @param onClick - Handler for zone selection interactions
  */
 export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps) {
   const colors = priorityColors[zone.priority];
@@ -64,11 +52,6 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
   const isSkipped = zone.status === 'skipped';
   const isDimmed = isCompleted || isSkipped;
 
-  /**
-   * Line points for the zone outline.
-   * Closes the polygon by cloning the first point to the end.
-   * Memoized to prevent recalculation on re-renders.
-   */
   const linePoints = useMemo(() => {
     if (zone.polygon.length < 3) return [];
     const points = pointsToVector3(zone.polygon, 2);
@@ -76,15 +59,7 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
     return points;
   }, [zone.polygon]);
 
-  /**
-   * Fill geometry for the zone polygon.
-   *
-   * Three.js Shape works in XY plane, but we need XZ for ground alignment.
-   * The shape is built with (x, -z) coordinates, then rotated -90 degrees
-   * around X axis to lay flat on the ground.
-   *
-   * Memoized to prevent expensive geometry regeneration.
-   */
+  // ShapeGeometry requires XY plane construction; rotation aligns to XZ ground
   const fillGeometry = useMemo(() => {
     if (zone.polygon.length < 3) return null;
 
@@ -98,17 +73,12 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
     return new THREE.ShapeGeometry(shape);
   }, [zone.polygon]);
 
-  /** Centroid for label positioning - calculated from polygon geometry */
-  const centroid = useMemo(() => {
-    return calculateZoneCentroid(zone.polygon);
-  }, [zone.polygon]);
+  const centroid = useMemo(() => calculateZoneCentroid(zone.polygon), [zone.polygon]);
 
-  // Don't render if polygon has insufficient points
   if (zone.polygon.length < 3) return null;
 
   return (
     <group onClick={onClick}>
-      {/* Zone fill - semi-transparent polygon on ground */}
       {fillGeometry && (
         <mesh
           geometry={fillGeometry}
@@ -125,7 +95,6 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
         </mesh>
       )}
 
-      {/* Zone outline - colored line around perimeter */}
       <Line
         points={linePoints}
         color={isDimmed ? '#666666' : colors.line}
@@ -137,7 +106,6 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
         gapSize={isCompleted ? 5 : undefined}
       />
 
-      {/* Zone name label - positioned above centroid */}
       <Text
         position={[centroid.x, 8, centroid.z]}
         fontSize={6}
@@ -150,7 +118,6 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
         {zone.name}
       </Text>
 
-      {/* Priority level label - below name */}
       <Text
         position={[centroid.x, 3, centroid.z]}
         fontSize={4}
@@ -166,26 +133,21 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
   );
 }
 
-/**
- * Props for the ZoneDrawingPreview component.
- */
 interface ZoneDrawingPreviewProps {
-  /** Current points in the polygon being drawn */
   points: ZonePoint[];
-  /** Priority level for visual color coding */
   priority: ZonePriority;
 }
 
 /**
- * ZoneDrawingPreview - Shows in-progress zone during drawing mode.
+ * Shows in-progress zone polygon during drawing mode.
  *
- * Renders:
- * - Fill preview (when 3+ points exist)
- * - Dashed line connecting points
- * - Spheres at each vertex for visual feedback
+ * Provides immediate visual feedback as operators click points on the map:
+ * - Fill preview appears once polygon is valid (3+ points)
+ * - Dashed line shows current perimeter
+ * - Vertex markers indicate clicked locations
  *
- * Uses the same coordinate transformation as ZoneOverlay3D
- * for consistency with final rendered zones.
+ * Uses identical coordinate transformation as ZoneOverlay3D to ensure
+ * the preview matches the final zone appearance.
  */
 export function ZoneDrawingPreview({ points, priority }: ZoneDrawingPreviewProps) {
   const colors = priorityColors[priority];
@@ -212,7 +174,6 @@ export function ZoneDrawingPreview({ points, priority }: ZoneDrawingPreviewProps
 
   return (
     <group>
-      {/* Preview fill - more opaque than final zones */}
       {fillGeometry && (
         <mesh
           geometry={fillGeometry}
@@ -229,7 +190,6 @@ export function ZoneDrawingPreview({ points, priority }: ZoneDrawingPreviewProps
         </mesh>
       )}
 
-      {/* Preview outline - dashed line */}
       {linePoints.length >= 2 && (
         <Line
           points={linePoints}
@@ -243,7 +203,6 @@ export function ZoneDrawingPreview({ points, priority }: ZoneDrawingPreviewProps
         />
       )}
 
-      {/* Vertex markers - spheres at each clicked point */}
       {points.map((point, i) => (
         <mesh key={i} position={[point.x, 3, point.z]}>
           <sphereGeometry args={[2, 16, 16]} />

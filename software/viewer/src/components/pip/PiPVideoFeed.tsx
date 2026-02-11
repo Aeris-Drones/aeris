@@ -14,9 +14,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * Vehicle metadata for the PiP switcher interface.
- */
 interface Vehicle {
   id: string;
   name: string;
@@ -36,43 +33,45 @@ interface PiPVideoFeedProps {
   onExpand: () => void;
 }
 
-/**
- * Returns battery color based on charge level thresholds.
- * Uses distinct colors for good (>60%), caution (30-60%), and critical (<30%).
- */
 function getBatteryColor(percent: number): string {
   if (percent > 60) return 'text-emerald-400';
   if (percent > 30) return 'text-amber-400';
   return 'text-red-400';
 }
 
-/**
- * Returns appropriate signal icon based on connection status.
- */
 function getSignalIcon(isLive: boolean) {
   if (!isLive) return <SignalZero className="h-4 w-4" />;
   return <Signal className="h-4 w-4" />;
 }
 
 /**
- * PiPVideoFeed displays a picture-in-picture video feed with vehicle telemetry.
+ * Picture-in-picture video feed with telemetry overlay and vehicle switching.
  *
- * UI/UX Decisions:
- * - Two modes: compact PiP (default) and expanded modal for detailed view
- * - LIVE badge uses red color for universal recognition of active recording
- * - Battery color transitions from green to amber to red as charge depletes
- * - Vehicle switcher shows up to 4 vehicles in compact mode, all in expanded
- * - Gradient overlay on video ensures telemetry text remains readable
+ * Supports two presentation modes:
+ * - Compact PiP: Persistent overlay for multitasking during operations
+ * - Expanded modal: Focused viewing with full vehicle switcher
  *
- * Accessibility:
- * - Title attributes on control buttons describe their action
- * - Status indicators use both icons and text
- * - Color is not the sole indicator (icons reinforce battery/signal state)
- * - Sufficient contrast for all text elements over video background
+ * Design decisions:
+ * - Red "LIVE" badge follows broadcast convention for active recording
+ * - Battery colors use traffic-light scheme (green/amber/red) for quick assessment
+ * - Gradient overlays ensure text legibility over variable video content
+ * - Vehicle switcher limits to 4 in compact mode to prevent layout overflow
  *
- * State Management:
- * - isExpanded controls modal vs PiP presentation
- * - handleExpand toggles state and notifies parent via onExpand callback
+ * Accessibility features:
+ * - Title attributes on all interactive controls
+ * - Dual-coded status (color + icon) for colorblind operators
+ * - Sufficient contrast ratios for outdoor viewing conditions
+ *
+ * @param vehicleId - Currently displayed vehicle identifier
+ * @param vehicleName - Display name for the active vehicle
+ * @param streamUrl - Video stream endpoint (undefined when offline)
+ * @param batteryPercent - Remaining charge for telemetry display
+ * @param altitude - Current altitude in meters
+ * @param isLive - Connection status from telemetry hook
+ * @param allVehicles - Available vehicles for switcher UI
+ * @param onVehicleSwitch - Callback when operator selects different vehicle
+ * @param onClose - Callback to dismiss the PiP feed
+ * @param onExpand - Callback when expanding to modal view
  */
 export function PiPVideoFeed({
   vehicleId,
@@ -93,7 +92,6 @@ export function PiPVideoFeed({
     setIsExpanded(!isExpanded);
   };
 
-  // Expanded modal view with full vehicle switcher and larger video
   if (isExpanded) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm">
@@ -136,7 +134,6 @@ export function PiPVideoFeed({
             </div>
           </div>
 
-          {/* Video container with telemetry overlay */}
           <div className="relative aspect-video bg-black">
             {streamUrl ? (
               <div className="absolute inset-0 flex items-center justify-center">
@@ -151,7 +148,6 @@ export function PiPVideoFeed({
               </div>
             )}
 
-            {/* Telemetry overlay with gradient for readability */}
             <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
               <div className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-6">
@@ -176,7 +172,6 @@ export function PiPVideoFeed({
             </div>
           </div>
 
-          {/* Vehicle switcher tabs - shown when multiple vehicles available */}
           {allVehicles.length > 1 && (
             <div className="flex border-t border-white/10">
               {allVehicles.map((vehicle) => {
@@ -212,7 +207,6 @@ export function PiPVideoFeed({
     );
   }
 
-  // Compact PiP view for persistent overlay on main interface
   return (
     <div className={cn(
       'w-56 rounded-lg overflow-hidden',
@@ -253,7 +247,6 @@ export function PiPVideoFeed({
         </div>
       </div>
 
-      {/* Compact video area with minimal telemetry */}
       <div className="relative aspect-video bg-black">
         {streamUrl ? (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -268,7 +261,6 @@ export function PiPVideoFeed({
           </div>
         )}
 
-        {/* Compact telemetry overlay */}
         <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent">
           <div className="flex items-center justify-between text-[10px]">
             <div className="flex items-center gap-3">
@@ -292,7 +284,6 @@ export function PiPVideoFeed({
         </div>
       </div>
 
-      {/* Compact vehicle switcher - limited to 4 vehicles */}
       {allVehicles.length > 1 && (
         <div className="flex border-t border-white/5">
           {allVehicles.slice(0, 4).map((vehicle) => {
@@ -312,7 +303,6 @@ export function PiPVideoFeed({
                 )}
               >
                 <div className="flex flex-col items-center gap-0.5">
-                  {/* First name only to fit compact layout */}
                   <span className="text-[10px] font-medium truncate max-w-full">
                     {vehicle.name.split(' ')[0]}
                   </span>

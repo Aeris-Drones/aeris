@@ -12,22 +12,35 @@ import { cn } from '@/lib/utils';
 type FilterTab = 'all' | 'pending' | 'confirmed' | 'dismissed';
 
 interface DetectionSheetProps {
+  /** All detections from the perception pipeline */
   detections: Detection[];
+  /** Callback when operator confirms a detection */
   onConfirm: (id: string) => void;
+  /** Callback when operator dismisses a detection */
   onDismiss: (id: string) => void;
+  /** Callback to center map on detection */
   onLocate: (id: string) => void;
+  /** Trigger element that opens the drawer */
   trigger: React.ReactNode;
 }
 
 /**
- * Detection review sheet with filtering and triage workflow.
+ * Detection review drawer with filtering and triage workflow.
  *
- * Supports filtering by review status:
- * - pending: new or reviewing (requires operator action)
- * - confirmed: validated detections
- * - dismissed: false positives
+ * Provides operators with a centralized interface for reviewing sensor
+ * detections from all connected vehicles. Filter tabs organize detections
+ * by review status to help prioritize attention on pending items.
  *
- * Detection workflow: new -> reviewing -> confirmed|dismissed
+ * Integration with DetectionCard:
+ * - DetectionCard handles individual triage actions
+ * - This component manages the list view and filtering state
+ * - onLocate callbacks propagate to parent for map coordination
+ *
+ * @param detections - All detections from the perception pipeline
+ * @param onConfirm - Callback when operator confirms a detection
+ * @param onDismiss - Callback when operator dismisses a detection
+ * @param onLocate - Callback to center map on detection
+ * @param trigger - Trigger element that opens the drawer
  */
 export function DetectionSheet({
   detections,
@@ -38,7 +51,6 @@ export function DetectionSheet({
 }: DetectionSheetProps) {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
 
-  // Counts for filter tab badges
   const counts = {
     all: detections.length,
     pending: detections.filter(d => d.status === 'new' || d.status === 'reviewing').length,
@@ -46,7 +58,6 @@ export function DetectionSheet({
     dismissed: detections.filter(d => d.status === 'dismissed').length,
   };
 
-  // Apply active filter to detection list
   const filteredDetections = detections.filter((d) => {
     if (activeFilter === 'all') return true;
     if (activeFilter === 'pending') return d.status === 'new' || d.status === 'reviewing';
@@ -71,7 +82,6 @@ export function DetectionSheet({
             </span>
           </div>
 
-          {/* Status filter tabs */}
           <div className="flex border-b border-white/5">
             {tabs.map((tab) => (
               <button

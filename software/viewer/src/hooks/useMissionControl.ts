@@ -19,10 +19,7 @@ import ROSLIB from 'roslib';
 
 type SearchPattern = 'lawnmower' | 'spiral';
 
-// Service call timeout to prevent UI from hanging if orchestrator is unresponsive.
 const MISSION_SERVICE_TIMEOUT_MS = 8000;
-
-// Validation error shown when operator attempts to start without a valid search zone.
 const INVALID_START_ZONE_ERROR =
   'Select an active zone with at least 3 points before starting.';
 
@@ -102,11 +99,9 @@ export function useMissionControl(): MissionControlState {
   const [startMissionError, setStartMissionError] = useState<string | null>(null);
   const [abortMissionError, setAbortMissionError] = useState<string | null>(null);
 
-  // Zone validation: requires active status and minimum 3 points for a valid polygon.
   const hasValidStartZone =
     !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
 
-  // Clear the "invalid zone" error once a valid zone is selected.
   const effectiveStartMissionError =
     hasValidStartZone && startMissionError === INVALID_START_ZONE_ERROR
       ? null
@@ -121,10 +116,6 @@ export function useMissionControl(): MissionControlState {
   const confirmedCount = stats.confirmedSurvivors;
   const pendingCount = stats.pendingDetections;
 
-  /**
-   * Publish a command to the ROS mission orchestrator.
-   * Commands are fire-and-forget; use services for operations requiring confirmation.
-   */
   const publishCommand = useCallback((command: MissionCommand) => {
     if (!ros || !rosConnected) {
       console.warn('[MissionControl] ROS not connected, command not published');
@@ -148,10 +139,6 @@ export function useMissionControl(): MissionControlState {
     topic.publish(message);
   }, [ros, rosConnected, state.missionId]);
 
-  /**
-   * Call a mission service with timeout protection.
-   * Services are used for operations requiring acknowledgment (start, abort).
-   */
   const callMissionService = useCallback(
     (
       serviceName: 'start_mission' | 'abort_mission',
@@ -195,7 +182,6 @@ export function useMissionControl(): MissionControlState {
     [ros, rosConnected]
   );
 
-  // Subscribe to ROS mission state and progress updates.
   useEffect(() => {
     if (!ros || !rosConnected) return;
 
@@ -223,11 +209,6 @@ export function useMissionControl(): MissionControlState {
     const isMissionPhase = (value: string): value is MissionPhase =>
       missionPhases.includes(value as MissionPhase);
 
-    /**
-     * Handle state updates from the orchestrator.
-     * Accepts both raw phase strings and JSON payloads with phase/state fields.
-     * Clears abort errors when entering terminal states (ABORTED/IDLE).
-     */
     const handleStateMessage = (message: ROSLIB.Message) => {
       try {
         const rawData = (message as { data: string }).data;
@@ -255,10 +236,6 @@ export function useMissionControl(): MissionControlState {
       }
     };
 
-    /**
-     * Handle progress updates from the orchestrator.
-     * Normalizes snake_case and camelCase field names for compatibility.
-     */
     const handleProgressMessage = (message: ROSLIB.Message) => {
       try {
         const data = JSON.parse((message as { data: string }).data) as {
@@ -343,11 +320,6 @@ export function useMissionControl(): MissionControlState {
     };
   }, [ros, rosConnected, setPhase, updateProgress, markExternalUpdate]);
 
-  /**
-   * Initiate a new mission via ROS service call.
-   * Validates zone selection and sends zone geometry to the orchestrator.
-   * Transitions to PLANNING phase on successful service response.
-   */
   const startMission = useCallback(() => {
     const zone = selectedZone;
     if (!zone || !hasValidStartZone) {
@@ -405,11 +377,6 @@ export function useMissionControl(): MissionControlState {
     publishCommand('RESUME');
   }, [contextResume, publishCommand]);
 
-  /**
-   * Abort the current mission via ROS service call.
-   * Validates ROS connection and mission ID before calling.
-   * Falls back to local state reset if service call fails.
-   */
   const abortMission = useCallback(() => {
     setAbortMissionError(null);
 
@@ -459,7 +426,6 @@ export function useMissionControl(): MissionControlState {
     publishCommand('COMPLETE');
   }, [contextComplete, publishCommand]);
 
-  // Sync detection stats from MissionContext to local state for UI display.
   useEffect(() => {
     updateStats({
       detectionCounts: detectionStats,
@@ -468,7 +434,6 @@ export function useMissionControl(): MissionControlState {
     });
   }, [detectionStats, confirmedCount, pendingCount, updateStats]);
 
-  // Compute UI control flags based on current mission phase and system state.
   const computedState = useMemo(() => {
     const controlFlags = computeMissionControlFlags({
       phase: state.phase,
@@ -516,16 +481,19 @@ export function useMissionControl(): MissionControlState {
   };
 }
 
+/** Returns the current mission phase. */
 export function useMissionPhase(): MissionPhase {
   const { phase } = useMissionControl();
   return phase;
 }
 
+/** Returns mission coverage percentage (0-100). */
 export function useMissionCoverage(): number {
   const { coveragePercent } = useMissionControl();
   return coveragePercent;
 }
 
+/** Returns true if the mission can still be controlled (not COMPLETE). */
 export function useCanControlMission(): boolean {
   const { phase } = useMissionControl();
   return phase !== 'COMPLETE';

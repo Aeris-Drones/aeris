@@ -3,6 +3,15 @@ import * as SeparatorPrimitive from "@radix-ui/react-separator"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Visual divider that separates content into distinct sections.
+ *
+ * Wraps Radix UI's SeparatorPrimitive to provide consistent styling
+ * with the design system. Supports both horizontal and vertical orientations.
+ *
+ * Used throughout the GCS for dividing form sections, sidebar panels,
+ * and toolbar groups where visual separation improves scanability.
+ */
 const Separator = React.forwardRef<
   React.ElementRef<typeof SeparatorPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>

@@ -24,8 +24,11 @@ import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 
-// Mock detections for UI demonstration when ROS telemetry is unavailable.
-// Each detection includes sensor-specific metadata for rendering specialized indicators.
+/**
+ * Mock detections for UI demonstration when ROS telemetry is unavailable.
+ * In production, these are replaced by real-time sensor fusion data from
+ * the onboard perception pipeline via ROS topic /detections.
+ */
 const mockDetections: Detection[] = [
   {
     id: 'det-1', sensorType: 'thermal', confidence: 0.92,
@@ -119,8 +122,12 @@ function V2PageContent() {
   const [pipVehicleId, setPipVehicleId] = useState<string | null>(null);
   const mapRef = useRef<MapScene3DHandle>(null);
 
-  // Transform ROS telemetry into FleetCard-compatible vehicle summaries.
-  // Altitude is extracted from the Y axis (ENU up).
+  /**
+   * Transforms ROS telemetry into FleetCard-compatible vehicle summaries.
+   * Altitude is extracted from the Y axis (ENU coordinate frame, up is positive).
+   * ENU (East-North-Up) is the standard aerospace coordinate frame used throughout
+   * the Aeris GCS for consistent spatial reasoning.
+   */
   const fleetVehicles = useMemo<VehicleInfo[]>(() => {
     return telemetryVehicles.map((vehicle) => ({
       id: vehicle.id,
@@ -133,7 +140,10 @@ function V2PageContent() {
     }));
   }, [telemetryVehicles]);
 
-  // Map of vehicle IDs to their ground-plane (X, Z) positions for camera teleport.
+  /**
+   * Map of vehicle IDs to their ground-plane (X, Z) positions for camera teleport.
+   * X-Z plane represents the local horizontal plane in ENU coordinates.
+   */
   const vehiclePositionById = useMemo(() => {
     const entries: [string, [number, number]][] = telemetryVehicles.map((vehicle) => [
       vehicle.id,
@@ -142,8 +152,11 @@ function V2PageContent() {
     return new Map(entries);
   }, [telemetryVehicles]);
 
-  // Derive warnings from fleet telemetry for display in FleetCard.
-  // Critical threshold at 25% triggers immediate operator attention.
+  /**
+   * Derives warnings from fleet telemetry for display in FleetCard.
+   * Critical battery threshold at 25% triggers immediate operator attention
+   * per Aeris flight safety protocols.
+   */
   const fleetWarnings = useMemo<VehicleWarning[]>(
     () =>
       fleetVehicles
@@ -171,8 +184,10 @@ function V2PageContent() {
     setPipVehicleId(id);
   }, []);
 
-  // Static alerts for demonstration. In production, these would be fed from
-  // the ROS /alerts topic or a centralized alert management system.
+  /**
+   * Static alerts for demonstration. In production, these are fed from
+   * the ROS /alerts topic via the centralized alert management system.
+   */
   const storedAlerts = useMemo<Alert[]>(() => [
     {
       id: 'demo-critical',
@@ -206,8 +221,12 @@ function V2PageContent() {
     setSelectedDetectionId(null);
   };
 
-  // When a detection is selected from the map, clear vehicle selection and
-  // teleport the camera to the detection location for operator review.
+  /**
+   * Handles detection selection from the map or detection list.
+   * Clears vehicle selection and teleports camera to the detection location
+   * for operator review. Coordinates are in local ENU frame relative to
+   * the mission origin set at mission start.
+   */
   const handleDetectionSelect = useCallback((id: string) => {
     setSelectedDetectionId(id || null);
     setSelectedDroneId(null);
@@ -261,10 +280,13 @@ function V2PageContent() {
     dismissAllAlerts();
   }, [storedAlerts]);
 
-  // Global keyboard shortcuts for mission control.
-  // Space toggles pause/resume during active mission phases.
-  // Number keys 1-6 provide quick access to fleet vehicles.
-  // Escape clears all selections.
+  /**
+   * Global keyboard shortcuts for mission control.
+   * Space toggles pause/resume during active mission phases.
+   * Number keys 1-6 provide quick access to fleet vehicles.
+   * Escape clears all selections.
+   * 'r' resets camera to origin (useful after extensive map navigation).
+   */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is typing in an input

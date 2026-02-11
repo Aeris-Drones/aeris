@@ -1,27 +1,66 @@
 import { MapTileMessage, parseTileId, getTileCenter, geoToLocal, getTileDimensions, GeoCoordinates, TileCoordinates } from '../ros/mapTile';
 
+/**
+ * Processed map tile ready for Three.js rendering.
+ *
+ * Transforms ROS map tile messages into a format suitable for the 3D scene,
+ * including local coordinate positioning and blob URL generation for texture loading.
+ */
 export interface TileData {
-  id: string; // "z/x/y"
-  url: string; // Blob URL
-  position: [number, number, number]; // [x, y, z] in Three.js
-  size: number; // Width/Height in meters (assuming square)
+  /** Tile identifier in "z/x/y" format */
+  id: string;
+  /** Object URL for the tile texture (PNG blob) */
+  url: string;
+  /** Position in Three.js world coordinates [x, y, z] */
+  position: [number, number, number];
+  /** Tile width/height in meters (square tiles) */
+  size: number;
+  /** Zoom and grid coordinates */
   coordinates: TileCoordinates;
+  /** Ingestion timestamp for cache management */
   timestamp: number;
-  byteSize: number; // Size for stats tracking
+  /** Payload size for memory tracking */
+  byteSize: number;
 }
 
+/**
+ * Memory and performance statistics for the tile cache.
+ *
+ * Used by the map overlay to display cache health and network latency.
+ */
 export interface MapStats {
+  /** Number of tiles currently cached */
   count: number;
+  /** Total memory consumption in bytes */
   totalBytes: number;
+  /** 95th percentile ingestion latency in milliseconds */
   latencyP95Ms: number | null;
+  /** Most recent ingestion latency */
   lastLatencyMs: number | null;
 }
 
+/**
+ * Result of ingesting a map tile message.
+ *
+ * Contains the processed tile and optionally signals a new coordinate origin
+ * when this is the first tile or the origin has changed.
+ */
 export interface IngestResult {
   tile: TileData;
+  /** New geographic origin if established by this tile */
   newOrigin?: GeoCoordinates;
 }
 
+/**
+ * Manages the lifecycle of map tiles from ROS ingestion to Three.js rendering.
+ *
+ * Handles tile caching with LRU eviction, coordinate transformation from WGS84
+ * to local meters, and memory management via blob URL lifecycle. Integrates
+ * with the ROS map tile topic to build the 3D terrain visualization.
+ *
+ * The manager maintains a bounded cache (default 500 tiles) to prevent memory
+ * exhaustion during long missions with extensive map coverage.
+ */
 export class MapTileManager {
   private cache: Map<string, TileData>;
   private maxTiles: number;
@@ -30,6 +69,9 @@ export class MapTileManager {
   private latencySamplesMs: number[];
   private lastLatencyMs: number | null;
 
+  /**
+   * @param maxTiles - Maximum tiles to cache before LRU eviction (default: 500)
+   */
   constructor(maxTiles: number = 500) {
     this.cache = new Map();
     this.maxTiles = maxTiles;
@@ -39,6 +81,18 @@ export class MapTileManager {
     this.lastLatencyMs = null;
   }
 
+  /**
+   * Processes a ROS map tile message into renderable tile data.
+   *
+   * Validates the message, converts coordinates from WGS84 to local meters,
+   * creates a blob URL for the texture, and manages cache eviction. Tracks
+   * ingestion latency for performance monitoring.
+   *
+   * @param message - Raw ROS map tile message
+   * @param externalOrigin - Optional external coordinate origin (takes precedence)
+   * @param latencyMs - Optional network latency measurement
+   * @returns Ingestion result or null if processing failed
+   */
   public ingest(
     message: MapTileMessage,
     externalOrigin: GeoCoordinates | null,
@@ -112,6 +166,12 @@ export class MapTileManager {
     return { tile, newOrigin };
   }
 
+  /**
+   * Creates a blob URL from base64-encoded tile data.
+   *
+   * Decodes the ROS message payload into a PNG blob suitable for Three.js
+   * texture loading. Returns null if data is missing or decoding fails.
+   */
   private getTileUrl(message: MapTileMessage): string | null {
     if (message.data) {
       try {
@@ -137,6 +197,11 @@ export class MapTileManager {
     return null;
   }
 
+  /**
+   * Removes a tile from cache and revokes its blob URL.
+   *
+   * Critical for preventing memory leaks from orphaned blob URLs.
+   */
   private removeTile(key: string) {
     const tile = this.cache.get(key);
     if (tile) {
@@ -146,10 +211,16 @@ export class MapTileManager {
     }
   }
 
+  /**
+   * Returns all cached tiles for Three.js scene updates.
+   */
   public getTiles(): TileData[] {
     return Array.from(this.cache.values());
   }
 
+  /**
+   * Computes current cache statistics for performance monitoring.
+   */
   public getStats(): MapStats {
     return {
       count: this.cache.size,
@@ -159,6 +230,12 @@ export class MapTileManager {
     };
   }
 
+  /**
+   * Clears all tiles and releases memory.
+   *
+   * Should be called when disconnecting from ROS or switching missions
+   * to prevent blob URL accumulation.
+   */
   public clear() {
     for (const tile of this.cache.values()) {
       URL.revokeObjectURL(tile.url);
@@ -171,6 +248,12 @@ export class MapTileManager {
   }
 }
 
+/**
+ * Computes the p-th percentile of a numeric array.
+ *
+ * Used for latency statistics to understand tile ingestion performance.
+ * Returns null for empty arrays.
+ */
 function percentile(values: number[], p: number): number | null {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);

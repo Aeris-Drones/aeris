@@ -5,15 +5,18 @@ import { Flame, AudioLines, Wind, Crosshair, Check, X, MapPin } from 'lucide-rea
 import { cn } from '@/lib/utils';
 
 /**
- * Detection from any sensor source with triage workflow state.
+ * Sensor detection with triage workflow state.
  *
- * Position is in local ENU coordinates [east, up, north] relative to search origin.
+ * Position uses ENU (East-North-Up) local coordinates relative to the search
+ * area origin. This allows consistent spatial reasoning across vehicles without
+ * requiring global geodetic transformations for short-range operations.
+ *
  * Status lifecycle: new -> reviewing -> confirmed|dismissed
  *
- * Sensor-specific fields:
- * - thermal: temperature (Celsius)
- * - acoustic: decibels
- * - gas: concentration (ppm)
+ * Sensor-specific readings:
+ * - thermal: surface temperature in Celsius
+ * - acoustic: sound pressure level in decibels
+ * - gas: chemical concentration in parts per million
  */
 export interface Detection {
   id: string;
@@ -33,24 +36,22 @@ export interface Detection {
 
 export interface DetectionCardProps {
   detection: Detection;
+  /** Whether this detection is newly arrived (for highlighting) */
   isNew: boolean;
+  /** Callback when operator confirms detection as valid */
   onConfirm: () => void;
+  /** Callback when operator marks detection as false positive */
   onDismiss: () => void;
+  /** Callback to center map on detection location */
   onLocate: () => void;
 }
 
-/**
- * Visual styling and icon mapping for each sensor type.
- */
 const sensorConfig = {
   thermal: { Icon: Flame, color: 'text-orange-400', bg: 'bg-orange-500/10', label: 'Thermal' },
   acoustic: { Icon: AudioLines, color: 'text-sky-400', bg: 'bg-sky-500/10', label: 'Acoustic' },
   gas: { Icon: Wind, color: 'text-amber-400', bg: 'bg-amber-500/10', label: 'Gas' },
 };
 
-/**
- * Format timestamp as relative time (e.g., "5m ago", "Just now").
- */
 function formatTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   const min = Math.floor(diff / 60000);
@@ -59,10 +60,6 @@ function formatTime(timestamp: number): string {
   return `${Math.floor(min / 60)}h ago`;
 }
 
-/**
- * Extract the primary sensor reading for display.
- * Returns formatted string with units or '--' if unavailable.
- */
 function getReading(detection: Detection): string {
   switch (detection.sensorType) {
     case 'thermal':
@@ -75,12 +72,11 @@ function getReading(detection: Detection): string {
 }
 
 /**
- * Generate a human-readable signature description based on confidence level.
+ * Generates human-readable classification based on confidence thresholds.
  *
- * Confidence thresholds:
- * - >85%: High confidence (specific classification)
- * - 60-85%: Medium confidence (qualified possibility)
- * - <60%: Low confidence (generic anomaly)
+ * Higher confidence produces more specific descriptions to help operators
+ * prioritize review efforts. Low-confidence detections use vague language
+ * to indicate uncertainty without dismissing the alert entirely.
  */
 function getDefaultSignature(detection: Detection): string {
   const conf = detection.confidence;
@@ -95,18 +91,18 @@ function getDefaultSignature(detection: Detection): string {
 }
 
 /**
- * Detection card for triage workflow with confirm/dismiss actions.
+ * Detection triage card for operator review workflow.
  *
- * Displays:
- * - Sensor type badge with icon
- * - Confidence percentage (color-coded)
- * - Relative timestamp and source vehicle
- * - Location sector and signature description
- * - Action buttons (locate, dismiss, confirm)
+ * Presents sensor detections in a format optimized for rapid assessment:
+ * - Large confidence percentage for quick prioritization
+ * - Color-coded sensor badges for immediate type identification
+ * - Contextual signature description based on confidence level
+ * - Clear action hierarchy: locate (info) -> dismiss (negative) -> confirm (positive)
  *
- * Visual states:
- * - confirmed: reduced opacity with green border accent
- * - dismissed: heavily reduced opacity
+ * Visual state changes communicate resolution status:
+ * - Confirmed: Reduced opacity with emerald border accent
+ * - Dismissed: Heavily reduced opacity (archived appearance)
+ * - Actionable: Full prominence with interactive controls
  */
 export function DetectionCard({
   detection,
@@ -121,7 +117,7 @@ export function DetectionCard({
   const conf = Math.round(detection.confidence * 100);
   const reading = getReading(detection);
 
-  // Use provided sector or derive from position (E/W based on x, distance based on z)
+  // Derive sector from ENU coordinates when not explicitly provided
   const sector = detection.sector || `Zone ${detection.position[0] > 0 ? 'E' : 'W'}-${Math.abs(Math.round(detection.position[2] / 50))}`;
   const signature = detection.signatureType || getDefaultSignature(detection);
 
@@ -181,7 +177,6 @@ export function DetectionCard({
         </div>
       </div>
 
-      {/* Action bar for actionable detections */}
       {isActionable && (
         <div className="flex items-center gap-2 px-4 py-2 border-t border-white/[0.04] bg-white/[0.01]">
           <Button
@@ -215,7 +210,6 @@ export function DetectionCard({
         </div>
       )}
 
-      {/* View-only action bar for resolved detections */}
       {!isActionable && (
         <div className="flex items-center gap-2 px-4 py-2 border-t border-white/[0.04] bg-white/[0.01]">
           <Button

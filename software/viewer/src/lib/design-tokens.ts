@@ -1,21 +1,15 @@
 /**
- * Design Tokens
+ * Design tokens mapping CSS custom properties to typed JavaScript constants.
  *
- * Centralized design system values for consistent UI styling.
- * All values reference CSS custom properties (variables) defined
- * in the global stylesheet, allowing runtime theming.
+ * All values reference CSS variables defined in the global stylesheet,
+ * enabling runtime theming and consistent styling across the application.
  *
- * Usage:
- *   import { surfaces, glass, sensors } from './design-tokens';
- *   style={{ backgroundColor: surfaces[1], borderColor: sensors.thermal }}
+ * @example
+ * import { surfaces, sensors } from './design-tokens';
+ * style={{ background: surfaces[1], borderColor: sensors.thermal }}
  */
 
-/**
- * Surface elevation levels (0-4).
- *
- * Higher numbers represent elevated surfaces (cards, modals, popovers).
- * Each level maps to a CSS variable with appropriate background/border colors.
- */
+/** Surface elevation levels (0-4) for cards, modals, and popovers. */
 export const surfaces = {
   0: 'var(--surface-0)',
   1: 'var(--surface-1)',
@@ -24,12 +18,7 @@ export const surfaces = {
   4: 'var(--surface-4)',
 } as const;
 
-/**
- * Glassmorphism effect tokens.
- *
- * Used for translucent overlays and floating panels.
- * Combines backdrop blur with semi-transparent backgrounds.
- */
+/** Glassmorphism tokens for translucent overlays and floating panels. */
 export const glass = {
   bg: 'var(--glass-bg)',
   bgHover: 'var(--glass-bg-hover)',
@@ -39,15 +28,7 @@ export const glass = {
   shadow: 'var(--glass-shadow)',
 } as const;
 
-/**
- * Confidence level colors for detection classification.
- *
- * Maps confidence tiers to semantic color variables.
- * - high (>=80%): Strong positive identification
- * - medium (50-79%): Probable detection
- * - low (20-49%): Possible detection
- * - unverified (<20%): Unconfirmed signal
- */
+/** Confidence level colors for detection classification. Thresholds: >=80% high, >=50% medium, >=20% low. */
 export const confidence = {
   high: 'var(--confidence-high)',
   medium: 'var(--confidence-medium)',
@@ -55,14 +36,7 @@ export const confidence = {
   unverified: 'var(--confidence-unverified)',
 } as const;
 
-/**
- * Sensor type color palette.
- *
- * Each sensor has a primary color and glow variant for visual effects.
- * - thermal: Heat/infrared detection
- * - acoustic: Sound/vibration detection
- * - gas: Chemical/sensor detection
- */
+/** Sensor type colors (thermal, acoustic, gas) with glow variants. */
 export const sensors = {
   thermal: 'var(--sensor-thermal)',
   thermalGlow: 'var(--sensor-thermal-glow)',
@@ -73,24 +47,14 @@ export const sensors = {
   gasGlow: 'var(--sensor-gas-glow)',
 } as const;
 
-/**
- * Priority level colors (1-3).
- *
- * 1 = Critical (immediate attention)
- * 2 = Important (attention soon)
- * 3 = Routine (standard priority)
- */
+/** Priority level colors: 1 = Critical, 2 = Important, 3 = Routine. */
 export const priorities = {
   1: 'var(--priority-1)',
   2: 'var(--priority-2)',
   3: 'var(--priority-3)',
 } as const;
 
-/**
- * Semantic status colors.
- *
- * Standard feedback states for UI elements.
- */
+/** Semantic status colors for UI feedback states. */
 export const status = {
   success: 'var(--success)',
   warning: 'var(--warning)',
@@ -98,11 +62,7 @@ export const status = {
   info: 'var(--info)',
 } as const;
 
-/**
- * Glow effect colors for status indicators.
- *
- * Used with box-shadow for pulsing/animated glows.
- */
+/** Glow effect colors for status indicators and animated glows. */
 export const glows = {
   success: 'var(--glow-success)',
   warning: 'var(--glow-warning)',
@@ -110,12 +70,7 @@ export const glows = {
   info: 'var(--glow-info)',
 } as const;
 
-/**
- * Animation durations in milliseconds.
- *
- * Use these for consistent timing in JavaScript animations
- * that need to match CSS transitions.
- */
+/** Animation durations in milliseconds for JS/CSS synchronization. */
 export const durations = {
   instant: 100,
   fast: 150,
@@ -124,12 +79,7 @@ export const durations = {
   slower: 600,
 } as const;
 
-/**
- * Cubic-bezier easing functions.
- *
- * These arrays can be used directly in Framer Motion or
- * converted to CSS cubic-bezier() strings.
- */
+/** Cubic-bezier easing arrays for Framer Motion or CSS cubic-bezier(). */
 export const easings = {
   /** Fast start, slow end - responsive feel */
   outExpo: [0.19, 1, 0.22, 1] as const,
@@ -141,25 +91,14 @@ export const easings = {
   bounce: [0.68, -0.55, 0.265, 1.55] as const,
 } as const;
 
-/**
- * Touch target sizes in rem units.
- *
- * Minimum recommended sizes for accessible touch interfaces.
- * - min: 44px equivalent (absolute minimum)
- * - comfortable: 48px equivalent (recommended)
- * - large: 56px equivalent (primary actions)
- */
+/** Touch target sizes in rem units (min: 44px, comfortable: 48px, large: 56px). */
 export const touchTargets = {
   min: 2.75,
   comfortable: 3,
   large: 3.5,
 } as const;
 
-/**
- * Responsive breakpoint widths in pixels.
- *
- * Standard Tailwind CSS breakpoints for consistent media queries.
- */
+/** Standard Tailwind CSS breakpoints in pixels. */
 export const breakpoints = {
   sm: 640,
   md: 768,
@@ -168,11 +107,7 @@ export const breakpoints = {
   '2xl': 1536,
 } as const;
 
-/**
- * Layout dimension constants in pixels.
- *
- * Use these for calculations involving layout geometry.
- */
+/** Layout dimension constants in pixels for geometry calculations. */
 export const layout = {
   statusBarHeight: 56,
   statusBarHeightMobile: 48,
@@ -183,43 +118,24 @@ export const layout = {
   sectionGap: 24,
 } as const;
 
-// Type definitions for design token categories
 export type SensorType = 'thermal' | 'acoustic' | 'gas';
 export type ConfidenceLevel = 'high' | 'medium' | 'low' | 'unverified';
 export type StatusLevel = 'success' | 'warning' | 'danger' | 'info';
 export type PriorityLevel = 1 | 2 | 3;
 
-/**
- * Gets the CSS color variable for a sensor type.
- *
- * @param type - Sensor type identifier
- * @returns CSS variable string for the sensor's primary color
- */
+/** Returns the CSS color variable for a sensor type. */
 export function getSensorColor(type: SensorType): string {
   return sensors[type];
 }
 
-/**
- * Gets the CSS color variable for a confidence level.
- *
- * @param level - Confidence tier identifier
- * @returns CSS variable string for the confidence color
- */
+/** Returns the CSS color variable for a confidence level. */
 export function getConfidenceColor(level: ConfidenceLevel): string {
   return confidence[level];
 }
 
 /**
- * Determines confidence level from a percentage value.
- *
- * Thresholds:
- * - >= 80%: high
- * - >= 50%: medium
- * - >= 20%: low
- * - < 20%: unverified
- *
- * @param percentage - Numeric percentage (0-100)
- * @returns ConfidenceLevel tier
+ * Maps a percentage to a confidence level tier.
+ * Thresholds: >=80% high, >=50% medium, >=20% low, <20% unverified.
  */
 export function getConfidenceLevel(percentage: number): ConfidenceLevel {
   if (percentage >= 80) return 'high';
@@ -228,22 +144,12 @@ export function getConfidenceLevel(percentage: number): ConfidenceLevel {
   return 'unverified';
 }
 
-/**
- * Gets the CSS color variable for a status level.
- *
- * @param level - Status identifier
- * @returns CSS variable string for the status color
- */
+/** Returns the CSS color variable for a status level. */
 export function getStatusColor(level: StatusLevel): string {
   return status[level];
 }
 
-/**
- * Gets the CSS color variable for a priority level.
- *
- * @param level - Priority number (1-3)
- * @returns CSS variable string for the priority color
- */
+/** Returns the CSS color variable for a priority level (1-3). */
 export function getPriorityColor(level: PriorityLevel): string {
   return priorities[level];
 }

@@ -18,10 +18,7 @@ import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 import { useZoneContext } from '@/context/ZoneContext';
 import type { ZonePriority } from '@/types/zone';
 
-/**
- * Layer configuration for map visualization toggles.
- * IDs correspond to keys in LayerVisibilityContext.
- */
+/** Layer toggle configuration - IDs must match LayerVisibilityContext keys */
 interface LayerItem {
   id: 'map' | 'thermal' | 'acoustic' | 'gas' | 'trajectories';
   label: string;
@@ -29,10 +26,7 @@ interface LayerItem {
   color: string;
 }
 
-/**
- * Available map layers with semantic color coding.
- * Colors match sensor/detection conventions for consistency.
- */
+/** Map layer definitions with sensor-consistent color coding */
 const layers: LayerItem[] = [
   { id: 'map', label: 'Base Map', icon: Map, color: 'text-white' },
   { id: 'thermal', label: 'Thermal', icon: Flame, color: 'text-orange-400' },
@@ -41,10 +35,7 @@ const layers: LayerItem[] = [
   { id: 'trajectories', label: 'Paths', icon: Route, color: 'text-violet-400' },
 ];
 
-/**
- * Zone priority levels for mission planning.
- * Priority 1 (Critical) is the highest urgency level.
- */
+/** Zone priority levels for mission planning - Priority 1 is highest urgency */
 const zonePriorities: { priority: ZonePriority; label: string; color: string }[] = [
   { priority: 1, label: 'Critical', color: 'bg-red-500' },
   { priority: 2, label: 'High', color: 'bg-orange-500' },
@@ -52,20 +43,15 @@ const zonePriorities: { priority: ZonePriority; label: string; color: string }[]
 ];
 
 /**
- * LayersPanel provides map layer toggles and zone creation controls.
+ * Map layer visibility toggles and zone creation controls.
  *
- * UI/UX Decisions:
- * - Collapsible design minimizes screen real estate when not in use
- * - Custom checkbox visuals replace native inputs for consistent styling
- * - Layer icons use color coding matching the data they represent
- * - Zone priority buttons use first-letter labels for compact display
- * - Disabled state during drawing prevents conflicting interactions
+ * Integrates with LayerVisibilityContext for global layer state and ZoneContext
+ * for polygon drawing mode. Collapsible design minimizes screen real estate.
  *
- * Accessibility:
- * - All interactive elements are focusable buttons
- * - Visual feedback on hover and active states
- * - Layer state communicated through checkbox visuals and color
- * - Count indicator shows number of defined zones
+ * @example
+ * ```tsx
+ * <LayersPanel />
+ * ```
  */
 export function LayersPanel() {
   const [collapsed, setCollapsed] = useState(false);
@@ -74,7 +60,6 @@ export function LayersPanel() {
 
   const enabledCount = layers.filter(l => visibility[l.id]).length;
 
-  // Collapsed state shows compact button with layer count
   if (collapsed) {
     return (
       <button
@@ -116,7 +101,6 @@ export function LayersPanel() {
         <ChevronUp className="h-3 w-3" />
       </button>
 
-      {/* Layer toggle list with custom checkbox UI */}
       <div className="py-1">
         {layers.map((layer) => {
           const Icon = layer.icon;
@@ -134,7 +118,6 @@ export function LayersPanel() {
                   : 'text-white/30 hover:text-white/50 hover:bg-white/5'
               )}
             >
-              {/* Custom checkbox with animated state change */}
               <div className={cn(
                 'h-4 w-4 rounded border flex items-center justify-center',
                 'transition-colors duration-150',
@@ -155,7 +138,6 @@ export function LayersPanel() {
         })}
       </div>
 
-      {/* Zone creation section with priority level buttons */}
       <div className="border-t border-white/5 py-2">
         <div className="px-3 pb-2">
           <div className="flex items-center gap-2 text-white/50">

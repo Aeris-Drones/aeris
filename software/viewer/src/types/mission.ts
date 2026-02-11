@@ -3,7 +3,7 @@
  *
  * State machine transitions:
  * IDLE -> PLANNING -> SEARCHING <-> TRACKING -> COMPLETE
-n * Any state can transition to ABORTED.
+ * Any state can transition to ABORTED.
  */
 export type MissionPhase =
   | 'IDLE'
@@ -88,12 +88,11 @@ export interface MissionCommandMessage {
   metadata?: Record<string, unknown>;
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
 
 /**
- * Format seconds into MM:SS format for timer display.
+ * Formats seconds into MM:SS format for timer display.
+ *
+ * Handles negative values (for countdowns) by displaying absolute value.
  */
 export function formatMissionTime(seconds: number): string {
   const absSeconds = Math.abs(Math.floor(seconds));
@@ -103,7 +102,12 @@ export function formatMissionTime(seconds: number): string {
 }
 
 /**
- * Format seconds into human-readable duration (e.g., "5m", "1h 30m").
+ * Formats seconds into human-readable duration (e.g., "5m", "1h 30m").
+ *
+ * Automatically selects appropriate unit based on magnitude:
+ * - <60s: shows seconds
+ * - <60min: shows minutes
+ * - >=60min: shows hours and minutes
  */
 export function formatDuration(seconds: number): string {
   const absSeconds = Math.abs(Math.floor(seconds));
@@ -128,10 +132,12 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
- * Format area with automatic unit selection:
- * - <0.01 km²: display in m²
- * - <1 km²: display in hectares
- * - >=1 km²: display in km²
+ * Formats area with automatic unit selection for readability.
+ *
+ * Thresholds:
+ * - <0.01 km²: displays in m²
+ * - <1 km²: displays in hectares
+ * - >=1 km²: displays in km²
  */
 export function formatArea(km2: number): string {
   if (km2 < 0.01) {
@@ -144,6 +150,12 @@ export function formatArea(km2: number): string {
   return `${km2.toFixed(2)} km²`;
 }
 
+/**
+ * Generates a unique mission identifier.
+ *
+ * Format: MSN-{timestamp}-{random} in uppercase.
+ * Provides collision-resistant IDs for mission tracking and logging.
+ */
 export function generateMissionId(): string {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 6);
@@ -151,7 +163,10 @@ export function generateMissionId(): string {
 }
 
 /**
- * Get UI configuration for a mission phase.
+ * Returns UI styling configuration for a mission phase.
+ *
+ * Provides consistent labels, colors, and icon identifiers
+ * for phase badges and status indicators.
  */
 export function getMissionPhaseConfig(phase: MissionPhase): {
   label: string;
@@ -223,6 +238,7 @@ export function calculateElapsedSeconds(state: MissionState): number {
   return Math.max(0, Math.floor(elapsed / 1000));
 }
 
+/** Returns initial state for a new mission. */
 export function getInitialMissionState(): MissionState {
   return {
     phase: 'IDLE',
@@ -230,6 +246,7 @@ export function getInitialMissionState(): MissionState {
   };
 }
 
+/** Returns initial progress metrics for mission start. */
 export function getInitialMissionProgress(): MissionProgress {
   return {
     coveragePercent: 0,
@@ -240,6 +257,7 @@ export function getInitialMissionProgress(): MissionProgress {
   };
 }
 
+/** Returns initial statistics for a new mission. */
 export function getInitialMissionStats(): MissionStats {
   return {
     elapsedSeconds: 0,

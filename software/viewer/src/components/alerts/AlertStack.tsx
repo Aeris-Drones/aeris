@@ -46,12 +46,12 @@ const SEVERITY_ICONS: Record<AlertSeverity, React.ReactNode> = {
 };
 
 /**
- * Plays an audible alert tone for critical notifications.
- * Uses Web Audio API to generate a dual-tone beep pattern.
- * Falls back silently if audio is not supported or blocked.
+ * Plays an audible alert tone for critical notifications using Web Audio API.
+ * Generates a dual-tone beep pattern (880Hz with 150ms offset) for distinctiveness
+ * from standard system sounds. Falls back silently if audio is blocked.
  *
- * Accessibility: Audio alerts supplement visual notifications for
- * operators who may not be looking at the screen.
+ * Audio alerts supplement visual notifications for operators monitoring multiple
+ * screens or working in high-distraction field environments.
  */
 function playCriticalAlertSound() {
   if (typeof window === 'undefined') return;
@@ -148,13 +148,18 @@ export function showAlert(alert: Omit<Alert, 'timestamp'>, options?: { playSound
 
 /**
  * Dismisses a specific alert by ID.
+ * Silently ignores IDs that do not match active alerts.
+ *
+ * @param id - The unique identifier of the alert to dismiss
  */
 export function dismissAlert(id: string) {
   toast.dismiss(id);
 }
 
 /**
- * Dismisses all active alerts.
+ * Dismisses all active alerts across all severity levels.
+ * Use when clearing the alert queue during mission phase transitions
+ * or when acknowledging a batch of related notifications.
  */
 export function dismissAllAlerts() {
   toast.dismiss();
@@ -217,8 +222,12 @@ interface UseAlertsOptions {
  *
  * State Management:
  * - Maintains Map of active alerts for programmatic access
- * - Generates unique IDs using timestamp + random suffix
+ * - Generates unique IDs using timestamp + random suffix to prevent collisions
+ *   during high-frequency alert scenarios (e.g., multiple vehicle failures)
  * - Provides methods for adding, dismissing, and querying alerts
+ *
+ * Integration: Used by mission control components to surface ROS error states
+ * and vehicle telemetry anomalies to the operator.
  *
  * @param options - Configuration including audio enablement
  * @returns Alert management functions and current alert list

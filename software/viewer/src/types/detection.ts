@@ -184,6 +184,9 @@ export function getDetectionConfidenceLevel(detection: Detection): ConfidenceLev
   return 'unverified';
 }
 
+/**
+ * Returns display name for a sensor type.
+ */
 export function getSensorName(type: SensorType): string {
   switch (type) {
     case 'thermal':
@@ -196,7 +199,7 @@ export function getSensorName(type: SensorType): string {
 }
 
 /**
- * Get human-readable classification label for acoustic detections.
+ * Returns human-readable classification label for acoustic detections.
  */
 export function getClassificationName(classification: AcousticDetection['classification']): string {
   switch (classification) {
@@ -212,7 +215,7 @@ export function getClassificationName(classification: AcousticDetection['classif
 }
 
 /**
- * Format detection data as a concise summary string.
+ * Formats detection data as a concise summary string.
  *
  * Returns sensor-specific formatted output:
  * - thermal: temperature and confidence
@@ -231,7 +234,7 @@ export function formatDetectionSummary(detection: Detection): string {
 }
 
 /**
- * Format timestamp as relative time string.
+ * Formats timestamp as relative time string.
  *
  * Returns "Xs ago", "Xm ago", "Xh ago", or "Xd ago" based on elapsed time.
  */
@@ -251,7 +254,7 @@ export function getTimeSince(timestamp: number): string {
 }
 
 /**
- * Calculate 2D horizontal distance from reference point to detection.
+ * Calculates 2D horizontal distance from reference point to detection.
  *
  * Uses localPosition if available, otherwise returns 0.
  * Ignores Y (altitude) for ground distance calculation.
@@ -269,7 +272,7 @@ export function getDetectionDistance(
 }
 
 /**
- * Calculate cardinal direction from reference point to detection.
+ * Calculates cardinal direction from reference point to detection.
  *
  * Returns one of: N, NE, E, SE, S, SW, W, NW
  * Returns 'Unknown' if localPosition is unavailable.

@@ -21,9 +21,7 @@ interface LayerState {
 }
 
 interface LayerVisibilityContextType extends LayerState {
-  /** Toggle a layer's visibility state. */
   toggleLayer: (layer: keyof LayerState) => void;
-  /** Explicitly set a layer's visibility. */
   setLayer: (layer: keyof LayerState, visible: boolean) => void;
 }
 

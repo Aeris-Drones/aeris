@@ -1,22 +1,26 @@
 'use client';
 
-/**
- * AERIS GCS Keyboard Shortcuts Overlay
- * 
- * Press '?' to show/hide the keyboard shortcuts help
- */
-
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { panelVariants } from '@/lib/animations';
 import { X, Keyboard } from 'lucide-react';
 
+/**
+ * Grouping structure for organizing shortcuts by functional area.
+ */
 interface ShortcutGroup {
   title: string;
   shortcuts: { key: string; description: string }[];
 }
 
+/**
+ * GCS keyboard shortcuts registry.
+ *
+ * These shortcuts are registered globally in the application layout. When adding
+ * new shortcuts, ensure they don't conflict with browser defaults (e.g., Ctrl+T)
+ * and are added to this list for discoverability.
+ */
 const SHORTCUTS: ShortcutGroup[] = [
   {
     title: 'Mission Control',
@@ -52,6 +56,15 @@ const SHORTCUTS: ShortcutGroup[] = [
   },
 ];
 
+/**
+ * Modal overlay displaying all available keyboard shortcuts.
+ *
+ * Triggered by the '?' key (when not in an input field). Uses Framer Motion
+ * for enter/exit animations consistent with other GCS panels. The component
+ * self-manages its open/close state and does not require external control.
+ *
+ * @see SHORTCUTS for the shortcut registry
+ */
 export function KeyboardShortcutsOverlay() {
   const [isOpen, setIsOpen] = useState(false);
 

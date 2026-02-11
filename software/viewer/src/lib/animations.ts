@@ -1,60 +1,45 @@
 import type { Variants, Transition } from 'framer-motion';
 
 /**
- * Animation Configuration for Framer Motion
+ * Framer Motion animation presets for consistent UI motion.
  *
- * This module provides reusable transition presets and variant definitions
- * for consistent motion design across the application.
- *
- * Performance Considerations:
- * - Prefer 'tween' over 'spring' for simple opacity/transform animations
- * - Use transform and opacity only (GPU-accelerated properties)
- * - Stagger delays are calculated based on list size to maintain perceived speed
+ * All transitions use GPU-accelerated properties (transform, opacity) for
+ * 60fps performance. The default outExpo easing [0.19, 1, 0.22, 1] provides
+ * a responsive feel with smooth deceleration.
  */
 
-/**
- * Base transition presets for consistent timing.
- *
- * Easing function [0.19, 1, 0.22, 1] is an outExpo curve that starts fast
- * and decelerates smoothly, providing a responsive yet polished feel.
- */
+/** Transition presets for consistent timing across the application. */
 export const transitions = {
-  /** Quick feedback (150ms), use for hover states and micro-interactions */
   fast: {
     type: 'tween',
     duration: 0.15,
     ease: [0.19, 1, 0.22, 1],
   } as Transition,
 
-  /** Standard transition (250ms), use for most UI state changes */
   normal: {
     type: 'tween',
     duration: 0.25,
     ease: [0.19, 1, 0.22, 1],
   } as Transition,
 
-  /** Emphasis transition (400ms), use for prominent elements */
   slow: {
     type: 'tween',
     duration: 0.4,
     ease: [0.19, 1, 0.22, 1],
   } as Transition,
 
-  /** Snappy spring for responsive interactions */
   spring: {
     type: 'spring',
     stiffness: 400,
     damping: 30,
   } as Transition,
 
-  /** Bouncy spring for playful/celebratory animations */
   springBouncy: {
     type: 'spring',
     stiffness: 300,
     damping: 20,
   } as Transition,
 
-  /** Gentle spring for subtle, refined motion */
   springGentle: {
     type: 'spring',
     stiffness: 200,
@@ -62,11 +47,7 @@ export const transitions = {
   } as Transition,
 } as const;
 
-/**
- * Panel entrance/exit variants with scale and fade.
- *
- * Use for modals, popovers, and floating panels.
- */
+/** Panel variants for modals, popovers, and floating panels. */
 export const panelVariants: Variants = {
   hidden: {
     opacity: 0,
@@ -87,12 +68,7 @@ export const panelVariants: Variants = {
   },
 };
 
-/**
- * Card variants with hover and tap interactions.
- *
- * Includes scale feedback on hover (1.02x) and tap (0.98x).
- * Use for clickable cards and list items.
- */
+/** Card variants with hover (1.02x) and tap (0.98x) scale feedback. */
 export const cardVariants: Variants = {
   hidden: {
     opacity: 0,
@@ -121,12 +97,7 @@ export const cardVariants: Variants = {
   },
 };
 
-/**
- * List container variants with staggered children.
- *
- * staggerChildren: 50ms delay between each child animation
- * delayChildren: 100ms initial delay before first child
- */
+/** List container with 50ms stagger between children. */
 export const listContainerVariants: Variants = {
   hidden: { opacity: 0 },
   visible: {
@@ -145,11 +116,7 @@ export const listContainerVariants: Variants = {
   },
 };
 
-/**
- * Individual list item variants for use within listContainerVariants.
- *
- * Slides in from left (-20px) and exits to right (+20px).
- */
+/** List item variants - slides in from left, exits to right. */
 export const listItemVariants: Variants = {
   hidden: {
     opacity: 0,
@@ -167,7 +134,7 @@ export const listItemVariants: Variants = {
   },
 };
 
-/** Simple fade in/out without transform */
+/** Simple fade without transform. */
 export const fadeVariants: Variants = {
   hidden: { opacity: 0 },
   visible: {
@@ -180,7 +147,7 @@ export const fadeVariants: Variants = {
   },
 };
 
-/** Scale up entrance with bouncy spring, scale down exit */
+/** Scale entrance with bouncy spring. */
 export const scaleVariants: Variants = {
   hidden: {
     opacity: 0,
@@ -198,7 +165,7 @@ export const scaleVariants: Variants = {
   },
 };
 
-/** Slide up from bottom of viewport (100% -> 0%) */
+/** Slide up from bottom of viewport. */
 export const slideUpVariants: Variants = {
   hidden: {
     y: '100%',
@@ -213,7 +180,7 @@ export const slideUpVariants: Variants = {
   },
 };
 
-/** Slide down from top of viewport (-100% -> 0%) */
+/** Slide down from top of viewport. */
 export const slideDownVariants: Variants = {
   hidden: {
     y: '-100%',
@@ -228,7 +195,7 @@ export const slideDownVariants: Variants = {
   },
 };
 
-/** Slide in from right edge (100% -> 0%) */
+/** Slide in from right edge. */
 export const slideLeftVariants: Variants = {
   hidden: {
     x: '100%',
@@ -243,7 +210,7 @@ export const slideLeftVariants: Variants = {
   },
 };
 
-/** Slide in from left edge (-100% -> 0%) */
+/** Slide in from left edge. */
 export const slideRightVariants: Variants = {
   hidden: {
     x: '-100%',
@@ -258,12 +225,7 @@ export const slideRightVariants: Variants = {
   },
 };
 
-/**
- * Pulsing ring animation for status indicators.
- *
- * Creates expanding ring effect using box-shadow animation.
- * Requires CSS variable --confidence-high to be defined.
- */
+/** Pulsing ring animation for status indicators. Requires --confidence-high. */
 export const pulseVariants: Variants = {
   initial: {
     boxShadow: '0 0 0 0 var(--confidence-high)',
@@ -282,13 +244,7 @@ export const pulseVariants: Variants = {
   },
 };
 
-/**
- * Status glow variants with increasing urgency.
- *
- * - nominal: Slow 2s pulse (healthy state)
- * - caution: Medium 1.5s pulse (warning state)
- * - critical: Fast 0.8s pulse (alert state)
- */
+/** Status glow with urgency levels: nominal (2s), caution (1.5s), critical (0.8s). */
 export const glowVariants: Variants = {
   nominal: {
     boxShadow: '0 0 10px var(--success)',
@@ -325,7 +281,7 @@ export const glowVariants: Variants = {
   },
 };
 
-/** Number/count animation with vertical slide */
+/** Number animation with vertical slide. */
 export const numberVariants: Variants = {
   initial: { opacity: 0, y: 10 },
   animate: {
@@ -342,9 +298,7 @@ export const numberVariants: Variants = {
 
 /**
  * SVG progress ring animation.
- *
- * @param progress - Value from 0 to 1 representing completion
- * Uses spring physics for pathLength animation.
+ * @param progress - Completion value (0-1)
  */
 export const progressRingVariants: Variants = {
   hidden: {
@@ -365,7 +319,7 @@ export const progressRingVariants: Variants = {
   }),
 };
 
-/** Tooltip entrance/exit with subtle scale */
+/** Tooltip entrance with subtle scale. */
 export const tooltipVariants: Variants = {
   hidden: {
     opacity: 0,
@@ -390,12 +344,7 @@ export const tooltipVariants: Variants = {
   },
 };
 
-/**
- * Skeleton loading shimmer effect.
- *
- * Animates background-position to create horizontal shimmer.
- * Requires a gradient background with at least 200% width.
- */
+/** Skeleton loading shimmer. Requires gradient background with 200%+ width. */
 export const skeletonVariants: Variants = {
   initial: {
     backgroundPosition: '-200% 0',
@@ -410,7 +359,7 @@ export const skeletonVariants: Variants = {
   },
 };
 
-/** Button press feedback with hover and tap states */
+/** Button press feedback with hover and tap states. */
 export const buttonVariants: Variants = {
   idle: { scale: 1 },
   hover: {
@@ -423,11 +372,7 @@ export const buttonVariants: Variants = {
   },
 };
 
-/**
- * Detection card styling by sensor type.
- *
- * Maps sensor types to their theme colors and glow effects.
- */
+/** Detection card styling mapped by sensor type. */
 export const detectionCardVariants = {
   thermal: {
     borderColor: 'var(--sensor-thermal)',
@@ -444,14 +389,10 @@ export const detectionCardVariants = {
 } as const;
 
 /**
- * Calculates stagger configuration based on list size.
- *
- * As list size increases, individual stagger delay decreases to maintain
- * total animation duration. Formula: baseDelay / sqrt(itemCount)
- *
- * @param itemCount - Number of items in the list
+ * Calculates stagger delay based on list size.
+ * Formula: baseDelay / sqrt(itemCount) - maintains perceived speed for long lists.
+ * @param itemCount - Number of items
  * @param baseDelay - Base delay in seconds (default: 0.05)
- * @returns Stagger configuration object
  */
 export function getStaggerConfig(itemCount: number, baseDelay = 0.05) {
   return {
@@ -460,12 +401,7 @@ export function getStaggerConfig(itemCount: number, baseDelay = 0.05) {
   };
 }
 
-/**
- * Preset collection for common animation patterns.
- *
- * Usage: import { presets } from './animations'
- *        <motion.div variants={presets.card} ... />
- */
+/** Collection of all animation presets for convenient importing. */
 export const presets = {
   panel: panelVariants,
   card: cardVariants,

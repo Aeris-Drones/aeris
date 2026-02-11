@@ -2,10 +2,7 @@
 
 import { ReactNode } from 'react';
 
-/**
- * Props for the CommandDock component.
- * Uses a slot pattern to compose three primary command cards.
- */
+/** Props for the CommandDock component using the slot pattern for composition */
 interface CommandDockProps {
   /** Fleet overview card - displays connected drones and their status */
   fleetCard: ReactNode;
@@ -16,15 +13,20 @@ interface CommandDockProps {
 }
 
 /**
- * CommandDock - Bottom-mounted control panel for the GCS.
+ * Bottom-mounted control panel for the GCS.
  *
  * Provides a consistent 3-column layout for the primary command interfaces:
- * - Fleet management (left)
- * - Detection review (center)
- * - Mission controls (right)
+ * fleet management (left), detection review (center), and mission controls (right).
+ * Fixed dimensions ensure visual balance across different content states.
  *
- * Each card has a fixed width of 280px with a minimum height of 140px
- * to maintain visual balance across different content states.
+ * @example
+ * ```tsx
+ * <CommandDock
+ *   fleetCard={<FleetCard />}
+ *   detectionsCard={<DetectionsCard />}
+ *   controlsCard={<ControlsCard />}
+ * />
+ * ```
  */
 export function CommandDock({
   fleetCard,

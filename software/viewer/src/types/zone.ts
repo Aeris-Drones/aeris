@@ -54,6 +54,11 @@ export interface ZoneInput {
   notes?: string;
 }
 
+/**
+ * Generates a unique zone identifier.
+ *
+ * Format: zone-{timestamp}-{random} for collision-resistant IDs.
+ */
 export function generateZoneId(): string {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 6);
@@ -61,7 +66,9 @@ export function generateZoneId(): string {
 }
 
 /**
- * Get CSS variable name for zone priority color.
+ * Returns CSS variable name for zone priority color.
+ *
+ * Maps to design token variables for theming consistency.
  */
 export function getPriorityColor(priority: ZonePriority): string {
   switch (priority) {
@@ -75,7 +82,10 @@ export function getPriorityColor(priority: ZonePriority): string {
 }
 
 /**
- * Get hex color value for zone priority.
+ * Returns hex color value for zone priority.
+ *
+ * Used for Three.js rendering and canvas drawing where
+ * CSS variables are not available.
  */
 export function getPrioritySolidColor(priority: ZonePriority): string {
   switch (priority) {
@@ -89,7 +99,7 @@ export function getPrioritySolidColor(priority: ZonePriority): string {
 }
 
 /**
- * Get human-readable label for zone priority.
+ * Returns human-readable label for zone priority.
  */
 export function getPriorityLabel(priority: ZonePriority): string {
   switch (priority) {
@@ -103,7 +113,10 @@ export function getPriorityLabel(priority: ZonePriority): string {
 }
 
 /**
- * Get complete UI configuration for a zone priority level.
+ * Returns complete UI styling configuration for a zone priority.
+ *
+ * Provides Tailwind-compatible classes for consistent visual
+ * presentation across map overlays and list items.
  */
 export function getPriorityConfig(priority: ZonePriority): {
   label: string;
@@ -137,7 +150,7 @@ export function getPriorityConfig(priority: ZonePriority): {
 }
 
 /**
- * Get UI configuration for zone status.
+ * Returns UI styling configuration for zone status.
  */
 export function getZoneStatusConfig(status: ZoneStatus): {
   label: string;
@@ -240,7 +253,10 @@ export function isPointInZone(point: ZonePoint, polygon: ZonePoint[]): boolean {
 }
 
 /**
- * Create a new PriorityZone from input data with generated ID and defaults.
+ * Creates a new PriorityZone from input data with generated ID and defaults.
+ *
+ * Auto-generates a name if not provided using the zone ID suffix.
+ * Initializes status as 'active' and sets creation timestamp.
  */
 export function createZone(input: ZoneInput): PriorityZone {
   const id = generateZoneId();

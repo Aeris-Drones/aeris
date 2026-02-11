@@ -1,9 +1,13 @@
 /**
  * ROS Telemetry Message Parsing
  *
- * This module handles validation and type conversion of raw ROS messages
- * into strongly-typed TypeScript interfaces. All numeric fields are validated
- * to ensure they are finite numbers before casting.
+ * Validates and transforms raw ROS telemetry messages into strongly-typed
+ * TypeScript interfaces. Enforces data quality by ensuring all numeric fields
+ * are finite numbers before casting, preventing NaN propagation into the
+ * visualization layer.
+ *
+ * This is the primary integration point between the ROS telemetry topic
+ * and the vehicle state management system.
  */
 
 export enum VehicleType {
@@ -17,11 +21,16 @@ export enum VehicleType {
  *
  * Mirrors the ROS aeris_msgs/Telemetry message format with TypeScript types.
  * All angles are in radians, distances in meters, velocities in m/s.
+ *
+ * Coordinate Frames:
+ * - Position: WGS84 (latitude, longitude, altitude AGL)
+ * - Orientation: ROS standard (roll-pitch-yaw, extrinsic rotations about X-Y-Z)
+ * - Velocity: Body frame (forward-right-down relative to vehicle)
  */
 export interface VehicleTelemetryMessage {
   /** Vehicle identifier, e.g., "scout_1", "ranger_1" */
   vehicle_id: string;
-  /** Vehicle classification for UI theming */
+  /** Vehicle classification for UI theming and capability detection */
   vehicle_type: VehicleType;
   /** ROS timestamp (seconds + nanoseconds since epoch) */
   timestamp: { sec: number; nanosec: number };

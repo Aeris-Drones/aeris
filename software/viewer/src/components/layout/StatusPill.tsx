@@ -5,10 +5,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Zap, AlertTriangle, XCircle, Bell } from 'lucide-react';
 
-/**
- * Mission phase states for the GCS.
- * The progression typically follows: IDLE -> PLANNING -> SEARCHING -> TRACKING -> COMPLETE
- */
+/** Mission phase states for the GCS lifecycle */
 export type MissionPhase =
   | 'IDLE'
   | 'PLANNING'
@@ -17,13 +14,10 @@ export type MissionPhase =
   | 'COMPLETE'
   | 'ABORTED';
 
-/** Connection quality states for the telemetry link */
+/** Telemetry link quality states - drives connection indicator UI */
 export type ConnectionStatus = 'connected' | 'degraded' | 'disconnected';
 
-/**
- * Props for the StatusPill component.
- * Centralizes mission-critical information in a compact, glanceable format.
- */
+/** Props for the StatusPill component - centralizes mission-critical information */
 export interface StatusPillProps {
   /** Optional custom logo element; defaults to "AERIS" text */
   logo?: ReactNode;
@@ -43,7 +37,7 @@ export interface StatusPillProps {
   onAlertClick?: () => void;
 }
 
-/** Configuration for each mission phase - drives UI appearance and behavior */
+/** Mission phase UI configuration - drives badge color and pulse animation */
 const phaseConfig: Record<MissionPhase, {
   label: string;
   variant: 'default' | 'success' | 'info' | 'danger' | 'secondary';
@@ -58,7 +52,7 @@ const phaseConfig: Record<MissionPhase, {
   ABORTED: { label: 'ABORTED', variant: 'danger', pulse: false },
 };
 
-/** Configuration for connection status - maps state to icon and color */
+/** Connection status UI configuration - maps state to icon and color */
 const connectionConfig: Record<ConnectionStatus, {
   label: string;
   colorClass: string;
@@ -69,10 +63,7 @@ const connectionConfig: Record<ConnectionStatus, {
   disconnected: { label: 'Disconnected', colorClass: 'text-[var(--danger)]', Icon: XCircle },
 };
 
-/**
- * Formats elapsed seconds into MM:SS display format.
- * Uses padStart to ensure consistent 2-digit display.
- */
+/** Formats elapsed seconds into MM:SS display format */
 function formatElapsedTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
@@ -80,17 +71,24 @@ function formatElapsedTime(seconds: number): string {
 }
 
 /**
- * StatusPill - Compact mission status indicator for the GCS header.
+ * Compact mission status indicator for the GCS header.
  *
- * Displays:
- * - Logo/branding
- * - Mission phase with animated pulse for active states
- * - Elapsed mission time
- * - Progress bar with percentage
- * - Connection quality indicator
- * - Alert count with unread indicator
+ * Displays mission phase, elapsed time, progress percentage, connection quality,
+ * and alert count in a glassmorphism pill format. Mission phase drives the
+ * badge color and pulse animation for active states.
  *
- * Uses a glassmorphism design with backdrop blur for modern aesthetic.
+ * @example
+ * ```tsx
+ * <StatusPill
+ *   missionPhase="SEARCHING"
+ *   elapsedTime={360}
+ *   progressPercent={45}
+ *   connectionStatus="connected"
+ *   alertCount={2}
+ *   hasUnreadAlerts={true}
+ *   onAlertClick={() => openAlertsPanel()}
+ * />
+ * ```
  */
 export function StatusPill({
   logo,
@@ -111,7 +109,6 @@ export function StatusPill({
       className="flex items-center gap-1 rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg)] px-1 py-1 backdrop-blur-xl"
       style={{ boxShadow: 'var(--glass-shadow)' }}
     >
-      {/* Logo section */}
       <div className="flex h-8 items-center justify-center rounded-full bg-[var(--surface-2)] px-3">
         {logo || (
           <span className="font-mono text-xs font-bold tracking-wider text-[var(--foreground)]">
@@ -122,7 +119,6 @@ export function StatusPill({
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
-      {/* Mission phase badge with pulse animation for active states */}
       <Badge variant={phase.variant} className="flex items-center gap-2 rounded-full px-3 py-1.5">
         {phase.pulse ? (
           <span className="relative flex h-2 w-2">
@@ -139,7 +135,6 @@ export function StatusPill({
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
-      {/* Mission elapsed time */}
       <div className="flex items-center px-3">
         <span className="font-mono text-sm font-medium tabular-nums text-[var(--foreground)]">
           {formatElapsedTime(elapsedTime)}
@@ -148,7 +143,6 @@ export function StatusPill({
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
-      {/* Progress bar with visual bar and percentage text */}
       <div className="flex items-center gap-2 px-3">
         <span className="text-[10px] uppercase tracking-wide text-white/50">Progress</span>
         <div className="relative h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
@@ -164,7 +158,6 @@ export function StatusPill({
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
-      {/* Connection status with appropriate icon */}
       <div className={cn('flex items-center gap-1.5 px-3', connection.colorClass)}>
         <ConnectionIcon className="h-3.5 w-3.5" />
         <span className="text-xs font-medium">{connection.label}</span>
@@ -172,7 +165,6 @@ export function StatusPill({
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
-      {/* Alert bell with count and unread indicator dot */}
       <button
         onClick={onAlertClick}
         className={cn(

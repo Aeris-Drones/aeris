@@ -39,8 +39,9 @@ export interface FleetCardProps {
 }
 
 /**
- * Status indicator colors using CSS custom properties for theme consistency.
- * These map to the design system's semantic color tokens.
+ * Status indicator colors mapped to design system semantic tokens.
+ * Colors are consistent across all fleet visualization components
+ * (FleetCard, FleetSheet, map vehicle markers) for operator familiarity.
  */
 const statusColors: Record<VehicleStatus, string> = {
   active: 'bg-[var(--success)]',
@@ -51,8 +52,9 @@ const statusColors: Record<VehicleStatus, string> = {
 };
 
 /**
- * Returns appropriate battery icon based on charge level.
- * Icons provide immediate visual feedback without reading percentages.
+ * Returns battery icon based on charge level.
+ * Icon changes at 75%, 50%, and 20% thresholds to provide
+ * at-a-glance status assessment during high-tempo operations.
  */
 function getBatteryIcon(percent: number) {
   if (percent > 75) return <BatteryFull className="h-4 w-4" />;
@@ -63,7 +65,8 @@ function getBatteryIcon(percent: number) {
 
 /**
  * Returns semantic color class for battery display.
- * Uses warning/danger colors to draw attention to low battery states.
+ * Warning/danger colors draw attention to low battery states
+ * that may require immediate RTL (Return to Launch) decisions.
  */
 function getBatteryColor(percent: number) {
   if (percent > 50) return 'text-[var(--success)]';
@@ -120,7 +123,7 @@ export function FleetCard({
         )}
       </div>
 
-      {/* Fleet status dots - limited to 8 to maintain compact layout */}
+      {/* Fleet status dots - capped at 8 to prevent layout overflow with large swarms */}
       <div className="flex items-center gap-1.5">
         {vehicles.slice(0, 8).map((vehicle) => (
           <div

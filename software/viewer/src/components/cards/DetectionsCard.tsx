@@ -28,10 +28,10 @@ export interface DetectionsCardProps {
 
 /**
  * Sensor configuration with color coding for visual differentiation.
- * Colors are chosen to match industry standards:
- * - Thermal: Orange (heat/fire association)
+ * Colors align with industry standards for intuitive recognition:
+ * - Thermal: Orange (heat/fire association, FLIR standard)
  * - Acoustic: Blue (sound wave visualization)
- * - Gas: Yellow (caution/warning association)
+ * - Gas: Yellow (caution/warning association for chemical hazards)
  */
 const sensorConfig = {
   thermal: {
@@ -99,7 +99,6 @@ export function DetectionsCard({
         )}
       </div>
 
-      {/* Sensor count pills with color-coded icons */}
       <div className="flex items-center gap-2">
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.thermal.bg)}>
           <Flame className={cn('h-4 w-4', sensorConfig.thermal.color)} />

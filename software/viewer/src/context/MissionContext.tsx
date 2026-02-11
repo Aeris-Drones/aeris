@@ -47,9 +47,8 @@ const STORAGE_KEY_STATE = 'aeris-mission-state';
 const STORAGE_KEY_PROGRESS = 'aeris-mission-progress';
 
 /**
- * Restore mission state from localStorage on initial load.
- * Only resumes active missions (non-IDLE phases) to prevent
- * accidental restarts of stale sessions after browser refresh.
+ * Restores mission state from localStorage, filtering out stale IDLE sessions
+ * to prevent accidental restarts after browser refresh.
  */
 function loadInitialMissionState(): MissionState {
   const initial = getInitialMissionState();
@@ -66,8 +65,8 @@ function loadInitialMissionState(): MissionState {
 }
 
 /**
- * Restore mission progress metrics from localStorage.
- * Merges with defaults to handle schema evolution between deployments.
+ * Restores mission progress from localStorage with schema evolution support.
+ * Merges saved data with defaults to handle deployments with updated fields.
  */
 function loadInitialMissionProgress(initialProgress?: Partial<MissionProgress>): MissionProgress {
   const initial = { ...getInitialMissionProgress(), ...initialProgress };
@@ -92,17 +91,16 @@ interface MissionProviderProps {
 }
 
 /**
- * Provides mission lifecycle state management and persistence.
+ * Provides mission lifecycle state management with localStorage persistence
+ * and demo mode for offline development.
  *
- * State persistence strategy:
- * - State and progress are persisted to localStorage on every change
- * - Only non-IDLE missions are restored on page load
- * - Stats (transient counters) are not persisted
+ * Persistence strategy:
+ * - State and progress: persisted for crash recovery
+ * - Stats: transient, reset on reload
+ * - Only active missions (non-IDLE) restore after refresh
  *
- * Demo mode simulates mission progress when ROS is unavailable,
- * generating synthetic coverage updates and random detections.
- * External updates (from ROS) take precedence and disable demo mode
- * for 5 seconds via the markExternalUpdate mechanism.
+ * Demo mode generates synthetic telemetry when ROS is unavailable.
+ * External ROS updates take precedence and suppress demo mode for 5s.
  */
 export function MissionProvider({
   children,
@@ -122,7 +120,6 @@ export function MissionProvider({
   const demoIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const externalUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Persist state and progress to localStorage for crash recovery.
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -134,7 +131,6 @@ export function MissionProvider({
     }
   }, [state, progress]);
 
-  // Update elapsed time every second while mission is active and not paused.
   useEffect(() => {
     if (state.phase === 'IDLE' || state.pausedAt) {
       return;
@@ -150,8 +146,6 @@ export function MissionProvider({
     return () => clearInterval(interval);
   }, [state]);
 
-  // Demo mode: simulate mission progress and detections when no ROS connection.
-  // Disabled when external updates are active to prevent state conflicts.
   useEffect(() => {
     if (!demoMode || externalUpdatesActive || state.phase === 'IDLE' || state.pausedAt) {
       if (demoIntervalRef.current) {
@@ -178,7 +172,6 @@ export function MissionProvider({
         };
       });
 
-      // 5% chance per tick to generate a synthetic detection
       if (Math.random() < 0.05) {
         const sensorTypes = ['thermal', 'acoustic', 'gas'] as const;
         const sensor = sensorTypes[Math.floor(Math.random() * 3)];
@@ -212,7 +205,6 @@ export function MissionProvider({
     };
   }, []);
 
-  // Maintain rolling command history (last 20 commands) for debugging.
   const recordCommand = useCallback((command: MissionCommand) => {
     setLastCommand(command);
     setCommandHistory(prev => [
@@ -315,11 +307,6 @@ export function MissionProvider({
     }));
   }, []);
 
-  /**
-   * Signals that ROS has provided external state updates.
-   * Temporarily disables demo mode for 5 seconds to prevent
-   * conflicting synthetic updates from overwriting real telemetry.
-   */
   const markExternalUpdate = useCallback(() => {
     setExternalUpdatesActive(true);
     if (externalUpdateTimeoutRef.current) {
@@ -355,37 +342,46 @@ export function MissionProvider({
   );
 }
 
+/**
+ * Accesses the mission context. Must be used within a MissionProvider.
+ *
+ * @throws Error if used outside MissionProvider
+ */
 export function useMissionContext(): MissionContextValue {
   const context = useContext(MissionContext);
-
   if (!context) {
     throw new Error('useMissionContext must be used within a MissionProvider');
   }
-
   return context;
 }
 
+/** Returns the current mission state (phase, timing, ID). */
 export function useMissionState(): MissionState {
   return useMissionContext().state;
 }
 
+/** Returns mission progress metrics (coverage, area, drones). */
 export function useMissionProgress(): MissionProgress {
   return useMissionContext().progress;
 }
 
+/** Returns mission statistics (detections, elapsed time). */
 export function useMissionStats(): MissionStats {
   return useMissionContext().stats;
 }
 
+/** Returns the current mission phase. */
 export function useMissionPhase(): MissionPhase {
   return useMissionContext().state.phase;
 }
 
+/** Returns true if mission is in SEARCHING or TRACKING phase. */
 export function useIsMissionActive(): boolean {
   const phase = useMissionPhase();
   return phase === 'SEARCHING' || phase === 'TRACKING';
 }
 
+/** Returns true if the mission is currently paused. */
 export function useIsMissionPaused(): boolean {
   const state = useMissionState();
   return state.pausedAt !== undefined;

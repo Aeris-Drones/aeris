@@ -11,6 +11,22 @@ interface FlightTrail3DProps {
   dashed?: boolean;
 }
 
+/**
+ * Renders a 3D flight trail with visual depth cues.
+ *
+ * Visual hierarchy communicates temporal information:
+ * - Trail dots grow larger and more opaque toward the recent end
+ * - Ground projection provides spatial context without cluttering the view
+ * - Dashed line style reduces visual weight for historical paths
+ *
+ * Used by MapScene3D for both live vehicle trajectories and planned return paths.
+ *
+ * @param points - Array of [x, y, z] coordinates in world space (Y-up)
+ * @param color - Trail color (default: green for active flights)
+ * @param opacity - Line opacity for layering control
+ * @param lineWidth - Stroke width in pixels
+ * @param dashed - Whether to use dashed line style
+ */
 export function FlightTrail3D({
   points,
   color = '#22c55e',
@@ -22,7 +38,6 @@ export function FlightTrail3D({
 
   return (
     <group>
-      {/* Main trail line */}
       <Line
         points={points}
         color={color}
@@ -34,9 +49,8 @@ export function FlightTrail3D({
         gapSize={2}
       />
 
-      {/* Trail dots at each point */}
       {points.map((point, i) => {
-        // Skip first point (oldest), smaller dots for older points
+        // Visual weight increases toward recent positions for temporal cues
         const t = i / (points.length - 1);
         const size = 0.5 + t * 1.5;
         const dotOpacity = 0.2 + t * 0.6;
@@ -53,7 +67,6 @@ export function FlightTrail3D({
         );
       })}
 
-      {/* Ground projection (shadow trail) */}
       <Line
         points={points.map(([x, , z]) => [x, 0.5, z] as [number, number, number])}
         color={color}

@@ -51,18 +51,11 @@ interface ZoneProviderProps {
 }
 
 /**
- * Provides search zone management and polygon drawing capabilities.
+ * Provides search zone management with polygon drawing and editing capabilities.
  *
- * Zones define search areas for the mission orchestrator. Each zone has:
- * - A priority level (1-5) affecting search order
- * - A polygon boundary (minimum 3 points)
- * - A lifecycle status (active, completed, skipped)
- *
- * Drawing workflow:
- * 1. Call startDrawing(priority) to enter drawing mode
- * 2. Map interactions call addPoint() for each vertex
- * 3. finishDrawing() validates (>=3 points) and creates the zone
- * 4. Editing mode allows modifying existing zone geometry
+ * Zones define search areas for the mission orchestrator, with priority levels
+ * affecting search order. The drawing workflow supports both creating new zones
+ * and editing existing zone geometry.
  */
 export function ZoneProvider({ children }: ZoneProviderProps) {
   const [zones, setZones] = useState<PriorityZone[]>([]);
@@ -144,11 +137,6 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     });
   }, []);
 
-  /**
-   * Finalizes the current drawing into a search zone.
-   * Requires at least 3 points to form a valid polygon.
-   * Returns null and cancels if validation fails.
-   */
   const finishDrawing = useCallback((name?: string, notes?: string): PriorityZone | null => {
     if (drawing.points.length < 3) {
       console.warn('[Zone] Need at least 3 points to create a zone');
@@ -179,10 +167,6 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     }));
   }, []);
 
-  /**
-   * Enters editing mode for an existing zone.
-   * Loads the zone's polygon and priority into the drawing state.
-   */
   const startEditing = useCallback((zoneId: string) => {
     const zone = zones.find(z => z.id === zoneId);
     if (!zone) return;
@@ -195,10 +179,6 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     });
   }, [zones]);
 
-  /**
-   * Exits editing mode and persists changes to the zone.
-   * No-op if not currently in editing mode.
-   */
   const stopEditing = useCallback(() => {
     if (drawing.mode === 'editing' && drawing.editingZoneId) {
       updateZone(drawing.editingZoneId, {
@@ -249,28 +229,35 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
   );
 }
 
+/**
+ * Accesses the zone context. Must be used within a ZoneProvider.
+ *
+ * @throws Error if used outside ZoneProvider
+ */
 export function useZoneContext(): ZoneContextValue {
   const context = useContext(ZoneContext);
-
   if (!context) {
     throw new Error('useZoneContext must be used within a ZoneProvider');
   }
-
   return context;
 }
 
+/** Returns all search zones. */
 export function useZones(): PriorityZone[] {
   return useZoneContext().zones;
 }
 
+/** Returns zones with active status (not completed or skipped). */
 export function useActiveZones(): PriorityZone[] {
   return useZoneContext().activeZones;
 }
 
+/** Returns the current drawing state for zone creation/editing. */
 export function useDrawingState(): DrawingState {
   return useZoneContext().drawing;
 }
 
+/** Returns true when user is actively drawing a zone polygon. */
 export function useIsDrawing(): boolean {
   return useZoneContext().isDrawing;
 }

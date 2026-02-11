@@ -4,6 +4,13 @@ import { cva } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Style variants for the Progress indicator.
+ *
+ * Maps semantic status values to theme colors for consistent visual
+ * feedback across the GCS (e.g., battery levels, mission progress,
+ * file upload status).
+ */
 const progressVariants = cva("h-full w-full flex-1 bg-primary transition-all", {
     variants: {
         variant: {
@@ -18,9 +25,16 @@ const progressVariants = cva("h-full w-full flex-1 bg-primary transition-all", {
     }
 })
 
-// Since standard Radix Progress doesn't support variants easily on the Indicator without passing props down,
-// We will extend the component to accept a status variant.
-
+/**
+ * Linear progress indicator with semantic color variants.
+ *
+ * Extends Radix UI Progress with AERIS-specific status colors.
+ * Used for telemetry displays (battery, signal strength), mission
+ * progress, and file operation feedback.
+ *
+ * The indicatorColor prop allows dynamic color changes based on
+ * thresholds (e.g., battery < 20% triggers danger variant).
+ */
 const Progress = React.forwardRef<
   React.ElementRef<typeof ProgressPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root> & {
