@@ -1,32 +1,66 @@
+/**
+ * ROS Telemetry Message Parsing
+ *
+ * This module handles validation and type conversion of raw ROS messages
+ * into strongly-typed TypeScript interfaces. All numeric fields are validated
+ * to ensure they are finite numbers before casting.
+ */
+
 export enum VehicleType {
   SCOUT = 'scout',
   RANGER = 'ranger',
   UNKNOWN = 'unknown',
 }
 
+/**
+ * Standardized vehicle telemetry message structure.
+ *
+ * Mirrors the ROS aeris_msgs/Telemetry message format with TypeScript types.
+ * All angles are in radians, distances in meters, velocities in m/s.
+ */
 export interface VehicleTelemetryMessage {
-  vehicle_id: string;        // "scout_1", "ranger_1"
-  vehicle_type: VehicleType; // SCOUT | RANGER | UNKNOWN
+  /** Vehicle identifier, e.g., "scout_1", "ranger_1" */
+  vehicle_id: string;
+  /** Vehicle classification for UI theming */
+  vehicle_type: VehicleType;
+  /** ROS timestamp (seconds + nanoseconds since epoch) */
   timestamp: { sec: number; nanosec: number };
+  /** Geographic position (WGS84) */
   position: {
     latitude: number;
     longitude: number;
-    altitude: number;        // meters AGL
+    /** Altitude in meters above ground level (AGL) */
+    altitude: number;
   };
+  /** Orientation in radians (ROS convention: roll-pitch-yaw, extrinsic rotations) */
   orientation: {
-    roll: number;            // radians
-    pitch: number;           // radians
-    yaw: number;             // radians (heading)
+    roll: number;
+    pitch: number;
+    /** Yaw in radians, 0 = North, positive clockwise */
+    yaw: number;
   };
+  /** Linear velocity in ROS body frame (m/s) */
   velocity: {
-    x: number;               // m/s
+    x: number;
     y: number;
     z: number;
   };
 }
 
 /**
- * Converts a raw ROS message (with string vehicle_type) to a typed VehicleTelemetryMessage
+ * Validates and converts a raw ROS message to a typed VehicleTelemetryMessage.
+ *
+ * Validation Rules:
+ * - vehicle_id: non-empty string
+ * - timestamp: sec and nanosec must be finite numbers
+ * - position: latitude, longitude, altitude must be finite numbers
+ * - orientation: roll, pitch, yaw must be finite numbers
+ * - velocity: x, y, z must be finite numbers
+ * - vehicle_type: case-insensitive match to 'scout' or 'ranger', defaults to UNKNOWN
+ *
+ * @param raw - The raw ROS message object from roslib
+ * @returns Validated VehicleTelemetryMessage
+ * @throws Error with descriptive message if any validation fails
  */
 export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
   if (!raw || typeof raw !== 'object') {
@@ -80,17 +114,18 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
     throw new Error('Invalid telemetry data: velocity must include numeric x, y, and z');
   }
 
+  // Normalize vehicle type string to enum (case-insensitive)
   const vType = typeof data.vehicle_type === 'string'
     ? data.vehicle_type.trim().toLowerCase()
     : '';
-  
+
   let vehicleType: VehicleType = VehicleType.UNKNOWN;
   if (vType === 'scout') {
     vehicleType = VehicleType.SCOUT;
   } else if (vType === 'ranger') {
     vehicleType = VehicleType.RANGER;
   }
-  
+
   return {
     vehicle_id: data.vehicle_id as string,
     vehicle_type: vehicleType,

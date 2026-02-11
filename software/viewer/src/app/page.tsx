@@ -24,35 +24,48 @@ import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 
-// Mock detections data with extended sensor readings
+// Mock detections for UI demonstration when ROS telemetry is unavailable.
+// Each detection includes sensor-specific metadata for rendering specialized indicators.
 const mockDetections: Detection[] = [
-  { 
-    id: 'det-1', sensorType: 'thermal', confidence: 0.92, 
-    timestamp: Date.now() - 30000, status: 'new', 
+  {
+    id: 'det-1', sensorType: 'thermal', confidence: 0.92,
+    timestamp: Date.now() - 30000, status: 'new',
     vehicleId: 'scout-1', vehicleName: 'Scout 1', position: [50, 0, -50],
     temperature: 37.2, sector: 'Sector C-4', signatureType: 'Human signature likely'
   },
-  { 
-    id: 'det-2', sensorType: 'acoustic', confidence: 0.78, 
-    timestamp: Date.now() - 120000, status: 'reviewing', 
+  {
+    id: 'det-2', sensorType: 'acoustic', confidence: 0.78,
+    timestamp: Date.now() - 120000, status: 'reviewing',
     vehicleId: 'scout-2', vehicleName: 'Scout 2', position: [-80, 0, 120],
     decibels: 42, sector: 'Sector B-2', signatureType: 'Voice detected'
   },
-  { 
-    id: 'det-3', sensorType: 'gas', confidence: 0.65, 
-    timestamp: Date.now() - 300000, status: 'confirmed', 
+  {
+    id: 'det-3', sensorType: 'gas', confidence: 0.65,
+    timestamp: Date.now() - 300000, status: 'confirmed',
     vehicleId: 'scout-1', vehicleName: 'Scout 1', position: [200, 0, 50],
     concentration: 85, sector: 'Sector D-1', signatureType: 'Elevated CO levels'
   },
-  { 
-    id: 'det-4', sensorType: 'thermal', confidence: 0.88, 
-    timestamp: Date.now() - 60000, status: 'new', 
+  {
+    id: 'det-4', sensorType: 'thermal', confidence: 0.88,
+    timestamp: Date.now() - 60000, status: 'new',
     vehicleId: 'ranger-1', vehicleName: 'Ranger 1', position: [-150, 0, -80],
     temperature: 36.8, sector: 'Sector A-3', signatureType: 'Possible survivor'
   },
 ];
 const INITIAL_ALERT_COUNT = 2;
 
+/**
+ * Root page component for the Aeris GCS.
+ *
+ * Provider hierarchy (outer to inner):
+ * - CoordinateOriginProvider: Global lat/lon origin for local ENU coordinate transforms
+ * - LayerVisibilityProvider: Map layer toggle state (thermal, gas, acoustic, trajectories)
+ * - ZoneProvider: Search zone CRUD and polygon drawing state
+ * - MissionProvider: Mission lifecycle state and command history
+ *
+ * Separation of V2Page and V2PageContent allows providers to be established before
+ * any hooks/contexts are accessed.
+ */
 export default function V2Page() {
   return (
     <CoordinateOriginProvider>
@@ -81,7 +94,7 @@ function V2PageContent() {
 
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
-  
+
   const {
     phase: missionPhase,
     elapsedSeconds,
@@ -106,6 +119,8 @@ function V2PageContent() {
   const [pipVehicleId, setPipVehicleId] = useState<string | null>(null);
   const mapRef = useRef<MapScene3DHandle>(null);
 
+  // Transform ROS telemetry into FleetCard-compatible vehicle summaries.
+  // Altitude is extracted from the Y axis (ENU up).
   const fleetVehicles = useMemo<VehicleInfo[]>(() => {
     return telemetryVehicles.map((vehicle) => ({
       id: vehicle.id,
@@ -118,6 +133,7 @@ function V2PageContent() {
     }));
   }, [telemetryVehicles]);
 
+  // Map of vehicle IDs to their ground-plane (X, Z) positions for camera teleport.
   const vehiclePositionById = useMemo(() => {
     const entries: [string, [number, number]][] = telemetryVehicles.map((vehicle) => [
       vehicle.id,
@@ -126,6 +142,8 @@ function V2PageContent() {
     return new Map(entries);
   }, [telemetryVehicles]);
 
+  // Derive warnings from fleet telemetry for display in FleetCard.
+  // Critical threshold at 25% triggers immediate operator attention.
   const fleetWarnings = useMemo<VehicleWarning[]>(
     () =>
       fleetVehicles
@@ -152,7 +170,9 @@ function V2PageContent() {
   const handleViewFeed = useCallback((id: string) => {
     setPipVehicleId(id);
   }, []);
-  
+
+  // Static alerts for demonstration. In production, these would be fed from
+  // the ROS /alerts topic or a centralized alert management system.
   const storedAlerts = useMemo<Alert[]>(() => [
     {
       id: 'demo-critical',
@@ -186,11 +206,12 @@ function V2PageContent() {
     setSelectedDetectionId(null);
   };
 
+  // When a detection is selected from the map, clear vehicle selection and
+  // teleport the camera to the detection location for operator review.
   const handleDetectionSelect = useCallback((id: string) => {
     setSelectedDetectionId(id || null);
     setSelectedDroneId(null);
-    
-    // Zoom to detection when selected from map
+
     if (id) {
       const detection = detections.find(d => d.id === id);
       if (detection && mapRef.current) {
@@ -200,13 +221,13 @@ function V2PageContent() {
   }, [detections]);
 
   const handleConfirmDetection = useCallback((id: string) => {
-    setDetections(prev => prev.map(d => 
+    setDetections(prev => prev.map(d =>
       d.id === id ? { ...d, status: 'confirmed' as const } : d
     ));
   }, []);
 
   const handleDismissDetection = useCallback((id: string) => {
-    setDetections(prev => prev.map(d => 
+    setDetections(prev => prev.map(d =>
       d.id === id ? { ...d, status: 'dismissed' as const } : d
     ));
   }, []);
@@ -240,6 +261,10 @@ function V2PageContent() {
     dismissAllAlerts();
   }, [storedAlerts]);
 
+  // Global keyboard shortcuts for mission control.
+  // Space toggles pause/resume during active mission phases.
+  // Number keys 1-6 provide quick access to fleet vehicles.
+  // Escape clears all selections.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if user is typing in an input
@@ -319,7 +344,7 @@ function V2PageContent() {
           onAddZonePoint={addPoint}
         />
       }
-      
+
       statusPill={
         <StatusPill
           missionPhase={missionPhase as MissionPhase}
@@ -335,7 +360,7 @@ function V2PageContent() {
       layersPanel={<LayersPanel />}
 
       zoneToolbar={<ZoneToolbar />}
-      
+
       commandDock={
         <CommandDock
           fleetCard={

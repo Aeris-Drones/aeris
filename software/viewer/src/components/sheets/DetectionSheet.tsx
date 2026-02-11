@@ -19,6 +19,16 @@ interface DetectionSheetProps {
   trigger: React.ReactNode;
 }
 
+/**
+ * Detection review sheet with filtering and triage workflow.
+ *
+ * Supports filtering by review status:
+ * - pending: new or reviewing (requires operator action)
+ * - confirmed: validated detections
+ * - dismissed: false positives
+ *
+ * Detection workflow: new -> reviewing -> confirmed|dismissed
+ */
 export function DetectionSheet({
   detections,
   onConfirm,
@@ -28,6 +38,7 @@ export function DetectionSheet({
 }: DetectionSheetProps) {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
 
+  // Counts for filter tab badges
   const counts = {
     all: detections.length,
     pending: detections.filter(d => d.status === 'new' || d.status === 'reviewing').length,
@@ -35,6 +46,7 @@ export function DetectionSheet({
     dismissed: detections.filter(d => d.status === 'dismissed').length,
   };
 
+  // Apply active filter to detection list
   const filteredDetections = detections.filter((d) => {
     if (activeFilter === 'all') return true;
     if (activeFilter === 'pending') return d.status === 'new' || d.status === 'reviewing';
@@ -59,6 +71,7 @@ export function DetectionSheet({
             </span>
           </div>
 
+          {/* Status filter tabs */}
           <div className="flex border-b border-white/5">
             {tabs.map((tab) => (
               <button

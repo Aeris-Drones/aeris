@@ -50,6 +50,20 @@ interface ZoneProviderProps {
   children: ReactNode;
 }
 
+/**
+ * Provides search zone management and polygon drawing capabilities.
+ *
+ * Zones define search areas for the mission orchestrator. Each zone has:
+ * - A priority level (1-5) affecting search order
+ * - A polygon boundary (minimum 3 points)
+ * - A lifecycle status (active, completed, skipped)
+ *
+ * Drawing workflow:
+ * 1. Call startDrawing(priority) to enter drawing mode
+ * 2. Map interactions call addPoint() for each vertex
+ * 3. finishDrawing() validates (>=3 points) and creates the zone
+ * 4. Editing mode allows modifying existing zone geometry
+ */
 export function ZoneProvider({ children }: ZoneProviderProps) {
   const [zones, setZones] = useState<PriorityZone[]>([]);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
@@ -130,6 +144,11 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     });
   }, []);
 
+  /**
+   * Finalizes the current drawing into a search zone.
+   * Requires at least 3 points to form a valid polygon.
+   * Returns null and cancels if validation fails.
+   */
   const finishDrawing = useCallback((name?: string, notes?: string): PriorityZone | null => {
     if (drawing.points.length < 3) {
       console.warn('[Zone] Need at least 3 points to create a zone');
@@ -160,6 +179,10 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     }));
   }, []);
 
+  /**
+   * Enters editing mode for an existing zone.
+   * Loads the zone's polygon and priority into the drawing state.
+   */
   const startEditing = useCallback((zoneId: string) => {
     const zone = zones.find(z => z.id === zoneId);
     if (!zone) return;
@@ -172,6 +195,10 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     });
   }, [zones]);
 
+  /**
+   * Exits editing mode and persists changes to the zone.
+   * No-op if not currently in editing mode.
+   */
   const stopEditing = useCallback(() => {
     if (drawing.mode === 'editing' && drawing.editingZoneId) {
       updateZone(drawing.editingZoneId, {

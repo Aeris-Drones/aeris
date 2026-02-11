@@ -6,12 +6,29 @@ import { cn } from '@/lib/utils';
 import { useZoneContext } from '@/context/ZoneContext';
 import type { ZonePriority } from '@/types/zone';
 
+/**
+ * Priority configuration with visual styling for each urgency level.
+ * Icons indicate severity: Triangle (Critical), Circle (High), Info (Elevated).
+ */
 const priorityConfig: Record<ZonePriority, { label: string; color: string; bg: string; Icon: typeof AlertTriangle }> = {
   1: { label: 'CRITICAL', color: 'text-red-400', bg: 'bg-red-500/20', Icon: AlertTriangle },
   2: { label: 'HIGH', color: 'text-orange-400', bg: 'bg-orange-500/20', Icon: AlertCircle },
   3: { label: 'ELEVATED', color: 'text-yellow-400', bg: 'bg-yellow-500/20', Icon: Info },
 };
 
+/**
+ * PriorityDropdown provides a custom select interface for zone priority.
+ *
+ * UI/UX Decisions:
+ * - Custom dropdown replaces native select for consistent styling
+ * - Icons and color coding reinforce priority level meaning
+ * - Click-outside behavior closes dropdown automatically
+ * - Selected state uses background tint for clear indication
+ *
+ * Accessibility:
+ * - Visual indicators (icons + color) supplement text labels
+ * - Click target is full button width for easy interaction
+ */
 function PriorityDropdown({
   value,
   onChange
@@ -23,6 +40,7 @@ function PriorityDropdown({
   const ref = useRef<HTMLDivElement>(null);
   const current = priorityConfig[value];
 
+  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -86,6 +104,27 @@ function PriorityDropdown({
   );
 }
 
+/**
+ * ZoneToolbar provides controls for creating and managing priority zones.
+ *
+ * UI/UX Decisions:
+ * - Two modes: idle (setup) and drawing (active creation)
+ * - Idle mode shows priority selector and draw button
+ * - Drawing mode shows point count, undo, cancel, and finish controls
+ * - Minimum 3 points required to finish (enforced via disabled state)
+ * - Visual separator lines group related controls
+ * - Zone counter shows existing zones for context
+ *
+ * State Management:
+ * - Uses ZoneContext for shared zone state across components
+ * - Local state for zone name input during drawing
+ * - Validates point count before allowing finish
+ *
+ * Accessibility:
+ * - Button titles provide context for icon-only buttons
+ * - Disabled states prevent invalid actions
+ * - Color coding reinforces priority levels
+ */
 export function ZoneToolbar() {
   const {
     zones,
@@ -125,6 +164,7 @@ export function ZoneToolbar() {
     }
   };
 
+  // Idle mode: priority selector, draw button, zone count, delete option
   if (!isDrawing) {
     return (
       <div className={cn(
@@ -173,6 +213,7 @@ export function ZoneToolbar() {
     );
   }
 
+  // Drawing mode: priority indicator, name input, point count, action buttons
   const currentPriority = priorityConfig[drawing.currentPriority];
 
   return (
@@ -202,6 +243,7 @@ export function ZoneToolbar() {
 
       <div className="w-px h-5 bg-white/10" />
 
+      {/* Point counter with helper text for minimum requirement */}
       <div className="flex items-center gap-2">
         <span className="text-xs text-white/50">Points:</span>
         <span className="font-mono text-sm text-white">{pointCount}</span>

@@ -5,6 +5,14 @@ import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, BatteryFull, BatteryMedium, BatteryLow, BatteryWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * Vehicle operational states for the fleet monitoring system.
+ * - active: Vehicle is flying and executing mission
+ * - warning: Non-critical issue detected (e.g., low battery, weak signal)
+ * - error: Critical issue requiring immediate attention
+ * - returning: Vehicle is executing return-to-launch sequence
+ * - idle: Vehicle is on ground and ready
+ */
 export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle';
 
 export interface VehicleInfo {
@@ -30,6 +38,10 @@ export interface FleetCardProps {
   warnings: VehicleWarning[];
 }
 
+/**
+ * Status indicator colors using CSS custom properties for theme consistency.
+ * These map to the design system's semantic color tokens.
+ */
 const statusColors: Record<VehicleStatus, string> = {
   active: 'bg-[var(--success)]',
   warning: 'bg-[var(--warning)]',
@@ -38,6 +50,10 @@ const statusColors: Record<VehicleStatus, string> = {
   idle: 'bg-white/30',
 };
 
+/**
+ * Returns appropriate battery icon based on charge level.
+ * Icons provide immediate visual feedback without reading percentages.
+ */
 function getBatteryIcon(percent: number) {
   if (percent > 75) return <BatteryFull className="h-4 w-4" />;
   if (percent > 50) return <BatteryMedium className="h-4 w-4" />;
@@ -45,12 +61,31 @@ function getBatteryIcon(percent: number) {
   return <BatteryWarning className="h-4 w-4" />;
 }
 
+/**
+ * Returns semantic color class for battery display.
+ * Uses warning/danger colors to draw attention to low battery states.
+ */
 function getBatteryColor(percent: number) {
   if (percent > 50) return 'text-[var(--success)]';
   if (percent > 20) return 'text-[var(--warning)]';
   return 'text-[var(--danger)]';
 }
 
+/**
+ * FleetCard displays a high-level overview of the drone fleet status.
+ *
+ * UI/UX Decisions:
+ * - Compact dot indicators (max 8 visible) prevent visual overload with large fleets
+ * - Warning badge uses severity-based color coding (danger for critical warnings)
+ * - Battery icon changes based on level for at-a-glance status assessment
+ * - Active/total count format (e.g., "3/5") clearly shows fleet utilization
+ * - Hover and active states provide tactile feedback on touch devices
+ *
+ * Accessibility:
+ * - Status dots use title attribute for vehicle name and status on hover
+ * - Color is not the sole indicator (icons + text reinforce battery state)
+ * - Badge includes both icon and numeric count for warnings
+ */
 export function FleetCard({
   vehicles,
   activeCount,
@@ -85,6 +120,7 @@ export function FleetCard({
         )}
       </div>
 
+      {/* Fleet status dots - limited to 8 to maintain compact layout */}
       <div className="flex items-center gap-1.5">
         {vehicles.slice(0, 8).map((vehicle) => (
           <div

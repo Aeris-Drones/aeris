@@ -12,6 +12,10 @@ import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 
+/**
+ * Mock detection data for development/demo purposes.
+ * Position uses Three.js coordinate system: [x, y, z] where y is up.
+ */
 const mockDetections: Omit<DetectionMarker3DProps, 'isSelected' | 'onClick'>[] = [
   {
     id: 'det-1',
@@ -43,32 +47,70 @@ const mockDetections: Omit<DetectionMarker3DProps, 'isSelected' | 'onClick'>[] =
   },
 ];
 
+/**
+ * Imperative handle interface exposed by MapScene3D.
+ * Allows parent components to control camera programmatically.
+ */
 export interface MapScene3DHandle {
+  /** Set predefined camera view: wide (isometric), tracking (follow drone), or overhead (top-down) */
   setCameraView: (view: 'wide' | 'tracking' | 'overhead') => void;
+  /** Teleport camera to specific ground coordinates (x, z in world space) */
   teleportTo: (x: number, z: number) => void;
+  /** Get current camera position and target for state persistence */
   getCameraState: () => { position: THREE.Vector3; target: THREE.Vector3 } | null;
 }
 
+/**
+ * Props for the MapScene3D component.
+ */
 interface MapScene3DProps {
+  /** Currently selected drone ID for highlighting */
   selectedDroneId?: string | null;
+  /** Currently selected detection ID for highlighting */
   selectedDetectionId?: string | null;
+  /** Callback when a drone marker is clicked */
   onDroneSelect?: (id: string) => void;
+  /** Callback when a detection marker is clicked */
   onDetectionSelect?: (id: string) => void;
-  // Zone drawing props
+  /** Priority zones to render on the map */
   zones?: PriorityZone[];
+  /** Currently selected zone ID */
   selectedZoneId?: string | null;
+  /** Callback when a zone is clicked (null for deselect) */
   onZoneSelect?: (id: string | null) => void;
+  /** Whether zone drawing mode is active - enables ground plane click handler */
   isDrawingZone?: boolean;
+  /** Current points in the zone being drawn */
   drawingPoints?: ZonePoint[];
+  /** Priority level for the zone being drawn */
   drawingPriority?: ZonePriority;
+  /** Callback when a point is added during zone drawing */
   onAddZonePoint?: (point: ZonePoint) => void;
 }
 
+/**
+ * MapScene3D - Main 3D map visualization component.
+ *
+ * Coordinate System:
+ * - Uses standard Three.js right-handed coordinate system
+ * - Y is up (altitude), X and Z form the ground plane
+ * - Camera looks toward origin from initial position [0, 300, 300]
+ *
+ * Rendering Architecture:
+ * - Canvas with antialiasing for smooth edges
+ * - Dark matter aesthetic with custom background color
+ * - Layered rendering: grid -> trails -> zones -> markers -> UI
+ *
+ * Camera Controls:
+ * - CameraControls from @react-three/drei for orbit/pan/zoom
+ * - Constrained polar angle to prevent going below ground
+ * - Min/max distance limits for usable zoom range
+ */
 export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
-  ({ 
-    selectedDroneId, 
-    selectedDetectionId, 
-    onDroneSelect, 
+  ({
+    selectedDroneId,
+    selectedDetectionId,
+    onDroneSelect,
     onDetectionSelect,
     zones = [],
     selectedZoneId,
@@ -82,6 +124,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     const visibility = useLayerVisibility();
     const cameraControlsRef = useRef<CameraControls>(null);
 
+    // Transform telemetry data into drone marker props
     const telemetryDrones: Omit<DroneMarker3DProps, 'isSelected' | 'onClick'>[] = vehicles.map((vehicle) => {
       const trailPoints: [number, number, number][] = vehicle.trajectory.map((point) => [
         point.x,
@@ -100,6 +143,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
       };
     });
 
+    // Expose imperative methods to parent components via ref
     useImperativeHandle(ref, () => ({
       setCameraView: (view: 'wide' | 'tracking' | 'overhead') => {
         const controls = cameraControlsRef.current;
@@ -107,13 +151,15 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
 
         switch (view) {
           case 'wide':
+            // Isometric-style view from corner
             controls.setLookAt(0, 400, 400, 0, 0, 0, true);
             break;
           case 'overhead':
+            // Direct top-down view
             controls.setLookAt(0, 600, 0, 0, 0, 0, true);
             break;
           case 'tracking': {
-            // Track first active telemetry drone.
+            // Follow first active drone with offset camera
             const activeDrone = telemetryDrones.find(d => d.status === 'active');
             if (activeDrone) {
               const [x, y, z] = activeDrone.position;
@@ -126,6 +172,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
       teleportTo: (x: number, z: number) => {
         const controls = cameraControlsRef.current;
         if (!controls) return;
+        // Position camera above and offset from target, looking straight down at target
         controls.setLookAt(x, 200, z + 150, x, 0, z, true);
       },
       getCameraState: () => {
@@ -145,20 +192,20 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
           camera={{ position: [0, 300, 300], fov: 50 }}
           gl={{ antialias: true, alpha: false }}
           onPointerMissed={() => {
-            // Deselect when clicking empty space
+            // Deselect all when clicking empty space in the scene
             onDroneSelect?.('');
             onDetectionSelect?.('');
           }}
         >
-          {/* Dark matter background */}
+          {/* Background color - dark matter aesthetic */}
           <color attach="background" args={['#0d0d12']} />
-          
-          {/* Minimal lighting for dark aesthetic */}
+
+          {/* Lighting setup - minimal for dark aesthetic */}
           <ambientLight intensity={0.3} />
           <directionalLight position={[50, 100, 50]} intensity={0.5} />
           <pointLight position={[0, 200, 0]} intensity={0.2} color="#4488ff" />
 
-          {/* Flight trails (render before drones so trails appear behind) */}
+          {/* Flight trails - rendered before markers so they appear behind */}
           {visibility.trajectories &&
             telemetryDrones.map((drone) =>
               drone.showTrail && drone.trailPoints.length > 1 ? (
@@ -203,7 +250,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
             />
           ))}
 
-          {/* Ground grid - dark matter style */}
+          {/* Ground grid - dark matter style with fade for depth cueing */}
           <Grid
             position={[0, -0.5, 0]}
             args={[1000, 1000]}
@@ -216,10 +263,10 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
             infiniteGrid
           />
 
-          {/* Invisible ground plane - only for zone drawing clicks */}
+          {/* Invisible ground plane for zone drawing - rendered when isDrawingZone is true */}
           {isDrawingZone && (
-            <mesh 
-              rotation={[-Math.PI / 2, 0, 0]} 
+            <mesh
+              rotation={[-Math.PI / 2, 0, 0]}
               position={[0, -2, 0]}
               onClick={(e: ThreeEvent<MouseEvent>) => {
                 if (onAddZonePoint) {
@@ -234,7 +281,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
             </mesh>
           )}
 
-          {/* Priority Zones */}
+          {/* Priority zone overlays */}
           {zones.map((zone) => (
             <ZoneOverlay3D
               key={zone.id}
@@ -244,7 +291,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
             />
           ))}
 
-          {/* Zone Drawing Preview */}
+          {/* Zone drawing preview - shows polygon as user clicks points */}
           {isDrawingZone && drawingPoints.length > 0 && (
             <ZoneDrawingPreview
               points={drawingPoints}
@@ -252,6 +299,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
             />
           )}
 
+          {/* Camera controls with constraints for usable navigation */}
           <CameraControls
             ref={cameraControlsRef}
             makeDefault

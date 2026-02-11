@@ -7,13 +7,26 @@ import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 
 type ReturnTrajectoryMap = Record<string, [number, number, number][]>;
 
+/**
+ * Hook for managing vehicle telemetry data from ROS.
+ *
+ * Subscribes to two ROS topics:
+ * - /vehicle/telemetry: Real-time vehicle state (position, orientation, velocity)
+ * - /mission/progress: Mission status including return-to-launch trajectories
+ *
+ * The VehicleManager handles coordinate transformations and state tracking.
+ * Coordinate origin is auto-set from the first received telemetry if not already set.
+ */
 export function useVehicleTelemetry() {
   const { ros, isConnected } = useROSConnection();
   const { origin, setOrigin } = useCoordinateOrigin();
   const [vehicles, setVehicles] = useState<VehicleState[]>([]);
   const [returnTrajectories, setReturnTrajectories] = useState<ReturnTrajectoryMap>({});
 
+  // VehicleManager persists across renders to maintain trajectory history
   const [manager] = useState(() => new VehicleManager());
+
+  // Refs for accessing current origin inside ROS callbacks without re-subscribing
   const originRef = useRef(origin);
   const setOriginRef = useRef(setOrigin);
 
@@ -36,6 +49,12 @@ export function useVehicleTelemetry() {
       messageType: 'std_msgs/String',
     });
 
+    /**
+     * Handles incoming telemetry messages.
+     *
+     * Parses the ROS message, updates vehicle state via VehicleManager,
+     * and auto-sets coordinate origin if this is the first message.
+     */
     const handleMessage = (message: ROSLIB.Message) => {
       let telemetry;
       try {
@@ -53,6 +72,22 @@ export function useVehicleTelemetry() {
 
       setVehicles([...manager.getVehicles()]);
     };
+
+    /**
+     * Handles mission progress messages containing return trajectory data.
+     *
+     * Payload format (JSON string in std_msgs/String.data):
+     * {
+     *   vehicleId: string,
+     *   returnTrajectory: {
+     *     vehicleId: string,
+     *     points: Array<{ x: number, z: number, altitude_m?: number, altitudeM?: number }>
+     *   } | null
+     * }
+     *
+     * Coordinates are converted from ROS (x=East, z=North) to Three.js (x, y=altitude, z).
+     * Trajectories with fewer than 2 valid points are discarded.
+     */
     const handleProgressMessage = (message: ROSLIB.Message) => {
       try {
         const payload = JSON.parse((message as { data: string }).data) as {
@@ -121,6 +156,15 @@ export function useVehicleTelemetry() {
     };
   }, [ros, isConnected, manager]);
 
+  /**
+   * Periodic cleanup effect: removes stale vehicles from React state.
+   *
+   * The VehicleManager.getVehicles() method filters out vehicles that haven't
+   * received updates within the cleanup threshold (10 seconds). This effect
+   * ensures the UI reflects those removals.
+   *
+   * Runs every 1000ms; comparison by length avoids unnecessary re-renders.
+   */
   useEffect(() => {
       const interval = setInterval(() => {
           const currentVehicles = manager.getVehicles();

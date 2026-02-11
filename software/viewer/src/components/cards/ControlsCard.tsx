@@ -7,6 +7,11 @@ import { ShimmerButton } from '@/components/ui/shimmer-button';
 import { Play, Pause, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * Mission lifecycle phases for search and rescue operations.
+ * Phases progress from IDLE -> PLANNING -> SEARCHING -> TRACKING -> COMPLETE
+ * or can transition to ABORTED at any active phase.
+ */
 export type MissionPhase =
   | 'IDLE'
   | 'PLANNING'
@@ -14,6 +19,7 @@ export type MissionPhase =
   | 'TRACKING'
   | 'COMPLETE'
   | 'ABORTED';
+
 export type SearchPattern = 'lawnmower' | 'spiral';
 
 export interface ControlsCardProps {
@@ -32,6 +38,26 @@ export interface ControlsCardProps {
   onAbort: () => void;
 }
 
+/**
+ * ControlsCard provides mission control interface with safety features.
+ *
+ * UI/UX Decisions:
+ * - ShimmerButton for START/NEW creates visual prominence for primary actions
+ * - Two-step abort with countdown prevents accidental mission termination
+ * - Pattern selector only visible in IDLE phase to prevent mid-mission changes
+ * - Status message area provides contextual feedback on current state
+ * - Warning/error messages appear inline to guide user corrections
+ *
+ * Safety Features:
+ * - Abort requires confirmation (5-second countdown with cancel option)
+ * - Disabled states prevent invalid actions for current phase
+ * - Visual distinction between destructive (abort) and constructive (start) actions
+ *
+ * Accessibility:
+ * - Buttons have clear labels with icons
+ * - Status messages are descriptive and action-oriented
+ * - Error messages use warning/danger colors for visibility
+ */
 export function ControlsCard({
   missionPhase,
   isPaused,
@@ -47,6 +73,7 @@ export function ControlsCard({
   onResume,
   onAbort,
 }: ControlsCardProps) {
+  // Abort countdown state for two-step confirmation
   const [abortCountdown, setAbortCountdown] = useState<number | null>(null);
 
   const isIdle = missionPhase === 'IDLE';
@@ -55,6 +82,11 @@ export function ControlsCard({
     missionPhase === 'SEARCHING' ||
     missionPhase === 'TRACKING';
 
+  /**
+   * Abort countdown timer effect.
+   * Automatically triggers abort when countdown reaches zero.
+   * Cleans up timer on unmount or countdown cancellation.
+   */
   useEffect(() => {
     if (abortCountdown === null) return;
 
@@ -72,6 +104,10 @@ export function ControlsCard({
     return () => clearTimeout(timer);
   }, [abortCountdown, onAbort]);
 
+  /**
+   * Toggles abort countdown state.
+   * Click once to start countdown, click again to cancel.
+   */
   const handleAbortClick = useCallback(() => {
     if (abortCountdown !== null) {
       setAbortCountdown(null);
@@ -89,6 +125,7 @@ export function ControlsCard({
       </div>
 
       <div className="space-y-2">
+        {/* Pattern selector and validation messages only shown in IDLE phase */}
         {isIdle && (
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -116,6 +153,7 @@ export function ControlsCard({
           </div>
         )}
         <div className="flex items-stretch gap-3">
+        {/* START button - only in IDLE phase */}
         {isIdle && (
           <ShimmerButton
             className="flex-1 px-5 py-2.5 text-sm font-semibold"
@@ -130,6 +168,7 @@ export function ControlsCard({
           </ShimmerButton>
         )}
 
+        {/* PAUSE/RESUME button - only during active mission */}
         {isActive && (
           <Button
             variant="outline"
@@ -155,6 +194,7 @@ export function ControlsCard({
           </Button>
         )}
 
+        {/* ABORT button with countdown confirmation - only during active mission */}
         {isActive && (
           <Button
             variant="outline"
@@ -177,6 +217,7 @@ export function ControlsCard({
           </Button>
         )}
 
+        {/* NEW mission button - shown after completion or abort */}
         {(missionPhase === 'COMPLETE' || missionPhase === 'ABORTED') && (
           <ShimmerButton
             className="flex-1 px-5 py-2.5 text-sm font-semibold"
@@ -193,6 +234,7 @@ export function ControlsCard({
         </div>
       </div>
 
+      {/* Contextual status message based on current phase and state */}
       <div className="text-center">
         <span className="text-[10px] text-white/40">
           {isIdle && 'Ready to start mission'}

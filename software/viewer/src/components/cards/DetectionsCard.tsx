@@ -5,6 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Flame, AudioLines, Wind, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * Detection represents a single sensor detection event.
+ * Multiple sensor types (thermal, acoustic, gas) can be active simultaneously.
+ */
 export interface Detection {
   id: string;
   sensorType: 'thermal' | 'acoustic' | 'gas';
@@ -22,6 +26,13 @@ export interface DetectionsCardProps {
   latestDetection?: Detection;
 }
 
+/**
+ * Sensor configuration with color coding for visual differentiation.
+ * Colors are chosen to match industry standards:
+ * - Thermal: Orange (heat/fire association)
+ * - Acoustic: Blue (sound wave visualization)
+ * - Gas: Yellow (caution/warning association)
+ */
 const sensorConfig = {
   thermal: {
     Icon: Flame,
@@ -43,6 +54,21 @@ const sensorConfig = {
   },
 };
 
+/**
+ * DetectionsCard displays multi-sensor detection counts and review status.
+ *
+ * UI/UX Decisions:
+ * - Sensor counts are displayed as distinct "pills" with icons for quick scanning
+ * - Color coding matches sensor type (orange=thermal, blue=acoustic, yellow=gas)
+ * - Confirmed/total ratio shows investigation progress
+ * - "Review" chevron indicates the card is clickable for detailed view
+ * - Pending badge uses success color to indicate actionable items
+ *
+ * Accessibility:
+ * - Icons reinforce sensor type in addition to color
+ * - Text labels accompany all numeric values
+ * - Sufficient color contrast for all sensor indicators
+ */
 export function DetectionsCard({
   thermalCount,
   acousticCount,
@@ -73,6 +99,7 @@ export function DetectionsCard({
         )}
       </div>
 
+      {/* Sensor count pills with color-coded icons */}
       <div className="flex items-center gap-2">
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.thermal.bg)}>
           <Flame className={cn('h-4 w-4', sensorConfig.thermal.color)} />

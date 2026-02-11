@@ -1,12 +1,36 @@
+/**
+ * Priority levels for search zones.
+ *
+ * Lower numbers indicate higher priority. Priority 1 zones
+ * are searched first and may receive additional resources.
+ */
 export type ZonePriority = 1 | 2 | 3;
 
+/**
+ * Zone lifecycle status for search coordination.
+ *
+ * - active: Currently being or scheduled to be searched
+ * - completed: Fully searched, marked as done
+ * - skipped: Bypassed due to obstacles, weather, or operator decision
+ */
 export type ZoneStatus = 'active' | 'completed' | 'skipped';
 
+/**
+ * 2D point in local search coordinates (x=east, z=north).
+ *
+ * Y (altitude) is omitted as zones define horizontal search areas.
+ */
 export interface ZonePoint {
   x: number;
   z: number;
 }
 
+/**
+ * Defined search area with priority and status tracking.
+ *
+ * Zones are polygonal regions drawn by operators on the map.
+ * completedAt is set when status transitions to 'completed'.
+ */
 export interface PriorityZone {
   id: string;
   name: string;
@@ -18,6 +42,11 @@ export interface PriorityZone {
   notes?: string;
 }
 
+/**
+ * Input data for creating a new zone.
+ *
+ * Name is optional and will be auto-generated if not provided.
+ */
 export interface ZoneInput {
   name?: string;
   priority: ZonePriority;
@@ -31,6 +60,9 @@ export function generateZoneId(): string {
   return `zone-${timestamp}-${random}`;
 }
 
+/**
+ * Get CSS variable name for zone priority color.
+ */
 export function getPriorityColor(priority: ZonePriority): string {
   switch (priority) {
     case 1:
@@ -42,6 +74,9 @@ export function getPriorityColor(priority: ZonePriority): string {
   }
 }
 
+/**
+ * Get hex color value for zone priority.
+ */
 export function getPrioritySolidColor(priority: ZonePriority): string {
   switch (priority) {
     case 1:
@@ -53,6 +88,9 @@ export function getPrioritySolidColor(priority: ZonePriority): string {
   }
 }
 
+/**
+ * Get human-readable label for zone priority.
+ */
 export function getPriorityLabel(priority: ZonePriority): string {
   switch (priority) {
     case 1:
@@ -64,6 +102,9 @@ export function getPriorityLabel(priority: ZonePriority): string {
   }
 }
 
+/**
+ * Get complete UI configuration for a zone priority level.
+ */
 export function getPriorityConfig(priority: ZonePriority): {
   label: string;
   color: string;
@@ -95,6 +136,9 @@ export function getPriorityConfig(priority: ZonePriority): {
   }
 }
 
+/**
+ * Get UI configuration for zone status.
+ */
 export function getZoneStatusConfig(status: ZoneStatus): {
   label: string;
   color: string;
@@ -122,6 +166,12 @@ export function getZoneStatusConfig(status: ZoneStatus): {
   }
 }
 
+/**
+ * Calculate polygon area using the shoelace formula.
+ *
+ * Returns area in square units of the coordinate system.
+ * Returns 0 for degenerate polygons (less than 3 points).
+ */
 export function calculateZoneArea(polygon: ZonePoint[]): number {
   if (polygon.length < 3) return 0;
 
@@ -137,6 +187,12 @@ export function calculateZoneArea(polygon: ZonePoint[]): number {
   return Math.abs(area) / 2;
 }
 
+/**
+ * Calculate centroid (geometric center) of a polygon.
+ *
+ * Uses simple averaging of vertices. For complex polygons,
+ * this approximates the visual center suitable for map labeling.
+ */
 export function calculateZoneCentroid(polygon: ZonePoint[]): ZonePoint {
   if (polygon.length === 0) return { x: 0, z: 0 };
 
@@ -154,6 +210,14 @@ export function calculateZoneCentroid(polygon: ZonePoint[]): ZonePoint {
   };
 }
 
+/**
+ * Ray-casting algorithm for point-in-polygon test.
+ *
+ * Determines if a point lies inside a polygon by counting
+ * intersections with a horizontal ray from the point.
+ *
+ * Returns false for degenerate polygons (less than 3 points).
+ */
 export function isPointInZone(point: ZonePoint, polygon: ZonePoint[]): boolean {
   if (polygon.length < 3) return false;
 
@@ -175,6 +239,9 @@ export function isPointInZone(point: ZonePoint, polygon: ZonePoint[]): boolean {
   return inside;
 }
 
+/**
+ * Create a new PriorityZone from input data with generated ID and defaults.
+ */
 export function createZone(input: ZoneInput): PriorityZone {
   const id = generateZoneId();
   return {

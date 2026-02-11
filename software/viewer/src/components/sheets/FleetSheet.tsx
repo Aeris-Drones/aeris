@@ -24,6 +24,15 @@ interface FleetSheetProps {
   trigger: React.ReactNode;
 }
 
+/**
+ * Fleet management sheet displaying vehicle status, battery levels, and fleet-wide controls.
+ *
+ * Renders a drawer with:
+ * - Fleet summary stats (active count, warnings, average battery)
+ * - Visual status bar showing all vehicles
+ * - Grid of VehicleCard components
+ * - Emergency controls for fleet-wide operations
+ */
 export function FleetSheet({
   vehicles,
   selectedVehicleId,
@@ -45,6 +54,8 @@ export function FleetSheet({
     onLocate(id);
     setOpen(false);
   };
+
+  // Fleet-wide aggregations for the header summary
   const activeCount = vehicles.filter(v => v.status === 'active' || v.status === 'warning').length;
   const warningCount = vehicles.filter(v => v.status === 'warning' || v.status === 'error').length;
   const avgBattery = Math.round(vehicles.reduce((sum, v) => sum + v.battery, 0) / (vehicles.length || 1));
@@ -86,6 +97,7 @@ export function FleetSheet({
             </div>
           </DrawerHeader>
 
+          {/* Visual status bar: one segment per vehicle, color-coded by status */}
           <div className="flex items-center gap-2 px-4 py-4 border-b border-white/[0.04]">
             {vehicles.map((v) => (
               <div
@@ -126,6 +138,7 @@ export function FleetSheet({
             )}
           </div>
 
+          {/* Fleet-wide emergency controls */}
           <div className="flex items-center justify-center gap-3 px-4 py-4 border-t border-white/[0.04]">
             <Button
               variant="outline"

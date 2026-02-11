@@ -4,8 +4,23 @@ import { Button } from '@/components/ui/button';
 import { MapPin, Video, Home, Signal, Gauge, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * Vehicle operational status for UI display.
+ *
+ * - active: Normal flight operations
+ * - warning: Non-critical issues (low battery, degraded signal)
+ * - error: Critical faults requiring immediate attention
+ * - returning: Return-to-home (RTH) in progress
+ * - idle: On ground, powered and ready
+ */
 export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle';
 
+/**
+ * Core telemetry snapshot for a single vehicle.
+ *
+ * Note: altitude is in meters above takeoff. linkQuality and coverage
+ * are percentages (0-100) representing telemetry health and search coverage.
+ */
 export interface VehicleInfo {
   id: string;
   name: string;
@@ -24,6 +39,10 @@ export interface VehicleCardProps {
   onRTH?: () => void;
 }
 
+/**
+ * Visual styling configuration for each vehicle status.
+ * Glow effects indicate severity/urgency level.
+ */
 const statusConfig: Record<VehicleStatus, {
   label: string;
   color: string;
@@ -62,6 +81,12 @@ const statusConfig: Record<VehicleStatus, {
   },
 };
 
+/**
+ * Battery color thresholds:
+ * - >50%: Green (healthy)
+ * - 20-50%: Amber (caution)
+ * - <20%: Red (critical - land immediately)
+ */
 function getBatteryColor(battery: number): string {
   if (battery > 50) return 'text-emerald-400';
   if (battery > 20) return 'text-amber-400';
@@ -74,6 +99,10 @@ function getBatteryStroke(battery: number): string {
   return 'stroke-red-400';
 }
 
+/**
+ * Circular battery indicator using SVG stroke-dasharray.
+ * Shows remaining charge as an arc around the battery percentage.
+ */
 function BatteryArc({ battery }: { battery: number }) {
   const radius = 26;
   const circumference = 2 * Math.PI * radius;
@@ -105,6 +134,15 @@ function BatteryArc({ battery }: { battery: number }) {
   );
 }
 
+/**
+ * Individual vehicle card displaying telemetry and quick actions.
+ *
+ * Features:
+ * - Circular battery indicator with color-coded thresholds
+ * - Status badge with pulsing indicator
+ * - Telemetry grid (altitude, link quality, coverage)
+ * - Quick actions: locate on map, view video feed, return-to-home
+ */
 export function VehicleCard({
   vehicle,
   isSelected,
@@ -147,6 +185,7 @@ export function VehicleCard({
         </div>
       </div>
 
+      {/* Telemetry metrics grid */}
       <div className="grid grid-cols-3 gap-px bg-white/[0.02] mx-3 my-2 rounded-lg overflow-hidden">
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Gauge className="h-3 w-3 text-white/30" />
@@ -165,6 +204,7 @@ export function VehicleCard({
         </div>
       </div>
 
+      {/* Action buttons */}
       <div className="flex items-center gap-1.5 p-3 pt-0">
         <Button
           variant="ghost"

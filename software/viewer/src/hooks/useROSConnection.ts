@@ -30,6 +30,17 @@ const DEFAULT_OPTIONS: Required<ROSConnectionOptions> = {
   maxRetryDelay: 30000,
 };
 
+/**
+ * React hook for managing ROS (Robot Operating System) WebSocket connections.
+ *
+ * Features:
+ * - Automatic reconnection with exponential backoff (capped at maxRetryDelay)
+ * - Connection state tracking for UI feedback
+ * - Manual connect/disconnect controls
+ * - Cleanup on unmount
+ *
+ * Exponential backoff formula: delay = min(initialDelay * 2^retryCount, maxDelay)
+ */
 export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnectionResult {
   const url = options.url || DEFAULT_OPTIONS.url;
   const autoConnect = options.autoConnect ?? DEFAULT_OPTIONS.autoConnect;
@@ -40,6 +51,8 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
   const [state, setState] = useState<ConnectionState>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [rosInstance, setRosInstance] = useState<ROSLIB.Ros | null>(null);
+
+  // Refs for accessing current state in callbacks without stale closures
   const rosRef = useRef<ROSLIB.Ros | null>(null);
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -51,6 +64,12 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
     stateRef.current = state;
   }, [state]);
 
+  /**
+   * Calculates the next retry delay using exponential backoff.
+   *
+   * Formula: min(initialDelay * 2^retryCount, maxDelay)
+   * Example with defaults: 1s, 2s, 4s, 8s, 16s, 30s, 30s...
+   */
   const getRetryDelay = useCallback(() => {
     const delay = Math.min(
       initialRetryDelay * Math.pow(2, retryCountRef.current),
@@ -59,6 +78,13 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
     return delay;
   }, [initialRetryDelay, maxRetryDelay]);
 
+  /**
+   * Initiates a ROS connection.
+   *
+   * Guards against concurrent connection attempts. Sets up event handlers
+   * for connection success, errors, and close events. On error/close,
+   * schedules reconnection attempts up to maxRetries.
+   */
   const connect = useCallback(() => {
     if (isConnectingRef.current || stateRef.current === 'connected') {
       return;
@@ -116,6 +142,11 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
     connectRef.current = connect;
   }, [connect]);
 
+  /**
+   * Cleanly disconnects from ROS and cancels any pending reconnection.
+   *
+   * Clears retry timeout, closes the WebSocket, and resets all state refs.
+   */
   const disconnect = useCallback(() => {
     if (retryTimeoutRef.current) {
       clearTimeout(retryTimeoutRef.current);
@@ -134,6 +165,12 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
     isConnectingRef.current = false;
   }, []);
 
+  /**
+   * Auto-connect effect: initiates connection on mount if enabled.
+   *
+   * Uses setTimeout(0) to defer connection until after initial render.
+   * Cleans up by disconnecting on unmount to prevent memory leaks.
+   */
   useEffect(() => {
     let timer: NodeJS.Timeout;
 

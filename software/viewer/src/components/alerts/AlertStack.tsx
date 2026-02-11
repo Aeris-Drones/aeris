@@ -5,6 +5,12 @@ import { toast, Toaster } from 'sonner';
 import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * Alert severity levels with distinct visual treatments.
+ * - critical: Requires immediate action, persists until dismissed
+ * - warning: Important but not blocking, auto-dismisses after 30s
+ * - info: General notification, auto-dismisses after 10s
+ */
 export type AlertSeverity = 'critical' | 'warning' | 'info';
 
 export interface Alert {
@@ -20,18 +26,33 @@ export interface Alert {
   dismissible: boolean;
 }
 
+/**
+ * Toast display durations by severity.
+ * Critical alerts persist indefinitely (undefined) until user action.
+ */
 const TOAST_DURATIONS: Record<AlertSeverity, number | undefined> = {
   critical: undefined,
   warning: 30000,
   info: 10000,
 };
 
+/**
+ * Icon components mapped by severity for consistent visual language.
+ */
 const SEVERITY_ICONS: Record<AlertSeverity, React.ReactNode> = {
   critical: <AlertCircle className="h-5 w-5 text-[var(--danger)]" />,
   warning: <AlertTriangle className="h-5 w-5 text-[var(--warning)]" />,
   info: <Info className="h-5 w-5 text-[var(--info)]" />,
 };
 
+/**
+ * Plays an audible alert tone for critical notifications.
+ * Uses Web Audio API to generate a dual-tone beep pattern.
+ * Falls back silently if audio is not supported or blocked.
+ *
+ * Accessibility: Audio alerts supplement visual notifications for
+ * operators who may not be looking at the screen.
+ */
 function playCriticalAlertSound() {
   if (typeof window === 'undefined') return;
 
@@ -41,6 +62,7 @@ function playCriticalAlertSound() {
 
     const audioContext = new AudioContextClass();
 
+    // Dual-tone pattern for distinctiveness
     [0, 0.15].forEach((delay) => {
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
@@ -59,10 +81,28 @@ function playCriticalAlertSound() {
       oscillator.stop(startTime + 0.2);
     });
   } catch {
-    // Audio not supported or blocked
+    // Audio not supported or blocked - visual alert still functions
   }
 }
 
+/**
+ * Displays an alert toast notification with severity-based styling.
+ *
+ * UI/UX Decisions:
+ * - Critical alerts use left border accent for immediate attention
+ * - Background tints match severity color for visual grouping
+ * - Action buttons styled with severity-appropriate hover states
+ * - Non-critical alerts are dismissible by default
+ *
+ * Accessibility:
+ * - Icons indicate severity without relying solely on color
+ * - Critical alerts play audible tone for attention
+ * - Sufficient contrast for all severity levels
+ *
+ * @param alert - Alert data excluding timestamp (added automatically)
+ * @param options - Optional configuration including sound playback
+ * @returns The alert ID for programmatic dismissal
+ */
 export function showAlert(alert: Omit<Alert, 'timestamp'>, options?: { playSound?: boolean }) {
   const { id, severity, title, description, action } = alert;
   const { playSound = true } = options || {};
@@ -106,10 +146,16 @@ export function showAlert(alert: Omit<Alert, 'timestamp'>, options?: { playSound
   return id;
 }
 
+/**
+ * Dismisses a specific alert by ID.
+ */
 export function dismissAlert(id: string) {
   toast.dismiss(id);
 }
 
+/**
+ * Dismisses all active alerts.
+ */
 export function dismissAllAlerts() {
   toast.dismiss();
 }
@@ -118,6 +164,19 @@ interface AlertToasterProps {
   visibleToasts?: number;
 }
 
+/**
+ * AlertToaster component configures the global toast container.
+ *
+ * UI/UX Decisions:
+ * - Positioned top-right to avoid obscuring main content
+ * - Limited to 5 visible toasts to prevent screen clutter
+ * - Glassmorphism styling (backdrop-blur) for modern appearance
+ * - Consistent sizing (min/max width) for predictable layout
+ *
+ * Accessibility:
+ * - Close button on each toast for keyboard dismissal
+ * - Rich colors provide semantic meaning
+ */
 export function AlertToaster({
   visibleToasts = 5,
 }: AlertToasterProps) {
@@ -153,6 +212,17 @@ interface UseAlertsOptions {
   enableAudio?: boolean;
 }
 
+/**
+ * React hook for managing alerts with local state tracking.
+ *
+ * State Management:
+ * - Maintains Map of active alerts for programmatic access
+ * - Generates unique IDs using timestamp + random suffix
+ * - Provides methods for adding, dismissing, and querying alerts
+ *
+ * @param options - Configuration including audio enablement
+ * @returns Alert management functions and current alert list
+ */
 export function useAlerts(options: UseAlertsOptions = {}) {
   const { enableAudio = true } = options;
   const alertsRef = useRef<Map<string, Alert>>(new Map());

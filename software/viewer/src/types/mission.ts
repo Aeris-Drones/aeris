@@ -1,3 +1,10 @@
+/**
+ * Mission lifecycle phases for search and rescue operations.
+ *
+ * State machine transitions:
+ * IDLE -> PLANNING -> SEARCHING <-> TRACKING -> COMPLETE
+n * Any state can transition to ABORTED.
+ */
 export type MissionPhase =
   | 'IDLE'
   | 'PLANNING'
@@ -6,6 +13,12 @@ export type MissionPhase =
   | 'COMPLETE'
   | 'ABORTED';
 
+/**
+ * Core mission state with timing tracking.
+ *
+ * totalPausedTime accumulates all paused durations to calculate
+ * actual mission elapsed time excluding pauses.
+ */
 export interface MissionState {
   phase: MissionPhase;
   startTime?: number;
@@ -15,6 +28,12 @@ export interface MissionState {
   missionId?: string;
 }
 
+/**
+ * Progress metrics for ongoing search operations.
+ *
+ * Grid progress tracks the search pattern completion when using
+ * systematic grid-based search algorithms.
+ */
 export interface MissionProgress {
   coveragePercent: number;
   searchAreaKm2: number;
@@ -28,6 +47,12 @@ export interface MissionProgress {
   };
 }
 
+/**
+ * Aggregated statistics for mission reporting and analytics.
+ *
+ * detectionRate is detections per hour. timeToFirstDetection
+ * measures search efficiency from mission start.
+ */
 export interface MissionStats {
   elapsedSeconds: number;
   detectionCounts: {
@@ -43,7 +68,10 @@ export interface MissionStats {
   detectionRate?: number;
 }
 
-export type MissionCommand = 
+/**
+ * High-level mission commands for state machine control.
+ */
+export type MissionCommand =
   | 'START'
   | 'PAUSE'
   | 'RESUME'
@@ -51,7 +79,7 @@ export type MissionCommand =
   | 'COMPLETE';
 
 /**
- * Mission command message for ROS publishing
+ * Mission command message for ROS publishing.
  */
 export interface MissionCommandMessage {
   command: MissionCommand;
@@ -65,7 +93,7 @@ export interface MissionCommandMessage {
 // ============================================================================
 
 /**
- * Format seconds into MM:SS format for timer display
+ * Format seconds into MM:SS format for timer display.
  */
 export function formatMissionTime(seconds: number): string {
   const absSeconds = Math.abs(Math.floor(seconds));
@@ -75,30 +103,36 @@ export function formatMissionTime(seconds: number): string {
 }
 
 /**
- * Format seconds into human-readable duration (e.g., "5m", "1h 30m")
+ * Format seconds into human-readable duration (e.g., "5m", "1h 30m").
  */
 export function formatDuration(seconds: number): string {
   const absSeconds = Math.abs(Math.floor(seconds));
-  
+
   if (absSeconds < 60) {
     return `${absSeconds}s`;
   }
-  
+
   const mins = Math.floor(absSeconds / 60);
   if (mins < 60) {
     return `${mins}m`;
   }
-  
+
   const hours = Math.floor(mins / 60);
   const remainingMins = mins % 60;
-  
+
   if (remainingMins === 0) {
     return `${hours}h`;
   }
-  
+
   return `${hours}h ${remainingMins}m`;
 }
 
+/**
+ * Format area with automatic unit selection:
+ * - <0.01 km²: display in m²
+ * - <1 km²: display in hectares
+ * - >=1 km²: display in km²
+ */
 export function formatArea(km2: number): string {
   if (km2 < 0.01) {
     const m2 = km2 * 1_000_000;
@@ -116,6 +150,9 @@ export function generateMissionId(): string {
   return `MSN-${timestamp}-${random}`.toUpperCase();
 }
 
+/**
+ * Get UI configuration for a mission phase.
+ */
 export function getMissionPhaseConfig(phase: MissionPhase): {
   label: string;
   color: string;
@@ -168,6 +205,12 @@ export function getMissionPhaseConfig(phase: MissionPhase): {
   }
 }
 
+/**
+ * Calculate elapsed mission time in seconds, accounting for pauses.
+ *
+ * Returns 0 if mission hasn't started (IDLE phase or no startTime).
+ * Uses endTime if mission is complete, otherwise uses current time.
+ */
 export function calculateElapsedSeconds(state: MissionState): number {
   if (state.phase === 'IDLE' || !state.startTime) {
     return 0;
