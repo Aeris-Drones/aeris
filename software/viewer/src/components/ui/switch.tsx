@@ -5,6 +5,16 @@ import * as SwitchPrimitives from "@radix-ui/react-switch"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Toggle switch control for binary settings.
+ *
+ * Wraps Radix UI's SwitchPrimitive with consistent styling for the
+ * GCS design system. Used for feature toggles, layer visibility controls,
+ * and other on/off settings throughout the interface.
+ *
+ * Provides accessible keyboard navigation and focus states for
+ * operator efficiency in mission-critical workflows.
+ */
 const Switch = React.forwardRef<
   React.ElementRef<typeof SwitchPrimitives.Root>,
   React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>

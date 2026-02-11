@@ -9,22 +9,39 @@ import {
 import { DetectionCard, Detection } from './DetectionCard';
 import { cn } from '@/lib/utils';
 
-/**
- * DetectionSheet - Clean detection management panel
- * 
- * No decorative fluff. Data table aesthetic.
- */
-
 type FilterTab = 'all' | 'pending' | 'confirmed' | 'dismissed';
 
 interface DetectionSheetProps {
+  /** All detections from the perception pipeline */
   detections: Detection[];
+  /** Callback when operator confirms a detection */
   onConfirm: (id: string) => void;
+  /** Callback when operator dismisses a detection */
   onDismiss: (id: string) => void;
+  /** Callback to center map on detection */
   onLocate: (id: string) => void;
+  /** Trigger element that opens the drawer */
   trigger: React.ReactNode;
 }
 
+/**
+ * Detection review drawer with filtering and triage workflow.
+ *
+ * Provides operators with a centralized interface for reviewing sensor
+ * detections from all connected vehicles. Filter tabs organize detections
+ * by review status to help prioritize attention on pending items.
+ *
+ * Integration with DetectionCard:
+ * - DetectionCard handles individual triage actions
+ * - This component manages the list view and filtering state
+ * - onLocate callbacks propagate to parent for map coordination
+ *
+ * @param detections - All detections from the perception pipeline
+ * @param onConfirm - Callback when operator confirms a detection
+ * @param onDismiss - Callback when operator dismisses a detection
+ * @param onLocate - Callback to center map on detection
+ * @param trigger - Trigger element that opens the drawer
+ */
 export function DetectionSheet({
   detections,
   onConfirm,
@@ -58,7 +75,6 @@ export function DetectionSheet({
       </DrawerTrigger>
       <DrawerContent className="max-h-[80vh] bg-[#0c0c0e] border-white/5">
         <div className="mx-auto w-full max-w-xl">
-          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
             <h2 className="text-sm font-medium text-white">Detections</h2>
             <span className="text-xs text-white/40">
@@ -66,7 +82,6 @@ export function DetectionSheet({
             </span>
           </div>
 
-          {/* Tabs */}
           <div className="flex border-b border-white/5">
             {tabs.map((tab) => (
               <button
@@ -85,7 +100,6 @@ export function DetectionSheet({
             ))}
           </div>
 
-          {/* List */}
           <div className="max-h-[55vh] overflow-y-auto">
             {filteredDetections.length === 0 ? (
               <div className="py-12 text-center text-sm text-white/30">

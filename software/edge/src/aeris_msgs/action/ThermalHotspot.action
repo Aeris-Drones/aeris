@@ -1,5 +1,8 @@
+# Goal: Request thermal hotspot detection at a specific time
 builtin_interfaces/Time target_time
 ---
+# Result: Detected thermal hotspot with location and intensity
 aeris_msgs/ThermalHotspot hotspot
 ---
+# Feedback: Detection progress (0.0 to 100.0)
 float32 progress_percent

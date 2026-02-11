@@ -1,13 +1,37 @@
+# RTAB-Map SLAM Configuration (VIO Mode)
+#
+# RTAB-Map (Real-Time Appearance-Based Mapping) builds occupancy grids
+# and point clouds from visual-inertial odometry input. This configuration
+# is optimized for simulation with OpenVINS providing odometry.
+#
+# Key Features:
+# - Loop closure detection for drift correction
+# - Occupancy grid generation for 2D navigation
+# - Point cloud output for 3D visualization
+# - Deterministic database path for validation
+#
+# Reference: https://wiki.ros.org/rtabmap_ros
+
 /rtabmap:
   ros__parameters:
     use_sim_time: true
 
-    # Frame chain required by downstream navigation and validation tests.
+    # ========================================================================
+    # TF Frame Configuration
+    # ========================================================================
+    # Frame chain: map -> odom -> base_link
+    # - map:       Global fixed frame (world coordinates)
+    # - odom:      Odometry frame (OpenVINS output)
+    # - base_link: Robot body frame (sensor mounting point)
     map_frame_id: map
     odom_frame_id: odom
     frame_id: base_link
 
-    # Sensor subscriptions.
+    # ========================================================================
+    # Sensor Subscriptions
+    # ========================================================================
+    # Stereo mode with external odometry (from OpenVINS).
+    # approx_sync=false requires exact timestamp matching for deterministic behavior.
     subscribe_stereo: true
     subscribe_depth: false
     subscribe_rgbd: false
@@ -18,12 +42,31 @@
     approx_sync: false
     queue_size: 50
 
-    # Map outputs consumed by downstream map-tile stories.
+    # ========================================================================
+    # Map Outputs
+    # ========================================================================
+    # Enable all map outputs for downstream consumers:
+    # - TF:        Robot pose broadcast for visualization
+    # - /map:      2D occupancy grid for navigation
+    # - cloud_map: 3D point cloud for visualization and tile generation
     publish_tf: true
     publish_map: true
     publish_cloud_map: true
 
-    # Loop-closure and optimization settings tuned for repeated sim loops.
+    # ========================================================================
+    # Loop Closure and Graph Optimization
+    # ========================================================================
+    # Tuned for repeated simulation loops with moderate drift.
+    #
+    # Mem/IncrementalMemory:     Add new nodes incrementally
+    # Mem/InitWMWithAllNodes:    Don't load all nodes on startup
+    # RGBD/ProximityBySpace:     Detect loops using spatial proximity
+    # RGBD/NeighborLinkRefining: Refine local loop closures
+    # RGBD/OptimizeFromGraphEnd: Optimize from root, not leaf
+    # RGBD/OptimizeMaxError:     Reject optimizations with >3m error
+    # Vis/MinInliers:            Minimum visual features for loop closure
+    # Reg/Strategy:              1=Visual registration
+    # GFTT/QualityLevel:         Feature detection threshold (lower=more features)
     Mem/IncrementalMemory: true
     Mem/InitWMWithAllNodes: false
     RGBD/ProximityBySpace: true
@@ -34,10 +77,18 @@
     Reg/Strategy: 1
     GFTT/QualityLevel: 0.001
 
-    # Occupancy grid configuration.
+    # ========================================================================
+    # Occupancy Grid Generation
+    # ========================================================================
+    # Grid is generated from depth data with 20cm cell resolution.
+    # RangeMax limits the grid to 50m for computational efficiency.
     Grid/FromDepth: true
     Grid/CellSize: 0.2
     Grid/RangeMax: 50.0
 
-    # Deterministic output path for Story 2.2 analysis.
+    # ========================================================================
+    # Persistent Storage
+    # ========================================================================
+    # SQLite database for map persistence and post-mission analysis.
+    # Deterministic path enables automated validation and regression testing.
     Rtabmap/DatabasePath: /tmp/aeris/rtabmap/scout1.db

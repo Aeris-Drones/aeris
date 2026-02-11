@@ -1,30 +1,69 @@
+# OpenVINS Visual-Inertial Odometry Configuration (Simulation)
+#
+# OpenVINS provides high-rate (200Hz) odometry estimation using stereo
+# cameras and IMU data via a Multi-State Constraint Kalman Filter (MSCKF).
+#
+# This configuration is tuned for Gazebo simulation with the Scout drone
+# model. For hardware deployment, update calibration parameters and
+# sensor topics to match physical sensor characteristics.
+#
+# Reference: https://docs.openvins.com/
+
 /openvins:
   ros__parameters:
     use_sim_time: true
 
-    # Sensor topics are kept in launch/config to preserve sim/hardware parity.
+    # ========================================================================
+    # Sensor Input Topics
+    # ========================================================================
+    # Topics are parameterized to support multi-vehicle scenarios via
+    # namespace prefixes (e.g., /scout1/, /scout2/).
     topic_left: /scout1/stereo/left/image_raw
     topic_right: /scout1/stereo/right/image_raw
     topic_left_camera_info: /scout1/stereo/left/camera_info
     topic_right_camera_info: /scout1/stereo/right/camera_info
     topic_imu: /scout1/imu/data
 
-    # OpenVINS publishes odometry in odom frame; rtabmap consumes it unchanged.
+    # ========================================================================
+    # Output Configuration
+    # ========================================================================
+    # Odometry is published in the odom frame for consumption by RTAB-Map.
+    # The base_link frame represents the robot's body-centered coordinate system.
     output_odom_topic: /scout1/openvins/odom
     output_base_frame: base_link
     output_odom_frame: odom
 
-    # Calibration + sync defaults for simulation.
+    # ========================================================================
+    # Camera Calibration
+    # ========================================================================
+    # Pinhole model with 12cm baseline for simulated stereo camera.
+    # These values must match the Gazebo camera plugin configuration.
     camera_model: pinhole
     stereo_baseline_m: 0.12
     image_width: 640
     image_height: 480
     max_cameras: 2
     downsample: false
+
+    # ========================================================================
+    # IMU Configuration
+    # ========================================================================
+    # IMU rate matches the simulated IMU plugin (200Hz).
+    # Gravity value is standard Earth gravity at sea level.
     use_imu: true
     imu_rate_hz: 200
     gravity_mps2: 9.81
+
+    # ========================================================================
+    # Synchronization
+    # ========================================================================
+    # Maximum time difference between camera and IMU messages for fusion.
+    # Tighter synchronization improves odometry accuracy but may drop frames.
     max_synchronization_slop_sec: 0.01
 
-    # Deterministic output path for repeatable analysis in Story 2.2+.
+    # ========================================================================
+    # Logging
+    # ========================================================================
+    # Deterministic output path enables repeatable analysis and debugging.
+    # Log files include state estimates, feature tracks, and timing statistics.
     log_directory: /tmp/aeris/openvins

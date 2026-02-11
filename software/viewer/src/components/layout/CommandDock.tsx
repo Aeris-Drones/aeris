@@ -2,33 +2,39 @@
 
 import { ReactNode } from 'react';
 
-/**
- * CommandDock - Bottom fixed command bar container
- * 
- * Per spec Section 3.2:
- * - Position: Bottom fixed
- * - Size: ~140px height
- * - Purpose: Fleet/Detections/Controls cards
- * 
- * Note: MissionCard removed - time/progress now in StatusPill
- */
-
+/** Props for the CommandDock component using the slot pattern for composition */
 interface CommandDockProps {
-  /** Slot for FleetCard */
+  /** Fleet overview card - displays connected drones and their status */
   fleetCard: ReactNode;
-  /** Slot for DetectionsCard */
+  /** Detections card - shows sensor detections and confidence scores */
   detectionsCard: ReactNode;
-  /** Slot for ControlsCard */
+  /** Controls card - mission control buttons and actions */
   controlsCard: ReactNode;
 }
 
+/**
+ * Bottom-mounted control panel for the GCS.
+ *
+ * Provides a consistent 3-column layout for the primary command interfaces:
+ * fleet management (left), detection review (center), and mission controls (right).
+ * Fixed dimensions ensure visual balance across different content states.
+ *
+ * @example
+ * ```tsx
+ * <CommandDock
+ *   fleetCard={<FleetCard />}
+ *   detectionsCard={<DetectionsCard />}
+ *   controlsCard={<ControlsCard />}
+ * />
+ * ```
+ */
 export function CommandDock({
   fleetCard,
   detectionsCard,
   controlsCard,
 }: CommandDockProps) {
   return (
-    <div 
+    <div
       className="flex items-stretch justify-center gap-4 p-4 pb-6"
       style={{ minHeight: '170px' }}
     >

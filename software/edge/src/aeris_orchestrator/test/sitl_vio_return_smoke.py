@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Smoke validation for VIO-based return trajectory publication."""
+"""SITL smoke test for VIO-based return-to-launch trajectories.
+
+Validates that vehicle recall command:
+- Generates a return trajectory from VIO breadcrumb history
+- Publishes trajectory metadata on /mission/progress
+- Falls back to PX4 native RTL when map/odometry data is stale
+
+Scenario: Scout accumulates VIO breadcrumbs during search, then receives
+RECALL command. System synthesizes return path through free space using
+occupancy grid for collision avoidance.
+"""
 
 from __future__ import annotations
 
@@ -250,7 +260,7 @@ def run_smoke() -> int:
             final = points[-1]
             if not isinstance(final, dict):
                 raise RuntimeError("returnTrajectory.points final item invalid")
-            # Launch point is at origin (0, 0) based on this smoke test setup.
+                    # Verify return trajectory terminates near launch origin.
             launch_error_m = math.hypot(float(final.get("x", 0.0)), float(final.get("z", 0.0)))
             if launch_error_m > 2.0:
                 raise RuntimeError(

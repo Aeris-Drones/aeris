@@ -4,6 +4,14 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Style variants for the Button component.
+ *
+ * Built on Radix UI's Slot primitive for flexible asChild composition.
+ * Variants follow shadcn/ui conventions with AERIS-specific styling for
+ * the glassmorphism theme. All interactive states (hover, focus, disabled)
+ * are handled via Tailwind utilities.
+ */
 const buttonVariants = cva(
   "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
   {
@@ -33,12 +41,34 @@ const buttonVariants = cva(
   }
 )
 
+/**
+ * Props for the Button component.
+ *
+ * Extends native button attributes with variant/size options and Radix Slot
+ * support. When asChild is true, the button renders its child element with
+ * button styling and behavior, enabling composition with Link or other
+ * interactive elements.
+ */
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
 }
 
+/**
+ * Primary interactive button component.
+ *
+ * Used for all actionable UI elements in the GCS. The component integrates
+ * with the glassmorphism design system and supports keyboard navigation,
+ * focus management, and disabled states out of the box.
+ *
+ * @example
+ * ```tsx
+ * <Button variant="ghost" size="sm" onClick={handleClick}>
+ *   Locate
+ * </Button>
+ * ```
+ */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"

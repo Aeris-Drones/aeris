@@ -1,3 +1,6 @@
-string tile_id
+# Request a map tile structure by ID.
+# Used by mapping nodes to retrieve tile metadata without fetching full binary data.
+string tile_id  # Unique tile identifier (format: "{z}/{x}/{y}")
 ---
+# Tile metadata including format, layers, and integrity hash.
 aeris_msgs/MapTile tile

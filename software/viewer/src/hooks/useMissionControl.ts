@@ -1,15 +1,7 @@
 'use client';
 
-/**
- * AERIS GCS Mission Control Hook
- * 
- * Provides mission control capabilities with ROS integration,
- * computed state flags, and real-time detection statistics.
- */
-
-import { useEffect, useMemo, useCallback, useContext, useState } from 'react';
+import { useEffect, useMemo, useCallback, useState } from 'react';
 import { useMissionContext } from '@/context/MissionContext';
-import { DetectionContext } from '@/context/DetectionContext';
 import { useZoneContext } from '@/context/ZoneContext';
 import { useROSConnection } from './useROSConnection';
 import {
@@ -26,31 +18,23 @@ import {
 import ROSLIB from 'roslib';
 
 type SearchPattern = 'lawnmower' | 'spiral';
+
 const MISSION_SERVICE_TIMEOUT_MS = 8000;
 const INVALID_START_ZONE_ERROR =
   'Select an active zone with at least 3 points before starting.';
 
-// ============================================================================
-// Hook Return Type
-// ============================================================================
-
 export interface MissionControlState {
-  // State from context
   phase: MissionPhase;
   isActive: boolean;
   isPaused: boolean;
   isComplete: boolean;
   missionId?: string;
-  
-  // Progress data
   coveragePercent: number;
   searchAreaKm2: number;
   coveredAreaKm2: number;
   activeDrones: number;
   totalDrones: number;
   estimatedTimeRemaining?: number;
-  
-  // Statistics
   elapsedSeconds: number;
   detectionCounts: {
     thermal: number;
@@ -60,8 +44,6 @@ export interface MissionControlState {
   };
   confirmedSurvivors: number;
   pendingDetections: number;
-  
-  // Computed flags for UI
   canStart: boolean;
   canPause: boolean;
   canResume: boolean;
@@ -71,22 +53,31 @@ export interface MissionControlState {
   setSelectedPattern: (pattern: SearchPattern) => void;
   startMissionError: string | null;
   abortMissionError: string | null;
-  
-  // Actions
   startMission: () => void;
   pauseMission: () => void;
   resumeMission: () => void;
   abortMission: () => void;
   completeMission: () => void;
-  
-  // ROS status
   rosConnected: boolean;
 }
 
-// ============================================================================
-// Hook Implementation
-// ============================================================================
-
+/**
+ * Bridge between React mission state and the ROS mission orchestrator.
+ *
+ * This hook coordinates:
+ * - UI state management via MissionContext
+ * - ROS service calls for mission commands (start, abort)
+ * - ROS topic subscriptions for state and progress updates
+ * - Zone validation for mission start prerequisites
+ *
+ * ROS Interface:
+ * - Publishes to: /mission/command (std_msgs/String, JSON payload)
+ * - Subscribes to: /mission/state, /mission/progress (std_msgs/String, JSON payload)
+ * - Services: start_mission, abort_mission (aeris_msgs/srv/MissionCommand)
+ *
+ * The hook normalizes snake_case and camelCase field names from ROS messages
+ * to handle version mismatches between GCS and orchestrator.
+ */
 export function useMissionControl(): MissionControlState {
   const {
     state,
@@ -102,46 +93,29 @@ export function useMissionControl(): MissionControlState {
     markExternalUpdate,
   } = useMissionContext();
   const { selectedZone } = useZoneContext();
-  
+
   const { ros, isConnected: rosConnected } = useROSConnection();
   const [selectedPattern, setSelectedPattern] = useState<SearchPattern>('lawnmower');
   const [startMissionError, setStartMissionError] = useState<string | null>(null);
   const [abortMissionError, setAbortMissionError] = useState<string | null>(null);
+
   const hasValidStartZone =
     !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
+
   const effectiveStartMissionError =
     hasValidStartZone && startMissionError === INVALID_START_ZONE_ERROR
       ? null
       : startMissionError;
+
   const updateSelectedPattern = useCallback((pattern: SearchPattern) => {
     setSelectedPattern(pattern);
     setStartMissionError(null);
   }, []);
 
-  // Get detection stats from DetectionContext if available
-  let detectionStats = stats.detectionCounts;
-  let confirmedCount = stats.confirmedSurvivors;
-  let pendingCount = stats.pendingDetections;
+  const detectionStats = stats.detectionCounts;
+  const confirmedCount = stats.confirmedSurvivors;
+  const pendingCount = stats.pendingDetections;
 
-  const detectionContext = useContext(DetectionContext);
-  if (detectionContext) {
-    const detectionContextStats = detectionContext.stats;
-    detectionStats = {
-      thermal: detectionContextStats.byType.thermal ?? 0,
-      acoustic: detectionContextStats.byType.acoustic ?? 0,
-      gas: detectionContextStats.byType.gas ?? 0,
-      total: detectionContextStats.total,
-    };
-    confirmedCount = detectionContextStats.byStatus.confirmed ?? 0;
-    pendingCount = (detectionContextStats.byStatus.new ?? 0) +
-                   (detectionContextStats.byStatus.reviewing ?? 0);
-  }
-  
-  // ============================================================================
-  // ROS Integration
-  // ============================================================================
-  
-  // Publish mission commands to ROS
   const publishCommand = useCallback((command: MissionCommand) => {
     if (!ros || !rosConnected) {
       console.warn('[MissionControl] ROS not connected, command not published');
@@ -207,17 +181,16 @@ export function useMissionControl(): MissionControlState {
     },
     [ros, rosConnected]
   );
-  
-  // Subscribe to mission state updates from ROS
+
   useEffect(() => {
     if (!ros || !rosConnected) return;
-    
+
     const stateTopic = new ROSLIB.Topic({
       ros: ros,
       name: '/mission/state',
       messageType: 'std_msgs/String',
     });
-    
+
     const progressTopic = new ROSLIB.Topic({
       ros: ros,
       name: '/mission/progress',
@@ -235,7 +208,7 @@ export function useMissionControl(): MissionControlState {
 
     const isMissionPhase = (value: string): value is MissionPhase =>
       missionPhases.includes(value as MissionPhase);
-    
+
     const handleStateMessage = (message: ROSLIB.Message) => {
       try {
         const rawData = (message as { data: string }).data;
@@ -337,20 +310,16 @@ export function useMissionControl(): MissionControlState {
         console.warn('[MissionControl] Failed to parse progress message:', error);
       }
     };
-    
+
     stateTopic.subscribe(handleStateMessage);
     progressTopic.subscribe(handleProgressMessage);
-    
+
     return () => {
       stateTopic.unsubscribe();
       progressTopic.unsubscribe();
     };
   }, [ros, rosConnected, setPhase, updateProgress, markExternalUpdate]);
-  
-  // ============================================================================
-  // Actions with ROS publishing
-  // ============================================================================
-  
+
   const startMission = useCallback(() => {
     const zone = selectedZone;
     if (!zone || !hasValidStartZone) {
@@ -397,17 +366,17 @@ export function useMissionControl(): MissionControlState {
     hasValidStartZone,
     setPhase,
   ]);
-  
+
   const pauseMission = useCallback(() => {
     contextPause();
     publishCommand('PAUSE');
   }, [contextPause, publishCommand]);
-  
+
   const resumeMission = useCallback(() => {
     contextResume();
     publishCommand('RESUME');
   }, [contextResume, publishCommand]);
-  
+
   const abortMission = useCallback(() => {
     setAbortMissionError(null);
 
@@ -456,23 +425,28 @@ export function useMissionControl(): MissionControlState {
     contextComplete();
     publishCommand('COMPLETE');
   }, [contextComplete, publishCommand]);
-  
-  // ============================================================================
-  // Sync detection stats to mission stats
-  // ============================================================================
-  
+
+  // Sync detection stats from MissionContext to local state.
+  // Only call updateStats when values actually change to prevent infinite loops.
   useEffect(() => {
     updateStats({
       detectionCounts: detectionStats,
       confirmedSurvivors: confirmedCount,
       pendingDetections: pendingCount,
     });
-  }, [detectionStats, confirmedCount, pendingCount, updateStats]);
-  
-  // ============================================================================
-  // Computed State
-  // ============================================================================
-  
+    // Note: updateStats is stable (from context), but we only want to run
+    // this effect when the actual stat values change, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    detectionStats.thermal,
+    detectionStats.acoustic,
+    detectionStats.gas,
+    detectionStats.total,
+    confirmedCount,
+    pendingCount,
+    updateStats,
+  ]);
+
   const computedState = useMemo(() => {
     const controlFlags = computeMissionControlFlags({
       phase: state.phase,
@@ -480,15 +454,13 @@ export function useMissionControl(): MissionControlState {
       hasValidStartZone,
       rosConnected,
     });
-    
+
     return {
       phase: state.phase,
       isActive: controlFlags.isActive,
       isPaused: controlFlags.isPaused,
       isComplete: controlFlags.isComplete,
       missionId: state.missionId,
-      
-      // Control flags
       canStart: controlFlags.canStart,
       canPause: controlFlags.canPause,
       canResume: controlFlags.canResume,
@@ -496,69 +468,45 @@ export function useMissionControl(): MissionControlState {
       hasValidStartZone,
     };
   }, [rosConnected, hasValidStartZone, state.phase, state.pausedAt, state.missionId]);
-  
-  // ============================================================================
-  // Return Value
-  // ============================================================================
-  
+
   return {
-    // From computed state
     ...computedState,
-    
-    // Progress
     coveragePercent: progress.coveragePercent,
     searchAreaKm2: progress.searchAreaKm2,
     coveredAreaKm2: progress.coveredAreaKm2,
     activeDrones: progress.activeDrones,
     totalDrones: progress.totalDrones,
     estimatedTimeRemaining: progress.estimatedTimeRemaining,
-    
-    // Stats
     elapsedSeconds: stats.elapsedSeconds,
     detectionCounts: detectionStats,
     confirmedSurvivors: confirmedCount,
     pendingDetections: pendingCount,
-    
-    // Actions
     startMission,
     pauseMission,
     resumeMission,
     abortMission,
     completeMission,
-    
     selectedPattern,
     setSelectedPattern: updateSelectedPattern,
     startMissionError: effectiveStartMissionError,
     abortMissionError,
-
-    // ROS status
     rosConnected,
   };
 }
 
-// ============================================================================
-// Selector Hooks
-// ============================================================================
-
-/**
- * Get just the mission phase
- */
+/** Returns the current mission phase. */
 export function useMissionPhase(): MissionPhase {
   const { phase } = useMissionControl();
   return phase;
 }
 
-/**
- * Get just the coverage percentage
- */
+/** Returns mission coverage percentage (0-100). */
 export function useMissionCoverage(): number {
   const { coveragePercent } = useMissionControl();
   return coveragePercent;
 }
 
-/**
- * Check if mission can be controlled (not complete)
- */
+/** Returns true if the mission can still be controlled (not COMPLETE). */
 export function useCanControlMission(): boolean {
   const { phase } = useMissionControl();
   return phase !== 'COMPLETE';

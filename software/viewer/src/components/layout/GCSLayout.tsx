@@ -3,37 +3,48 @@
 import { ReactNode } from 'react';
 
 /**
- * GCSLayout - Main viewport layout for the Ground Control Station
- * 
- * Per spec Section 3.2 Layout Zones:
- * | Zone           | Position              | Size           | Purpose                              |
- * |----------------|-----------------------|----------------|--------------------------------------|
- * | Status Pill    | Top center            | ~60px height   | Mission phase, timer, connection     |
- * | Layers Panel   | Top-left floating     | ~160px width   | Toggle map overlays                  |
- * | Map Viewport   | Center (behind all)   | 100% - dock    | 3D scene with Three.js               |
- * | PiP Feed       | Bottom-right floating | ~200px         | Drone camera feed                    |
- * | Command Dock   | Bottom fixed          | ~140px height  | Mission/Fleet/Detections/Controls    |
- * 
- * Phase 1: Just the layout regions, no actual content yet
+ * Props for the GCSLayout component using the slot pattern for flexible composition.
+ *
+ * The slot pattern allows parent components to inject UI elements without
+ * tight coupling, enabling different configurations for different mission modes.
  */
-
 interface GCSLayoutProps {
-  /** The map viewport - renders behind everything (Phase 1: dark placeholder) */
+  /** The main 3D map scene - fills the entire viewport */
   map: ReactNode;
-  /** Top center status pill */
+  /** Status pill positioned at top center - shows mission state, connection, alerts */
   statusPill: ReactNode;
-  /** Bottom fixed command dock with card slots */
+  /** Command dock at bottom - fleet, detections, and controls cards */
   commandDock: ReactNode;
-  /** Floating layers panel - top left (Phase 5) */
+  /** Optional layers panel - top-left, for toggling map visibility layers */
   layersPanel?: ReactNode;
-  /** Picture-in-picture video feed - bottom right (Phase 7) */
+  /** Optional picture-in-picture video feed - bottom-right overlay */
   pipFeed?: ReactNode;
-  /** Alert stack overlay (Phase 8) */
+  /** Optional alerts panel - top-right notification area */
   alerts?: ReactNode;
-  /** Zone drawing toolbar (Phase 6) */
+  /** Optional zone toolbar - top-center below status pill for zone drawing tools */
   zoneToolbar?: ReactNode;
 }
 
+/**
+ * Ground Control Station main layout component.
+ *
+ * Implements a layered z-index architecture:
+ * - z-0: Base map layer (3D scene)
+ * - z-10: Floating overlay UI (status, panels, alerts)
+ * - z-20: Command dock at bottom
+ *
+ * Uses pointer-events-none on the overlay container to allow click-through
+ * to the 3D map, with pointer-events-auto on individual UI elements.
+ *
+ * @example
+ * ```tsx
+ * <GCSLayout
+ *   map={<MapScene />}
+ *   statusPill={<StatusPill {...statusProps} />}
+ *   commandDock={<CommandDock {...dockProps} />}
+ * />
+ * ```
+ */
 export function GCSLayout({
   map,
   statusPill,
@@ -45,40 +56,33 @@ export function GCSLayout({
 }: GCSLayoutProps) {
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[var(--surface-0)]">
-      {/* Zone: Map Viewport - Center (behind all), 100% - dock */}
       <div className="absolute inset-0 z-0">
         {map}
       </div>
 
-      {/* Floating UI Layer */}
       <div className="pointer-events-none absolute inset-0 z-10">
-        {/* Zone: Status Pill - Top center, ~60px height */}
         <div className="pointer-events-auto absolute left-1/2 top-4 -translate-x-1/2">
           {statusPill}
         </div>
 
-        {/* Zone: Layers Panel - Top-left floating, ~160px width (Phase 5) */}
         {layersPanel && (
           <div className="pointer-events-auto absolute left-4 top-20">
             {layersPanel}
           </div>
         )}
 
-        {/* Zone: PiP Feed - Bottom-right floating, ~200px (Phase 7) */}
         {pipFeed && (
           <div className="pointer-events-auto absolute bottom-[160px] right-4">
             {pipFeed}
           </div>
         )}
 
-        {/* Zone Drawing Toolbar (Phase 6) */}
         {zoneToolbar && (
           <div className="pointer-events-auto absolute left-1/2 top-20 -translate-x-1/2">
             {zoneToolbar}
           </div>
         )}
 
-        {/* Alert Stack (Phase 8) - positioned below status pill */}
         {alerts && (
           <div className="pointer-events-auto absolute right-4 top-20">
             {alerts}
@@ -86,7 +90,6 @@ export function GCSLayout({
         )}
       </div>
 
-      {/* Zone: Command Dock - Bottom fixed, ~140px height */}
       <div className="absolute inset-x-0 bottom-0 z-20">
         {commandDock}
       </div>

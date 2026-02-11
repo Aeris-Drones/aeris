@@ -1,30 +1,58 @@
+# Multi-vehicle PX4 SITL configuration for multi-drone simulation scenarios.
+#
+# DESCRIPTION:
+#   Defines vehicle poses, MAVLink ports, and sensor bridge mappings for
+#   spawning multiple PX4 instances in Gazebo simulations. Supports mixed
+#   vehicle types (scout, ranger) with stereo vision and IMU configurations.
+#
+# USAGE:
+#   This configuration is consumed by multi_drone_sim.launch.py and
+#   run_multi_drone_sitl.py for coordinated multi-vehicle simulation.
+#
+# VEHICLE TYPES:
+#   - scout: Stereo camera + IMU equipped ground/aerial vehicle
+#   - ranger: Long-range reconnaissance vehicle
+#
+# SEE ALSO:
+#   - software/sim/launch/multi_drone_sim.launch.py
+#   - software/sim/tools/run_multi_drone_sitl.py
+#   - software/sim/config/multi_drone_gps_denied.json
+
 {
   "vehicles": [
+    # -------------------------------------------------------------------------
+    # Vehicle 1: Scout 1
+    # Primary scout vehicle with full sensor suite
+    # -------------------------------------------------------------------------
     {
-      "name": "scout1",
-      "model": "scout",
-      "pose": "-40 0 8 0 0 0",
-      "mavlink_udp_port": 14540,
-      "px4_instance": 1,
-      "px4_sys_autostart": 4001,
-      "px4_sim_model": "gz_scout",
-      "sensor_bridge": {
+      "name": "scout1",                    # Vehicle namespace
+      "model": "scout",                    # Gazebo model type
+      "pose": "-40 0 8 0 0 0",             # Initial pose: x y z roll pitch yaw (meters, radians)
+      "mavlink_udp_port": 14540,           # MAVLink UDP port for QGC/ground station
+      "px4_instance": 1,                   # PX4 instance number
+      "px4_sys_autostart": 4001,           # PX4 airframe ID (scout configuration)
+      "px4_sim_model": "gz_scout",         # PX4 simulation model name
+      "sensor_bridge": {                   # ROS-Gazebo sensor bridge configuration
         "left_image_topic": "/scout1/stereo/left/image_raw",
         "right_image_topic": "/scout1/stereo/right/image_raw",
         "left_camera_info_topic": "/scout1/stereo/left/camera_info",
         "right_camera_info_topic": "/scout1/stereo/right/camera_info",
         "imu_topic": "/scout1/imu/data",
-        "frames": {
+        "frames": {                        # TF frame IDs
           "map": "map",
           "odom": "odom",
           "base_link": "base_link"
         }
       }
     },
+    # -------------------------------------------------------------------------
+    # Vehicle 2: Scout 2
+    # Secondary scout vehicle for multi-agent scenarios
+    # -------------------------------------------------------------------------
     {
       "name": "scout2",
       "model": "scout",
-      "pose": "0 50 10 0 0 1.57",
+      "pose": "0 50 10 0 0 1.57",          # Positioned 50m east, facing north
       "mavlink_udp_port": 14541,
       "px4_instance": 2,
       "px4_sys_autostart": 4001,
@@ -42,14 +70,19 @@
         }
       }
     },
+    # -------------------------------------------------------------------------
+    # Vehicle 3: Ranger 1
+    # Long-range reconnaissance vehicle (no stereo vision)
+    # -------------------------------------------------------------------------
     {
       "name": "ranger1",
       "model": "ranger",
-      "pose": "50 -5 12 0 0 -1.57",
+      "pose": "50 -5 12 0 0 -1.57",        # Positioned 50m south, facing south
       "mavlink_udp_port": 14542,
       "px4_instance": 3,
-      "px4_sys_autostart": 4010,
+      "px4_sys_autostart": 4010,           # Different airframe ID for ranger
       "px4_sim_model": "gz_ranger"
+      # Note: No sensor_bridge - ranger uses different sensor configuration
     }
   ]
 }

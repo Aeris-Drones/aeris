@@ -1,5 +1,40 @@
 #!/usr/bin/env python3
-"""Measure /map/tiles descriptor-to-byte-fetch latency distribution."""
+"""End-to-end map tile latency profiler for viewer performance validation.
+
+Measures the distribution of latencies from MapTile publication to
+successful byte retrieval via the GetMapTileBytes service. Reports
+average and P95 latencies to characterize viewer responsiveness.
+
+Usage:
+    ros2 run aeris_tools tile_latency_probe [options]
+    python3 tile_latency_probe.py [--samples N] [--timeout-sec SEC] [--service NAME]
+
+Examples:
+    # Default: collect 40 samples with 180s timeout
+    ros2 run aeris_tools tile_latency_probe
+
+    # Quick test with 10 samples
+    ros2 run aeris_tools tile_latency_probe --samples 10 --timeout-sec 60
+
+    # Custom service endpoint
+    ros2 run aeris_tools tile_latency_probe --service /custom/get_tile
+
+Exit Codes:
+    0: P95 latency within threshold (<= 2000ms)
+    2: No latency samples collected
+    3: P95 latency exceeded threshold (> 2000ms)
+    4: Tile byte service not available
+    130: Interrupted by user (Ctrl+C)
+
+Debugging:
+    - Verify /map/tiles is publishing: `ros2 topic hz /map/tiles`
+    - Check service availability: `ros2 service list | grep get_tile`
+    - Monitor viewer logs for tile fetch errors
+
+Performance Thresholds:
+    The probe reports success only if P95 latency stays within 2 seconds,
+    which is the target for interactive viewer responsiveness.
+"""
 
 import argparse
 import statistics
@@ -15,6 +50,22 @@ from aeris_msgs.srv import GetMapTileBytes
 
 
 class TileLatencyProbe(Node):
+    """Profiles tile retrieval latency by sampling descriptor-to-byte delays.
+
+    Subscribes to tile announcements, then measures round-trip time to fetch
+    the actual tile bytes via service call. Tracks latency distribution and
+    exits with success only if P95 latency stays within threshold (2s).
+
+    Attributes:
+        _sample_count: Target number of latency samples to collect.
+        _timeout_sec: Maximum time to wait for samples.
+        _start: Timestamp when probing started.
+        _latencies_ms: List of collected latency measurements in milliseconds.
+        _pending: Set of tile IDs awaiting service response.
+        exit_code: Exit code to return on completion.
+        _client: Service client for GetMapTileBytes.
+    """
+
     def __init__(self, sample_count: int, timeout_sec: float, service_name: str) -> None:
         super().__init__("tile_latency_probe")
         self._sample_count = sample_count
@@ -29,12 +80,25 @@ class TileLatencyProbe(Node):
         self.create_timer(0.25, self._tick)
 
     def wait_for_service_ready(self, timeout_sec: float) -> bool:
+        """Wait for the tile bytes service to become available.
+
+        Args:
+            timeout_sec: Maximum time to wait in seconds.
+
+        Returns:
+            True if service is ready, False if timeout occurred.
+        """
         return self._client.wait_for_service(timeout_sec=timeout_sec)
 
     def _now_ms(self) -> float:
         return self.get_clock().now().nanoseconds / 1e6
 
     def _on_tile(self, msg: MapTile) -> None:
+        """Handle tile announcement and initiate service call.
+
+        Args:
+            msg: MapTile message containing tile metadata.
+        """
         if len(self._latencies_ms) >= self._sample_count:
             return
         if msg.tile_id in self._pending:
@@ -64,6 +128,7 @@ class TileLatencyProbe(Node):
         future.add_done_callback(_done)
 
     def _tick(self) -> None:
+        """Periodic timer callback to check for completion or timeout."""
         elapsed = time.monotonic() - self._start
         if elapsed >= self._timeout_sec:
             self._finish(timeout=True)
@@ -73,6 +138,11 @@ class TileLatencyProbe(Node):
             self._finish(timeout=False)
 
     def _finish(self, timeout: bool) -> None:
+        """Complete the probe and report results.
+
+        Args:
+            timeout: True if probe finished due to timeout.
+        """
         if not self._latencies_ms:
             self.get_logger().error("No latency samples collected")
             self.exit_code = 2
@@ -93,20 +163,57 @@ class TileLatencyProbe(Node):
 
 
 def percentile(values: List[float], p: int) -> float:
+    """Calculate the p-th percentile of a list of values.
+
+    Args:
+        values: List of numeric values.
+        p: Percentile to calculate (0-100).
+
+    Returns:
+        The p-th percentile value.
+    """
     data = sorted(values)
     idx = max(0, min(len(data) - 1, int(((p / 100) * len(data)) + 0.999999) - 1))
     return data[idx]
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Measure map tile publish-to-viewer latency")
-    parser.add_argument("--samples", type=int, default=40)
-    parser.add_argument("--timeout-sec", type=float, default=180.0)
-    parser.add_argument("--service", type=str, default="/map/get_tile_bytes")
+    """Parse command-line arguments.
+
+    Returns:
+        Parsed arguments namespace.
+    """
+    parser = argparse.ArgumentParser(
+        description="Measure map tile publish-to-viewer latency",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=40,
+        help="Number of latency samples to collect (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--timeout-sec",
+        type=float,
+        default=180.0,
+        help="Maximum time to wait for samples in seconds (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--service",
+        type=str,
+        default="/map/get_tile_bytes",
+        help="Service name for tile byte retrieval (default: %(default)s)",
+    )
     return parser.parse_args()
 
 
-def main() -> None:
+def main() -> int:
+    """Main entry point.
+
+    Returns:
+        Exit code (0 for success, non-zero for error).
+    """
     args = parse_args()
     rclpy.init()
     node = TileLatencyProbe(args.samples, args.timeout_sec, args.service)
@@ -119,7 +226,7 @@ def main() -> None:
             node.destroy_node()
             if rclpy.ok():
                 rclpy.shutdown()
-            sys.exit(node.exit_code)
+            return node.exit_code
 
     try:
         rclpy.spin(node)
@@ -130,8 +237,8 @@ def main() -> None:
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
-    sys.exit(node.exit_code)
+    return node.exit_code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

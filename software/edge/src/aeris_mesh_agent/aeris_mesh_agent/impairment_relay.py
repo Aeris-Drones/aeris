@@ -1,18 +1,27 @@
-"""Applies probabilistic drop/delay to emulate a lossy mesh link."""
+"""Impairment relay for mesh network simulation.
+
+Emulates lossy wireless links by probabilistically dropping messages
+and introducing configurable delays. Used for testing system resilience
+before deployment to physical mesh networks.
+"""
 
 import collections
 import random
 import time
-from typing import Deque, Tuple
+from typing import Deque, List, Tuple
 
 import rclpy
-from rcl_interfaces.msg import SetParametersResult
+from rcl_interfaces.msg import Parameter, SetParametersResult
 from rclpy.node import Node
 from std_msgs.msg import String
 
 
 class ImpairmentRelay(Node):
-    """Relays String topics with tunable drop probability and delay."""
+    """Relays String topics with configurable loss and latency.
+
+    Parameters are dynamically reconfigurable via ROS parameter updates,
+    allowing runtime adjustment of link characteristics without restart.
+    """
 
     def __init__(self) -> None:
         super().__init__("impairment_relay")
@@ -40,9 +49,22 @@ class ImpairmentRelay(Node):
 
     @property
     def _delay_sec(self) -> float:
+        """Returns the configured delay in seconds (converted from milliseconds)."""
         return max(self._delay_ms, 0) / 1000.0
 
-    def _handle_param_update(self, params):
+    def _handle_param_update(self, params: List[Parameter]) -> SetParametersResult:
+        """Handles dynamic parameter updates from ROS parameter interface.
+
+        Args:
+            params: List of parameter objects to update.
+
+        Returns:
+            SetParametersResult indicating success or failure of the update.
+
+        Note:
+            Topics (input_topic, output_topic) cannot be changed at runtime
+            and will return failure if attempted.
+        """
         for param in params:
             if param.name == "drop_prob":
                 value = float(param.value)
@@ -61,15 +83,36 @@ class ImpairmentRelay(Node):
         return SetParametersResult(successful=True)
 
     def _handle_message(self, msg: String) -> None:
+        """Processes incoming messages with probabilistic dropping and delay.
+
+        Args:
+            msg: The incoming String message to process.
+
+        Note:
+            Messages are dropped based on drop_prob. Non-dropped messages
+            are queued with a timestamp for delayed publishing.
+        """
         self._received += 1
+
+        # Apply probabilistic packet loss to simulate wireless link conditions
         if random.random() < self._drop_prob:
             self._dropped += 1
             return
+
+        # Schedule message for delayed transmission to simulate latency
         publish_time = time.monotonic() + self._delay_sec
         self._pending.append((publish_time, msg.data))
 
     def _flush_pending(self) -> None:
+        """Dispatches queued messages whose delay has elapsed.
+
+        Called periodically by the dispatch timer (10ms interval) to check
+        the pending queue and publish messages that have exceeded their
+        configured delay.
+        """
         now = time.monotonic()
+
+        # Publish all messages whose scheduled time has arrived
         while self._pending and self._pending[0][0] <= now:
             _, data = self._pending.popleft()
             out_msg = String()
@@ -78,18 +121,30 @@ class ImpairmentRelay(Node):
             self._forwarded += 1
 
     def _log_stats(self) -> None:
+        """Logs relay statistics and resets counters.
+
+        Called periodically (5 second interval) to report message statistics
+        including receive count, forward count, drop count, and pass rate.
+        """
         total = self._received
         pass_rate = (self._forwarded / total) if total else 0.0
         self.get_logger().info(
             f"impairment relay stats in last window — received: {self._received}, "
             f"forwarded: {self._forwarded}, dropped: {self._dropped}, pass_rate: {pass_rate:.2f}"
         )
+
+        # Reset counters for next statistics window
         self._received = 0
         self._forwarded = 0
         self._dropped = 0
 
 
 def main() -> None:
+    """Entry point for the impairment relay node.
+
+    Initializes ROS 2, creates the ImpairmentRelay node, and spins until
+    interrupted. Performs proper cleanup on shutdown.
+    """
     rclpy.init()
     node = ImpairmentRelay()
     try:

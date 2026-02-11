@@ -1,6 +1,13 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
+/**
+ * Container component for grouping related content.
+ *
+ * Implements the glassmorphism design system with backdrop blur and
+ * semi-transparent backgrounds. Used throughout the GCS for panels,
+ * sheets, and modal content to maintain visual consistency.
+ */
 const Card = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
@@ -18,6 +25,12 @@ const Card = React.forwardRef<
 ))
 Card.displayName = "Card"
 
+/**
+ * Header section for Card components.
+ *
+ * Provides consistent spacing and layout for titles and actions
+ * at the top of card containers.
+ */
 const CardHeader = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
@@ -30,6 +43,12 @@ const CardHeader = React.forwardRef<
 ))
 CardHeader.displayName = "CardHeader"
 
+/**
+ * Title element for Card components.
+ *
+ * Uses semibold weight and tight tracking for hierarchy within
+ * the glassmorphism UI. Renders as a div for flexibility.
+ */
 const CardTitle = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
@@ -42,6 +61,12 @@ const CardTitle = React.forwardRef<
 ))
 CardTitle.displayName = "CardTitle"
 
+/**
+ * Secondary text element for Card components.
+ *
+ * Uses muted foreground color for de-emphasized descriptive content
+ * beneath the card title.
+ */
 const CardDescription = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
@@ -54,6 +79,12 @@ const CardDescription = React.forwardRef<
 ))
 CardDescription.displayName = "CardDescription"
 
+/**
+ * Primary content area for Card components.
+ *
+ * Provides consistent padding and removes top padding when following
+ * a CardHeader to avoid double-spacing.
+ */
 const CardContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
@@ -62,6 +93,12 @@ const CardContent = React.forwardRef<
 ))
 CardContent.displayName = "CardContent"
 
+/**
+ * Footer section for Card components.
+ *
+ * Typically used for action buttons or secondary information.
+ * Aligns items horizontally with consistent spacing.
+ */
 const CardFooter = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>

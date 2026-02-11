@@ -1,30 +1,14 @@
-// AERIS GCS UI Components
-// Central export for all UI components
+/**
+ * AERIS GCS UI Component Library
+ *
+ * Central barrel export for all shared UI components. Import from this
+ * module rather than deep imports to ensure consistent versioning and
+ * simplify refactoring.
+ *
+ * @example
+ * ```tsx
+ * import { Button, Card, Badge } from '@/components/ui';
+ * ```
+ */
 
-// Core components
-export { GlassPanel } from './GlassPanel';
-export { AnimatedMetric } from './AnimatedMetric';
-export { ConfidenceIndicator } from './ConfidenceIndicator';
-
-// Toast notifications
-export { ToastProvider, useToast } from './Toast';
-export type { Toast, ToastType, ToastAction } from './Toast';
-
-// Skeleton loaders
-export {
-  Skeleton,
-  PanelSkeleton,
-  CardSkeleton,
-  ListSkeleton,
-  MetricSkeleton,
-  ProgressRingSkeleton,
-  StatusBarSkeleton,
-  MapSkeleton,
-  DashboardSkeleton,
-} from './Skeleton';
-
-// Keyboard shortcuts
 export { KeyboardShortcutsOverlay } from './KeyboardShortcuts';
-
-// MiniMap
-export { MiniMap } from './MiniMap';

@@ -1,6 +1,9 @@
-string command
-string mission_id
-string zone_geometry
+# High-level mission control command for orchestrating vehicle operations.
+# Commands include: start, pause, resume, abort, and complete.
+string command       # Mission lifecycle command
+string mission_id    # Unique mission identifier for tracking
+string zone_geometry # GeoJSON polygon defining operational boundaries
 ---
-bool success
-string message
+# Command execution result for mission control feedback.
+bool success   # True if command was accepted and initiated
+string message # Human-readable status or error description

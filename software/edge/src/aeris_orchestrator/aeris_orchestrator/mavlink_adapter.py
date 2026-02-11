@@ -1,4 +1,10 @@
-"""MAVLink adapter abstraction for autonomous mission waypoint streaming."""
+"""MAVLink adapter abstraction for autonomous mission waypoint streaming.
+
+Translates internal mission waypoints (x/z local coordinates) to MAVLink
+LOCAL_NED frames expected by PX4/ArduPilot autopilots. Manages separate
+command and streaming connections to support multi-vehicle dispatch
+without interrupting active setpoint streams on other endpoints.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +27,34 @@ _STREAM_PARTNER_POLL_TIMEOUT_SEC = 0.01
 
 
 class MavlinkAdapter:
-    """MAVLink transport adapter over UDP using pymavlink."""
+    """MAVLink transport adapter over UDP using pymavlink.
+
+    Manages bidirectional MAVLink communication for mission waypoint
+    streaming and command execution. Supports separate command and
+    streaming ports for fleet management scenarios.
+
+    Attributes:
+        _host: Target MAVLink endpoint hostname or IP address.
+        _port: Primary MAVLink port for setpoint streaming.
+        _command_port: Dedicated command port (may equal _port).
+        _stream_hz: Setpoint streaming frequency in Hertz.
+        _target_system: MAVLink target system ID.
+        _target_component: MAVLink target component ID.
+        _source_system: MAVLink source system ID for outgoing messages.
+        _source_component: MAVLink source component ID for outgoing messages.
+        _logger: Optional logging callback function.
+        _partner_ready: Flag indicating MAVLink partner handshake complete.
+        _mav_connection: Primary MAVLink connection instance.
+        _command_connection: Optional dedicated command connection.
+        _connection_lock: Mutex protecting connection operations.
+        _running: Flag indicating active streaming state.
+        _stream_thread: Background thread for setpoint streaming.
+        _mission_id: Currently active mission identifier.
+        _latest_setpoint: Most recent setpoint for streaming.
+        _state_lock: Mutex protecting streaming state.
+        _last_setpoint_sent_monotonic: Timestamp of last setpoint dispatch.
+        _setpoint_dispatch_condition: Condition variable for dispatch synchronization.
+    """
 
     def __init__(
         self,
@@ -36,6 +69,19 @@ class MavlinkAdapter:
         source_component: int = 190,
         logger: Callable[[str], None] | None = None,
     ) -> None:
+        """Initialize the MAVLink adapter with connection parameters.
+
+        Args:
+            host: Target MAVLink endpoint hostname or IP address.
+            port: Primary MAVLink port for setpoint streaming.
+            command_port: Optional dedicated command port (defaults to port).
+            stream_hz: Setpoint streaming frequency in Hertz (minimum 2.1).
+            target_system: MAVLink target system ID.
+            target_component: MAVLink target component ID.
+            source_system: MAVLink source system ID for outgoing messages.
+            source_component: MAVLink source component ID for outgoing messages.
+            logger: Optional callback function for logging messages.
+        """
         self._host = host
         self._port = port
         self._command_port = int(command_port) if command_port is not None else int(port)
@@ -61,29 +107,55 @@ class MavlinkAdapter:
 
     @property
     def is_streaming(self) -> bool:
+        """bool: True if the adapter is actively streaming setpoints."""
         return self._running
 
     @property
     def endpoint(self) -> tuple[str, int]:
+        """tuple[str, int]: Current (host, port) endpoint tuple."""
         return self._host, self._port
 
     @property
     def last_setpoint_send_monotonic(self) -> float:
+        """float: Monotonic timestamp of last setpoint transmission."""
         with self._state_lock:
             return self._last_setpoint_sent_monotonic
 
     def command_port(self) -> int:
+        """Return the current command port.
+
+        Returns:
+            Integer port number used for MAVLink command messages.
+        """
         return self._command_port
 
     @property
     def target(self) -> tuple[int, int]:
+        """tuple[int, int]: Current (target_system, target_component) tuple."""
         return self._target_system, self._target_component
 
     def set_target(self, target_system: int, target_component: int = 1) -> None:
+        """Update the MAVLink target system and component IDs.
+
+        Args:
+            target_system: New target system ID.
+            target_component: New target component ID (defaults to 1).
+        """
         self._target_system = int(target_system)
         self._target_component = int(target_component)
 
     def set_endpoint(self, host: str, port: int, command_port: int | None = None) -> None:
+        """Reconfigure the MAVLink endpoint with new connection parameters.
+
+        Closes existing connections and establishes new ones when the
+        endpoint parameters change. Preserves existing connections if
+        parameters are unchanged.
+
+        Args:
+            host: New target hostname or IP address.
+            port: New primary MAVLink port.
+            command_port: Optional new command port (defaults to port).
+        """
         host_clean = host.strip() or "127.0.0.1"
         port_clean = int(port)
         command_port_clean = (
@@ -120,6 +192,15 @@ class MavlinkAdapter:
         )
 
     def upload_mission_items_int(self, mission_id: str, waypoints: list[Setpoint]) -> None:
+        """Upload mission waypoints as MISSION_ITEM_INT messages.
+
+        Transmits the mission count followed by individual waypoint
+        definitions using the MAVLink MISSION_ITEM_INT protocol.
+
+        Args:
+            mission_id: Identifier for the mission being uploaded.
+            waypoints: List of waypoint dictionaries containing x, z, and altitude_m keys.
+        """
         if not waypoints:
             return
         try:
@@ -158,6 +239,15 @@ class MavlinkAdapter:
             self._logger(f"MAVLink mission upload failed: {error}")
 
     def start_stream(self, mission_id: str, initial_setpoint: Setpoint) -> None:
+        """Start the setpoint streaming thread.
+
+        Initializes and launches the background thread that periodically
+        transmits position setpoints to the MAVLink endpoint.
+
+        Args:
+            mission_id: Identifier for the active mission.
+            initial_setpoint: Starting waypoint for the stream.
+        """
         self.stop_stream()
         with self._state_lock:
             self._mission_id = mission_id
@@ -176,10 +266,23 @@ class MavlinkAdapter:
         )
 
     def update_setpoint(self, setpoint: Setpoint) -> None:
+        """Update the current setpoint for streaming.
+
+        Thread-safe update of the waypoint being transmitted during
+        active streaming operations.
+
+        Args:
+            setpoint: New waypoint dictionary to transmit.
+        """
         with self._state_lock:
             self._latest_setpoint = dict(setpoint)
 
     def stop_stream(self) -> None:
+        """Stop the setpoint streaming thread.
+
+        Signals the streaming thread to terminate and waits for
+        completion with a timeout. Cleans up thread resources.
+        """
         with self._state_lock:
             was_running = self._running
             self._running = False
@@ -196,6 +299,11 @@ class MavlinkAdapter:
             self._logger("MAVLink stream stopped")
 
     def close(self) -> None:
+        """Close all MAVLink connections and stop streaming.
+
+        Performs complete shutdown of the adapter, stopping any active
+        streams and closing all socket connections.
+        """
         self.stop_stream()
         with self._connection_lock:
             self._mav_connection.close()
@@ -205,6 +313,18 @@ class MavlinkAdapter:
     def wait_for_setpoint_dispatch(
         self, *, after_monotonic: float, timeout_sec: float
     ) -> float | None:
+        """Wait for a setpoint to be dispatched after a specific time.
+
+        Blocks until a setpoint is transmitted with a timestamp greater
+        than the specified threshold or the timeout expires.
+
+        Args:
+            after_monotonic: Timestamp threshold for dispatch detection.
+            timeout_sec: Maximum time to wait in seconds.
+
+        Returns:
+            Timestamp of the dispatched setpoint or None if timeout occurs.
+        """
         deadline = time.monotonic() + max(timeout_sec, 0.0)
         with self._state_lock:
             while self._last_setpoint_sent_monotonic <= after_monotonic:
@@ -215,7 +335,14 @@ class MavlinkAdapter:
             return self._last_setpoint_sent_monotonic
 
     def send_return_to_launch(self) -> bool:
-        """Send an explicit RTL command to the currently selected endpoint."""
+        """Send a RETURN_TO_LAUNCH command to the vehicle.
+
+        Dispatches the MAVLink RTL command and waits for acknowledgment.
+        Verifies RTL mode activation via HEARTBEAT message inspection.
+
+        Returns:
+            True if the command was accepted and RTL mode confirmed.
+        """
         return self._send_command_with_ack(
             command_id=mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
             params=(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
@@ -227,7 +354,14 @@ class MavlinkAdapter:
         )
 
     def send_hold_position(self) -> bool:
-        """Put the target vehicle in PX4 AUTO.LOITER (hold) mode."""
+        """Send a HOLD_POSITION command to enter AUTO.LOITER mode.
+
+        Commands the vehicle to enter PX4 AUTO.LOITER mode using the
+        DO_SET_MODE MAVLink command.
+
+        Returns:
+            True if the command was acknowledged as accepted.
+        """
         return self._send_command_with_ack(
             command_id=mavutil.mavlink.MAV_CMD_DO_SET_MODE,
             params=(
@@ -247,7 +381,14 @@ class MavlinkAdapter:
         )
 
     def send_resume_mission(self) -> bool:
-        """Put the target vehicle in PX4 AUTO.MISSION (resume) mode."""
+        """Send a RESUME_MISSION command to enter AUTO.MISSION mode.
+
+        Commands the vehicle to enter PX4 AUTO.MISSION mode using the
+        DO_SET_MODE MAVLink command.
+
+        Returns:
+            True if the command was acknowledged as accepted.
+        """
         return self._send_command_with_ack(
             command_id=mavutil.mavlink.MAV_CMD_DO_SET_MODE,
             params=(
@@ -277,6 +418,23 @@ class MavlinkAdapter:
         heartbeat_timeout_sec: float,
         label: str,
     ) -> bool:
+        """Send a MAVLink command with acknowledgment handling.
+
+        Internal method for reliable command transmission with retry logic
+        and optional HEARTBEAT verification.
+
+        Args:
+            command_id: MAVLink command identifier constant.
+            params: Tuple of seven command parameters.
+            ack_timeout_sec: Timeout for COMMAND_ACK reception.
+            ack_retries: Number of retry attempts for failed commands.
+            require_rtl_heartbeat: Whether to verify RTL via HEARTBEAT.
+            heartbeat_timeout_sec: Timeout for HEARTBEAT verification.
+            label: Human-readable label for logging.
+
+        Returns:
+            True if command was accepted and verified successfully.
+        """
         accepted_results = {
             mavutil.mavlink.MAV_RESULT_ACCEPTED,
             mavutil.mavlink.MAV_RESULT_IN_PROGRESS,
@@ -362,6 +520,15 @@ class MavlinkAdapter:
         return False
 
     def _wait_for_command_ack(self, command_id: int, timeout_sec: float):
+        """Wait for a COMMAND_ACK message matching the specified command.
+
+        Args:
+            command_id: Expected command ID in the acknowledgment.
+            timeout_sec: Maximum time to wait for the acknowledgment.
+
+        Returns:
+            The COMMAND_ACK message object or None if timeout occurs.
+        """
         deadline = time.monotonic() + max(timeout_sec, 0.0)
         while time.monotonic() < deadline:
             remaining = max(deadline - time.monotonic(), 0.0)
@@ -381,6 +548,14 @@ class MavlinkAdapter:
         return None
 
     def _wait_for_heartbeat_rtl(self, timeout_sec: float) -> bool:
+        """Wait for a HEARTBEAT message indicating RTL mode.
+
+        Args:
+            timeout_sec: Maximum time to wait for the HEARTBEAT.
+
+        Returns:
+            True if RTL mode is detected within the timeout.
+        """
         deadline = time.monotonic() + max(timeout_sec, 0.0)
         while time.monotonic() < deadline:
             remaining = max(deadline - time.monotonic(), 0.0)
@@ -399,6 +574,14 @@ class MavlinkAdapter:
         return False
 
     def _message_matches_target(self, message) -> bool:
+        """Check if a MAVLink message originates from the target system.
+
+        Args:
+            message: MAVLink message object to validate.
+
+        Returns:
+            True if the message matches the configured target system/component.
+        """
         get_system = getattr(message, "get_srcSystem", None)
         if callable(get_system):
             try:
@@ -422,7 +605,19 @@ class MavlinkAdapter:
         return True
 
     def _heartbeat_indicates_rtl(self, heartbeat) -> bool:
-        # PX4 encodes main/sub mode in custom_mode.
+        """Check if a HEARTBEAT message indicates RTL mode.
+
+        Decodes PX4 custom_mode bitfield to detect AUTO mode with RTL
+        submode, or checks ArduPilot RTL custom mode values.
+
+        Args:
+            heartbeat: MAVLink HEARTBEAT message object.
+
+        Returns:
+            True if the heartbeat indicates RTL mode is active.
+        """
+        # Decode PX4 custom_mode bitfield: main mode in bits 16-23, sub mode in bits 24-31.
+        # AUTO mode (main=4) with RTL submode (5) indicates successful RTL activation.
         custom_mode = int(getattr(heartbeat, "custom_mode", -1))
         if custom_mode >= 0:
             px4_main_mode = (custom_mode >> 16) & 0xFF
@@ -435,6 +630,12 @@ class MavlinkAdapter:
         return False
 
     def _stream_loop(self) -> None:
+        """Background thread for periodic setpoint transmission.
+
+        Maintains a fixed-frequency loop that transmits the latest
+        setpoint to the MAVLink endpoint. Handles timing drift and
+        partner readiness checks.
+        """
         period = 1.0 / self._stream_hz
         next_tick = time.perf_counter()
 
@@ -460,6 +661,11 @@ class MavlinkAdapter:
                 next_tick = time.perf_counter()
 
     def _new_connection(self):
+        """Create a new MAVLink connection for streaming.
+
+        Returns:
+            mavutil.mavlink_connection configured for the endpoint.
+        """
         if self._command_port != self._port:
             return mavutil.mavlink_connection(
                 f"udpin:0.0.0.0:{self._port}",
@@ -473,6 +679,11 @@ class MavlinkAdapter:
         )
 
     def _new_command_connection(self):
+        """Create a new MAVLink connection for commands.
+
+        Returns:
+            mavutil.mavlink_connection or None if command port equals stream port.
+        """
         if self._command_port == self._port:
             return None
         return mavutil.mavlink_connection(
@@ -482,6 +693,17 @@ class MavlinkAdapter:
         )
 
     def _ensure_partner_ready(self, timeout_sec: float) -> bool:
+        """Ensure the MAVLink partner is ready for communication.
+
+        Performs handshake by sending probe packets and waiting for
+        response messages to confirm endpoint connectivity.
+
+        Args:
+            timeout_sec: Maximum time to wait for partner readiness.
+
+        Returns:
+            True if the partner responds within the timeout period.
+        """
         if self._partner_ready:
             return True
 
@@ -518,8 +740,16 @@ class MavlinkAdapter:
         return False
 
     def _send_local_ned_setpoint(self, setpoint: Setpoint) -> None:
-        # Our mission plan uses x/east and z/north in meters. MAVLink local NED expects
-        # x=north, y=east, z=down.
+        """Transmit a position setpoint in LOCAL_NED frame.
+
+        Converts internal x/z coordinates to MAVLink LOCAL_NED frame
+        and transmits via SET_POSITION_TARGET_LOCAL_NED message.
+
+        Args:
+            setpoint: Waypoint dictionary with x, z, and altitude_m keys.
+        """
+        # Coordinate frame mapping: mission planning uses x=east, z=north (top-down view)
+        # while MAVLink LOCAL_NED expects x=north, y=east, z=down (right-handed frame).
         north_m = float(setpoint.get("z", 0.0))
         east_m = float(setpoint.get("x", 0.0))
         altitude_m = float(setpoint.get("altitude_m", 0.0))

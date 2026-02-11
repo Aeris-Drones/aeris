@@ -30,6 +30,19 @@ const DEFAULT_OPTIONS: Required<ROSConnectionOptions> = {
   maxRetryDelay: 30000,
 };
 
+/**
+ * Manages ROS (Robot Operating System) WebSocket connection with automatic
+ * reconnection and state tracking.
+ *
+ * Exponential backoff prevents connection storms: delay doubles each retry
+ * up to maxRetryDelay. Formula: min(initialDelay * 2^retryCount, maxDelay)
+ *
+ * @example
+ * const { ros, isConnected, connect, disconnect } = useROSConnection({
+ *   url: 'ws://drone-gcs:9090',
+ *   autoConnect: true,
+ * });
+ */
 export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnectionResult {
   const url = options.url || DEFAULT_OPTIONS.url;
   const autoConnect = options.autoConnect ?? DEFAULT_OPTIONS.autoConnect;
@@ -40,6 +53,7 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
   const [state, setState] = useState<ConnectionState>('disconnected');
   const [error, setError] = useState<string | null>(null);
   const [rosInstance, setRosInstance] = useState<ROSLIB.Ros | null>(null);
+
   const rosRef = useRef<ROSLIB.Ros | null>(null);
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -136,7 +150,7 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    
+
     if (autoConnect) {
       timer = setTimeout(() => {
         connect();

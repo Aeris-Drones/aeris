@@ -1,4 +1,6 @@
 {
+  "_description": "VIO navigation validation profile for GPS-denied flight testing.",
+  "_purpose": "Configures launch, orchestrator, and validation parameters for VIO-based navigation scenarios.",
   "launch": {
     "world": "software/sim/worlds/disaster_scene.sdf",
     "vehicles_config": "software/sim/config/multi_drone_gps_denied.json",

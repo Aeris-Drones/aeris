@@ -1,4 +1,8 @@
-"""Launches synthetic perception heads plus mesh impairment shims."""
+"""Launch file for perception pipeline demonstration.
+
+Spawns synthetic sensor publishers (thermal, acoustic, gas) and mesh network
+impairment shims to simulate degraded communication conditions for bench testing.
+"""
 
 from launch import LaunchDescription
 from launch.actions import LogInfo
@@ -6,6 +10,13 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description() -> LaunchDescription:
+    """Generate the launch description for the perception demo.
+
+    Returns:
+        LaunchDescription: A launch description containing all nodes for the
+        perception demonstration, including thermal/acoustic/gas publishers
+        and mesh impairment relays.
+    """
     nodes = [
         Node(
             package="aeris_perception",

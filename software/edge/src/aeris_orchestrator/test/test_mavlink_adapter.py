@@ -1,3 +1,13 @@
+"""Unit tests for MAVLink adapter mission upload and command protocols.
+
+Tests verify:
+- MISSION_ITEM_INT upload sequence for local NED waypoints
+- SET_POSITION_TARGET_LOCAL_NED streaming setpoints
+- RETURN_TO_LAUNCH command with ACK retry logic
+- HOLD/RESUME mode commands via DO_SET_MODE
+- Separate command port routing for fleet management
+"""
+
 import time
 
 from pymavlink import mavutil

@@ -1,0 +1,58 @@
+# Edge Source Files
+
+## aeris_camera_controller (C++ plugin)
+src/aeris_camera_controller/include/aeris/camera/CameraControllerPlugin.hpp
+src/aeris_camera_controller/src/CameraControllerPlugin.cpp
+
+## aeris_evidence (Python package)
+src/aeris_evidence/aeris_evidence/__init__.py
+src/aeris_evidence/aeris_evidence/evidence_bundle.py
+src/aeris_evidence/setup.py
+
+## aeris_map (C++ and Python)
+src/aeris_map/README.md
+src/aeris_map/config/map_tile_stream.yaml
+src/aeris_map/config/openvins_sim.yaml
+src/aeris_map/config/rtabmap_vio_sim.yaml
+src/aeris_map/include/aeris_map/tile_contract.hpp
+src/aeris_map/launch/rtabmap_vio_sim.launch.py
+src/aeris_map/src/map_tile_publisher.cpp
+src/aeris_map/src/tile_contract.cpp
+src/aeris_map/test/test_tile_contract.cpp
+
+## aeris_mesh_agent (Python package)
+src/aeris_mesh_agent/aeris_mesh_agent/__init__.py
+src/aeris_mesh_agent/aeris_mesh_agent/impairment_relay.py
+src/aeris_mesh_agent/aeris_mesh_agent/store_forward_tiles.py
+src/aeris_mesh_agent/setup.py
+
+## aeris_orchestrator (Python package)
+src/aeris_orchestrator/aeris_orchestrator/__init__.py
+src/aeris_orchestrator/aeris_orchestrator/heartbeat_node.py
+src/aeris_orchestrator/aeris_orchestrator/mavlink_adapter.py
+src/aeris_orchestrator/aeris_orchestrator/mission_node.py
+src/aeris_orchestrator/aeris_orchestrator/search_patterns.py
+src/aeris_orchestrator/aeris_orchestrator/vehicle_ids.py
+src/aeris_orchestrator/setup.py
+src/aeris_orchestrator/test/sitl_tracking_smoke.py
+src/aeris_orchestrator/test/sitl_vio_return_smoke.py
+src/aeris_orchestrator/test/test_mavlink_adapter.py
+src/aeris_orchestrator/test/test_mission_node.py
+src/aeris_orchestrator/test/test_search_patterns.py
+
+## aeris_perception (Python package)
+src/aeris_perception/aeris_perception/__init__.py
+src/aeris_perception/aeris_perception/acoustic_bearing_node.py
+src/aeris_perception/aeris_perception/gas_isopleth_node.py
+src/aeris_perception/aeris_perception/thermal_hotspot_node.py
+src/aeris_perception/setup.py
+
+## Tools (Python)
+tools/README.md
+tools/dds_flood_tester.py
+tools/first_tile_timer.py
+tools/ptp_status.py
+tools/tile_latency_probe.py
+
+## Config
+config/srt/abr_ladder.yaml

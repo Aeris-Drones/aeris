@@ -1,4 +1,6 @@
 {
+  "_description": "GPS-denied multi-vehicle configuration with external vision aiding for VIO/SLAM testing.",
+  "_purpose": "Configures vehicles for GPS-denied scenarios using visual-inertial odometry.",
   "vehicles": [
     {
       "name": "scout1",

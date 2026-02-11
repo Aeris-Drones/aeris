@@ -1,6 +1,19 @@
+"""Helper to start MCAP-based rosbag recordings with storage safeguards.
+
+This module provides functionality to record ROS 2 simulation sessions
+using rosbag2 with configurable profiles, automatic metadata capture,
+and storage size monitoring.
+
+Typical usage example:
+    # Record with default profile
+    python record_sim_session.py --config profile.yaml
+
+    # Record with duration limit
+    python record_sim_session.py --duration 300 --topics /topic1 /topic2
+"""
+
 from __future__ import annotations
 
-"""Helper to start MCAP-based rosbag recordings with storage safeguards."""
 import argparse
 import json
 import os
@@ -10,11 +23,23 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
-def load_profile(path: Path) -> dict:
+def load_profile(path: Path) -> dict[str, Any]:
+    """Load and validate a recording profile from a JSON or YAML file.
+
+    Args:
+        path: Path to the profile configuration file.
+
+    Returns:
+        Parsed profile dictionary containing rosbag configuration.
+
+    Raises:
+        ValueError: If the file is not valid JSON or missing required sections.
+    """
     try:
         data = json.loads(path.read_text())
     except json.JSONDecodeError as exc:
@@ -25,12 +50,28 @@ def load_profile(path: Path) -> dict:
 
 
 def ensure_dir(path: Path) -> None:
+    """Ensure the output directory exists and is writable.
+
+    Args:
+        path: Path to the directory to create/verify.
+
+    Raises:
+        PermissionError: If the directory is not writable.
+    """
     path.mkdir(parents=True, exist_ok=True)
     if not os.access(path, os.W_OK):
         raise PermissionError(f"Output directory {path} is not writable")
 
 
 def compute_dir_size_mb(path: Path) -> float:
+    """Compute the total size of all files in a directory in megabytes.
+
+    Args:
+        path: Root directory to scan.
+
+    Returns:
+        Total size in megabytes.
+    """
     total = 0
     for file_path in path.rglob('*'):
         try:
@@ -41,7 +82,17 @@ def compute_dir_size_mb(path: Path) -> float:
     return total / (1024 * 1024)
 
 
-def build_rosbag_command(out_path: Path, profile: dict, topics: list[str]) -> list[str]:
+def build_rosbag_command(out_path: Path, profile: dict[str, Any], topics: list[str]) -> list[str]:
+    """Build the rosbag2 record command with configured options.
+
+    Args:
+        out_path: Output path for the rosbag.
+        profile: Recording profile dictionary with rosbag configuration.
+        topics: List of topic names to record.
+
+    Returns:
+        List of command arguments for subprocess execution.
+    """
     rosbag_cfg = profile.get("rosbag", {})
     cmd = ["ros2", "bag", "record", "-o", str(out_path)]
     storage = rosbag_cfg.get("storage_id")
@@ -56,10 +107,19 @@ def build_rosbag_command(out_path: Path, profile: dict, topics: list[str]) -> li
 
 
 def run_rosbag(cmd: list[str], duration: int | None) -> int:
+    """Execute the rosbag recording process with signal handling.
+
+    Args:
+        cmd: Command list to execute.
+        duration: Optional auto-stop duration in seconds.
+
+    Returns:
+        Process return code.
+    """
     proc = subprocess.Popen(cmd)
     stop_event = threading.Event()
 
-    def terminate(*_):
+    def terminate(*_: Any) -> None:
         stop_event.set()
         if proc.poll() is None:
             proc.send_signal(signal.SIGINT)
@@ -69,7 +129,7 @@ def run_rosbag(cmd: list[str], duration: int | None) -> int:
 
     timer = None
     if duration:
-        def auto_stop():
+        def auto_stop() -> None:
             time.sleep(duration)
             if proc.poll() is None:
                 proc.send_signal(signal.SIGINT)
@@ -85,15 +145,32 @@ def run_rosbag(cmd: list[str], duration: int | None) -> int:
 
 
 def snapshot_profile(profile_path: Path, session_dir: Path) -> None:
+    """Copy the recording profile to the session directory for reference.
+
+    Args:
+        profile_path: Path to the original profile file.
+        session_dir: Destination session directory.
+    """
     shutil.copy(profile_path, session_dir / "profile_snapshot.yaml")
 
 
-def write_metadata(session_dir: Path, metadata: dict) -> None:
+def write_metadata(session_dir: Path, metadata: dict[str, Any]) -> None:
+    """Write session metadata to a JSON file.
+
+    Args:
+        session_dir: Directory to write the metadata file.
+        metadata: Dictionary containing session information.
+    """
     metadata_path = session_dir / "metadata.json"
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True))
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the recording session.
+
+    Returns:
+        Parsed arguments namespace.
+    """
     parser = argparse.ArgumentParser(description="Record Aeris simulation sessions with rosbag2")
     parser.add_argument(
         "--config",
@@ -127,6 +204,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Main entry point for the recording session.
+
+    Returns:
+        Exit code (0 for success, non-zero for errors).
+    """
     args = parse_args()
     profile_path = Path(args.config).expanduser()
     if not profile_path.is_file():
@@ -142,7 +224,7 @@ def main() -> int:
     output_dir = Path(args.output_dir or profile.get("output_dir", "log/recordings"))
     ensure_dir(output_dir)
 
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     prefix = args.prefix or profile.get("bag_name_prefix", "aeris_mission")
     session_dir = output_dir / f"{timestamp}_{prefix}"
     if session_dir.exists():
@@ -178,7 +260,7 @@ def main() -> int:
         print(f"Auto-stop after {args.duration} seconds")
 
     return_code = run_rosbag(cmd, args.duration)
-    end_time = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    end_time = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     size_mb = compute_dir_size_mb(session_dir)
 
     metadata.update({"end_time": end_time, "size_mb": round(size_mb, 2), "return_code": return_code})

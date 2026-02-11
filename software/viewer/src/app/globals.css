@@ -42,39 +42,39 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* Aviation Status Colors */
+  /* Aviation Status Colors - Semantic tokens for operational state indication */
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-info: var(--info);
 
-  /* Surface Hierarchy */
+  /* Surface Hierarchy - Elevation system for depth perception in dark UI */
   --color-surface-0: var(--surface-0);
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
   --color-surface-4: var(--surface-4);
 
-  /* Glass Panel System */
+  /* Glass Panel System - Backdrop blur surfaces for overlay components */
   --color-glass-bg: var(--glass-bg);
   --color-glass-bg-hover: var(--glass-bg-hover);
   --color-glass-border: var(--glass-border);
   --color-glass-border-hover: var(--glass-border-hover);
   --color-glass-highlight: var(--glass-highlight);
 
-  /* Detection Confidence */
+  /* Detection Confidence - ML model confidence visualization */
   --color-confidence-high: var(--confidence-high);
   --color-confidence-medium: var(--confidence-medium);
   --color-confidence-low: var(--confidence-low);
   --color-confidence-unverified: var(--confidence-unverified);
 
-  /* Sensor Types */
+  /* Sensor Types - Multi-sensor detection system color coding */
   --color-sensor-thermal: var(--sensor-thermal);
   --color-sensor-acoustic: var(--sensor-acoustic);
   --color-sensor-acoustic-vocal: var(--sensor-acoustic-vocal);
   --color-sensor-gas: var(--sensor-gas);
 
-  /* Priority Zones */
+  /* Priority Zones - Search area prioritization for SAR operations */
   --color-priority-1: var(--priority-1);
   --color-priority-2: var(--priority-2);
   --color-priority-3: var(--priority-3);
@@ -170,7 +170,7 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
 
-  /* Status Colors (Light Mode defaults) */
+  /* Status Colors - Light mode defaults (GCS primarily uses dark mode) */
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
@@ -205,18 +205,18 @@
 }
 
 .dark {
-  /* Base Colors */
-  --background: #0a0a0a; /* Primary Background */
+  /* Base Colors - Dark theme optimized for extended field operations */
+  --background: #0a0a0a;
   --foreground: #ededed;
 
-  /* Surface Hierarchy (OKLCH for perceptual uniformity) */
+  /* Surface Hierarchy - OKLCH color space for perceptual uniformity across elevations */
   --surface-0: oklch(0.08 0 0);  /* Deepest - canvas background */
   --surface-1: oklch(0.12 0 0);  /* Primary panels */
   --surface-2: oklch(0.16 0 0);  /* Elevated cards */
   --surface-3: oklch(0.20 0 0);  /* Hover/active states */
   --surface-4: oklch(0.24 0 0);  /* Highest elevation */
 
-  /* Glass Panel System */
+  /* Glass Panel System - Semi-transparent surfaces for HUD-style overlays */
   --glass-bg: oklch(0.12 0 0 / 0.75);
   --glass-bg-hover: oklch(0.14 0 0 / 0.8);
   --glass-border: oklch(1 0 0 / 0.08);
@@ -224,16 +224,16 @@
   --glass-highlight: oklch(1 0 0 / 0.04);
   --glass-shadow: 0 8px 32px oklch(0 0 0 / 0.4), inset 0 1px 0 oklch(1 0 0 / 0.05);
 
-  /* Surfaces */
-  --card: #18181b; /* Secondary Background */
+  /* Surfaces - Component-level color assignments */
+  --card: #18181b;
   --card-foreground: #ededed;
   --popover: #18181b;
   --popover-foreground: #ededed;
 
-  /* Interaction */
+  /* Interaction - Focus and action states */
   --primary: #ededed;
   --primary-foreground: #0a0a0a;
-  --secondary: #27272a; /* Tertiary Background (Hover states) */
+  --secondary: #27272a;
   --secondary-foreground: #ededed;
 
   --muted: #27272a;
@@ -242,26 +242,26 @@
   --accent-foreground: #ededed;
 
   --destructive: #ef4444;
-  --border: #27272a; /* Use Tertiary for borders */
+  --border: #27272a;
   --input: #27272a;
   --ring: #3b82f6;
 
-  /* Detection Confidence Colors */
+  /* Detection Confidence Colors - ML inference confidence visualization */
   --confidence-high: oklch(0.75 0.18 155);    /* Green - confirmed/high */
   --confidence-medium: oklch(0.80 0.18 85);   /* Amber - probable */
   --confidence-low: oklch(0.70 0.16 250);     /* Blue - possible */
   --confidence-unverified: oklch(0.60 0 0);   /* Gray - unverified */
 
-  /* Sensor Type Colors */
-  --sensor-thermal: oklch(0.65 0.25 25);      /* Red-orange */
+  /* Sensor Type Colors - Multi-sensor SAR detection system */
+  --sensor-thermal: oklch(0.65 0.25 25);      /* Red-orange - heat signature */
   --sensor-thermal-glow: oklch(0.65 0.25 25 / 0.4);
-  --sensor-acoustic: oklch(0.70 0.16 250);    /* Blue */
-  --sensor-acoustic-vocal: oklch(0.75 0.18 155); /* Green for vocal */
+  --sensor-acoustic: oklch(0.70 0.16 250);    /* Blue - sound wave */
+  --sensor-acoustic-vocal: oklch(0.75 0.18 155); /* Green - voice detection */
   --sensor-acoustic-glow: oklch(0.70 0.16 250 / 0.4);
-  --sensor-gas: oklch(0.75 0.20 300);         /* Purple */
+  --sensor-gas: oklch(0.75 0.20 300);         /* Purple - chemical detection */
   --sensor-gas-glow: oklch(0.75 0.20 300 / 0.4);
 
-  /* Priority Zone Colors */
+  /* Priority Zone Colors - SAR search area prioritization with transparency */
   --priority-1: oklch(0.65 0.25 25 / 0.3);    /* Red - critical */
   --priority-2: oklch(0.80 0.18 85 / 0.3);    /* Orange - high */
   --priority-3: oklch(0.85 0.18 95 / 0.3);    /* Yellow - elevated */
@@ -295,25 +295,25 @@
   --glow-danger: 0 0 20px oklch(0.65 0.25 25 / 0.5);
   --glow-info: 0 0 20px oklch(0.70 0.16 250 / 0.4);
 
-  /* Animation Tokens */
+  /* Animation Tokens - Consistent timing for motion design */
   --duration-instant: 100ms;
   --duration-fast: 150ms;
   --duration-normal: 250ms;
   --duration-slow: 400ms;
   --duration-slower: 600ms;
 
-  /* Easing Functions */
+  /* Easing Functions - Natural motion curves for UI transitions */
   --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
   --ease-in-out-expo: cubic-bezier(0.87, 0, 0.13, 1);
   --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
   --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
 
-  /* Touch Target Sizes */
-  --touch-min: 2.75rem;        /* 44px - minimum */
-  --touch-comfortable: 3rem;   /* 48px - comfortable */
-  --touch-large: 3.5rem;       /* 56px - large buttons */
+  /* Touch Target Sizes - WCAG 2.5.5 compliance for touch interfaces */
+  --touch-min: 2.75rem;        /* 44px - minimum accessible target */
+  --touch-comfortable: 3rem;   /* 48px - comfortable for extended use */
+  --touch-large: 3.5rem;       /* 56px - large buttons for critical actions */
 
-  /* Spacing Scale (consistent with Tailwind) */
+  /* Spacing Scale - 8px base grid aligned with Tailwind defaults */
   --space-panel-padding: 1rem;
   --space-card-gap: 0.75rem;
   --space-section-gap: 1.5rem;

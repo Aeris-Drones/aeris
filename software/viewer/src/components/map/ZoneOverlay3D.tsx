@@ -7,19 +7,13 @@ import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
 import { calculateZoneCentroid } from '@/types/zone';
 
 /**
- * ZoneOverlay3D - Renders priority zones on the 3D map
- * 
- * Per spec Section 4.7:
- * - Critical: Red border, red fill at 10% opacity
- * - High: Orange border, orange fill at 10% opacity  
- * - Elevated: Yellow border, yellow fill at 10% opacity
- * - Completed zones: Dashed border, grayed out
+ * Priority color scheme: lower numbers indicate higher operational priority.
+ * Red (1) = immediate attention, Orange (2) = elevated, Yellow (3) = standard.
  */
-
 const priorityColors: Record<ZonePriority, { line: string; fill: string }> = {
-  1: { line: '#ef4444', fill: '#ef4444' }, // Red - Critical
-  2: { line: '#f97316', fill: '#f97316' }, // Orange - High
-  3: { line: '#eab308', fill: '#eab308' }, // Yellow - Elevated
+  1: { line: '#ef4444', fill: '#ef4444' }, // Red - highest priority
+  2: { line: '#f97316', fill: '#f97316' }, // Orange - medium priority
+  3: { line: '#eab308', fill: '#eab308' }, // Yellow - lowest priority
 };
 
 interface ZoneOverlay3DProps {
@@ -28,53 +22,67 @@ interface ZoneOverlay3DProps {
   onClick?: () => void;
 }
 
+/**
+ * Converts zone points to Three.js vectors with height offset.
+ * Zones are defined on the XZ ground plane; Y is added for rendering elevation.
+ */
 function pointsToVector3(points: ZonePoint[], y: number = 1): THREE.Vector3[] {
   return points.map(p => new THREE.Vector3(p.x, y, p.z));
 }
 
+/**
+ * Renders a priority zone polygon on the 3D map with visual state indicators.
+ *
+ * Coordinate transformation is required because:
+ * - Zone data uses XZ ground plane (y=0 in world space)
+ * - Three.js Shape works in XY plane, so we negate Z and rotate -90° on X
+ *
+ * Visual states communicate operational status:
+ * - Completed: Dashed outline indicates no longer active
+ * - Skipped: Reduced opacity shows it was bypassed
+ * - Selected: Thicker border for focus indication
+ *
+ * @param zone - Zone data from mission planning system
+ * @param isSelected - Whether this zone is currently focused
+ * @param onClick - Handler for zone selection interactions
+ */
 export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps) {
   const colors = priorityColors[zone.priority];
   const isCompleted = zone.status === 'completed';
   const isSkipped = zone.status === 'skipped';
   const isDimmed = isCompleted || isSkipped;
 
-  // Create closed polygon points for the line
   const linePoints = useMemo(() => {
     if (zone.polygon.length < 3) return [];
     const points = pointsToVector3(zone.polygon, 2);
-    // Close the loop
     points.push(points[0].clone());
     return points;
   }, [zone.polygon]);
 
-  // Create shape for fill
+  // ShapeGeometry requires XY plane construction; rotation aligns to XZ ground
   const fillGeometry = useMemo(() => {
     if (zone.polygon.length < 3) return null;
-    
+
     const shape = new THREE.Shape();
     shape.moveTo(zone.polygon[0].x, -zone.polygon[0].z);
     for (let i = 1; i < zone.polygon.length; i++) {
       shape.lineTo(zone.polygon[i].x, -zone.polygon[i].z);
     }
     shape.closePath();
-    
+
     return new THREE.ShapeGeometry(shape);
   }, [zone.polygon]);
 
-  // Centroid for label
-  const centroid = useMemo(() => {
-    return calculateZoneCentroid(zone.polygon);
-  }, [zone.polygon]);
+  const centroid = useMemo(() => calculateZoneCentroid(zone.polygon), [zone.polygon]);
 
   if (zone.polygon.length < 3) return null;
 
   return (
     <group onClick={onClick}>
-      {/* Fill polygon */}
       {fillGeometry && (
-        <mesh 
-          geometry={fillGeometry} 
-          rotation={[-Math.PI / 2, 0, 0]} 
+        <mesh
+          geometry={fillGeometry}
+          rotation={[-Math.PI / 2, 0, 0]}
           position={[0, 0.5, 0]}
         >
           <meshBasicMaterial
@@ -87,7 +95,6 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
         </mesh>
       )}
 
-      {/* Border line */}
       <Line
         points={linePoints}
         color={isDimmed ? '#666666' : colors.line}
@@ -99,7 +106,6 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
         gapSize={isCompleted ? 5 : undefined}
       />
 
-      {/* Zone label */}
       <Text
         position={[centroid.x, 8, centroid.z]}
         fontSize={6}
@@ -112,7 +118,6 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
         {zone.name}
       </Text>
 
-      {/* Priority badge */}
       <Text
         position={[centroid.x, 3, centroid.z]}
         fontSize={4}
@@ -128,12 +133,22 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
   );
 }
 
-// Drawing preview - shows the zone being drawn
 interface ZoneDrawingPreviewProps {
   points: ZonePoint[];
   priority: ZonePriority;
 }
 
+/**
+ * Shows in-progress zone polygon during drawing mode.
+ *
+ * Provides immediate visual feedback as operators click points on the map:
+ * - Fill preview appears once polygon is valid (3+ points)
+ * - Dashed line shows current perimeter
+ * - Vertex markers indicate clicked locations
+ *
+ * Uses identical coordinate transformation as ZoneOverlay3D to ensure
+ * the preview matches the final zone appearance.
+ */
 export function ZoneDrawingPreview({ points, priority }: ZoneDrawingPreviewProps) {
   const colors = priorityColors[priority];
 
@@ -142,17 +157,16 @@ export function ZoneDrawingPreview({ points, priority }: ZoneDrawingPreviewProps
     return pointsToVector3(points, 3);
   }, [points]);
 
-  // Create preview fill if we have 3+ points
   const fillGeometry = useMemo(() => {
     if (points.length < 3) return null;
-    
+
     const shape = new THREE.Shape();
     shape.moveTo(points[0].x, -points[0].z);
     for (let i = 1; i < points.length; i++) {
       shape.lineTo(points[i].x, -points[i].z);
     }
     shape.closePath();
-    
+
     return new THREE.ShapeGeometry(shape);
   }, [points]);
 
@@ -160,11 +174,10 @@ export function ZoneDrawingPreview({ points, priority }: ZoneDrawingPreviewProps
 
   return (
     <group>
-      {/* Preview fill */}
       {fillGeometry && (
-        <mesh 
-          geometry={fillGeometry} 
-          rotation={[-Math.PI / 2, 0, 0]} 
+        <mesh
+          geometry={fillGeometry}
+          rotation={[-Math.PI / 2, 0, 0]}
           position={[0, 1, 0]}
         >
           <meshBasicMaterial
@@ -177,7 +190,6 @@ export function ZoneDrawingPreview({ points, priority }: ZoneDrawingPreviewProps
         </mesh>
       )}
 
-      {/* Preview line */}
       {linePoints.length >= 2 && (
         <Line
           points={linePoints}
@@ -191,7 +203,6 @@ export function ZoneDrawingPreview({ points, priority }: ZoneDrawingPreviewProps
         />
       )}
 
-      {/* Point markers */}
       {points.map((point, i) => (
         <mesh key={i} position={[point.x, 3, point.z]}>
           <sphereGeometry args={[2, 16, 16]} />

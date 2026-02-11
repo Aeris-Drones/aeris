@@ -1,8 +1,11 @@
+"""Setup configuration for aeris_mesh_agent package.
+
+Provides network impairment simulation tools for testing Aeris systems
+under degraded communication conditions.
+"""
 from setuptools import setup
 
-
 package_name = "aeris_mesh_agent"
-
 
 setup(
     name=package_name,

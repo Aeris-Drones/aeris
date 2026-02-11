@@ -7,6 +7,17 @@ import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 
 type ReturnTrajectoryMap = Record<string, [number, number, number][]>;
 
+/**
+ * Subscribes to vehicle telemetry from ROS and manages real-time state.
+ *
+ * Integrates with VehicleManager for coordinate transformations and
+ * trajectory tracking. Auto-sets coordinate origin from first telemetry
+ * if not already configured.
+ *
+ * ROS Topics:
+ * - /vehicle/telemetry: Position, orientation, velocity (aeris_msgs/Telemetry)
+ * - /mission/progress: Return-to-launch trajectories (std_msgs/String JSON)
+ */
 export function useVehicleTelemetry() {
   const { ros, isConnected } = useROSConnection();
   const { origin, setOrigin } = useCoordinateOrigin();
@@ -53,6 +64,7 @@ export function useVehicleTelemetry() {
 
       setVehicles([...manager.getVehicles()]);
     };
+
     const handleProgressMessage = (message: ROSLIB.Message) => {
       try {
         const payload = JSON.parse((message as { data: string }).data) as {
@@ -70,12 +82,8 @@ export function useVehicleTelemetry() {
         if (!('returnTrajectory' in payload)) {
           return;
         }
-        if (payload.returnTrajectory === null) {
-          const vehicleId = (
-            payload.vehicleId ??
-            payload.returnTrajectory?.vehicleId ??
-            ''
-          ).trim();
+        if (payload.returnTrajectory === null || payload.returnTrajectory === undefined) {
+          const vehicleId = (payload.vehicleId ?? '').trim();
           if (vehicleId) {
             setReturnTrajectories(previous => {
               const next = { ...previous };

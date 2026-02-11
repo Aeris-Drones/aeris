@@ -1,3 +1,7 @@
+# Service interface for directing individual vehicle commands during active missions.
+# Commands affect flight mode (HOLD, RESUME) or trigger return-to-launch (RECALL).
+# The mission_id field enables idempotency checks when commands may be retried.
+
 string vehicle_id
 string command
 string mission_id

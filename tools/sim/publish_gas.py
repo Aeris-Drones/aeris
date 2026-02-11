@@ -1,11 +1,27 @@
 #!/usr/bin/env python3
-"""Publish nested gas isopleth polygons over rosbridge for viewer testing.
+"""Publish gas isopleth polygons over rosbridge for viewer testing.
+
+This module simulates gas plume detection with realistic features including
+concentric concentration zones, wind drift, and organic edge noise. It generates
+nested polygons representing low/medium/high gas concentrations that move over
+time to simulate wind effects.
+
+ROS Topics:
+    Published:
+        /perception/gas (aeris_msgs/GasIsopleth): Gas concentration polygons
+
+Usage:
+    python publish_gas.py
+
+The script connects to a rosbridge server at localhost:9090 and publishes
+gas isopleth data at 1 Hz. The plume center drifts over time to simulate
+wind, and polygon edges have randomized noise for organic appearance.
 
 Features:
-- 3 concentric polygons (low/med/high concentration)
-- Wind drift simulation (plume moves over time)
-- Noise on polygon edges for organic appearance
-- Centerline data for future wind vector visualization
+    - 3 concentric polygons (low/med/high concentration)
+    - Wind drift simulation (plume moves over time)
+    - Noise on polygon edges for organic appearance
+    - Centerline data for wind vector visualization
 """
 
 import math
@@ -19,11 +35,13 @@ except ImportError:
     print("Error: roslibpy not installed. Please install it.")
     sys.exit(1)
 
+# ROS bridge connection settings
 HOST = 'localhost'
 PORT = 9090
 TOPIC = '/perception/gas'
 MSG_TYPE = 'aeris_msgs/GasIsopleth'
 
+# Base coordinate for simulation
 BASE_LAT = 37.7749
 BASE_LON = -122.4194
 
@@ -31,17 +49,32 @@ BASE_LON = -122.4194
 OFFSET_E_M = 50.0
 OFFSET_N_M = 50.0
 
-# Simple equirectangular offsets
+# Approximate conversion factor for latitude degrees to meters
 METERS_PER_DEG_LAT = 111_111.0
 
 
 def offset_lat_lon(lat, lon, north_m, east_m):
-    """Convert meter offsets to lat/lon offsets."""
+    """Convert meter offsets to lat/lon offsets.
+
+    Args:
+        lat: Base latitude in degrees.
+        lon: Base longitude in degrees.
+        north_m: North offset in meters (positive = north).
+        east_m: East offset in meters (positive = east).
+
+    Returns:
+        tuple: (new_lat, new_lon) after applying offsets.
+
+    Note:
+        Uses equirectangular approximation suitable for small distances
+        (< 1km) at moderate latitudes.
+    """
     d_lat = north_m / METERS_PER_DEG_LAT
     d_lon = east_m / (METERS_PER_DEG_LAT * math.cos(math.radians(lat)))
     return lat + d_lat, lon + d_lon
 
 
+# Calculate absolute leak location
 LEAK_LAT, LEAK_LON = offset_lat_lon(BASE_LAT, BASE_LON, OFFSET_N_M, OFFSET_E_M)
 
 
@@ -49,16 +82,25 @@ def make_ring(center_lat, center_lon, radius_m, segments=24, noise_factor=0.1):
     """Generate a polygon ring with optional noise for organic shape.
 
     Args:
-        center_lat, center_lon: Center of the ring
-        radius_m: Radius in meters
-        segments: Number of polygon vertices
-        noise_factor: Amount of random variation (0.1 = 10% of radius)
+        center_lat: Center latitude in degrees.
+        center_lon: Center longitude in degrees.
+        radius_m: Radius in meters.
+        segments: Number of polygon vertices.
+        noise_factor: Random variation as fraction of radius (0.1 = 10%).
+
+    Returns:
+        list: List of point dictionaries with 'x', 'y', 'z' keys representing
+            the polygon vertices in lat/lon/altitude format.
+
+    Note:
+        The returned list includes a duplicate of the first point at the end
+        to close the polygon loop for proper rendering.
     """
     points = []
     for i in range(segments):
         theta = (2 * math.pi * i) / segments
 
-        # Add noise for organic appearance
+        # Add random noise for organic, non-perfect circular appearance
         r = radius_m + random.uniform(-1, 1) * noise_factor * radius_m
 
         north = math.cos(theta) * r
@@ -66,7 +108,7 @@ def make_ring(center_lat, center_lon, radius_m, segments=24, noise_factor=0.1):
         lat, lon = offset_lat_lon(center_lat, center_lon, north, east)
         points.append({'x': lat, 'y': lon, 'z': 0.0})
 
-    # Close the polygon loop
+    # Close the polygon loop by duplicating the first point
     points.append(points[0].copy())
     return points
 
@@ -75,9 +117,14 @@ def make_centerline(center_lat, center_lon, wind_dir_rad, length_m=30):
     """Create centerline points showing wind direction.
 
     Args:
-        center_lat, center_lon: Plume center
-        wind_dir_rad: Wind direction in radians (0 = North)
-        length_m: Length of centerline
+        center_lat: Plume center latitude.
+        center_lon: Plume center longitude.
+        wind_dir_rad: Wind direction in radians (0 = North, pi/2 = East).
+        length_m: Length of centerline in meters.
+
+    Returns:
+        list: List of point dictionaries showing the plume centerline,
+            with increasing altitude to visualize wind direction in 3D.
     """
     points = []
     for i in range(4):
@@ -85,11 +132,18 @@ def make_centerline(center_lat, center_lon, wind_dir_rad, length_m=30):
         north = math.cos(wind_dir_rad) * dist
         east = math.sin(wind_dir_rad) * dist
         lat, lon = offset_lat_lon(center_lat, center_lon, north, east)
-        points.append({'x': lat, 'y': lon, 'z': float(i * 3)})  # Rising centerline
+        # Rising centerline for 3D visualization
+        points.append({'x': lat, 'y': lon, 'z': float(i * 3)})
     return points
 
 
 def run():
+    """Main publisher loop for gas isopleth data.
+
+    Connects to rosbridge and publishes gas plume data at 1 Hz. The plume
+    center drifts in a sinusoidal pattern to simulate wind effects, and
+    the wind direction rotates slowly over time.
+    """
     client = roslibpy.Ros(host=HOST, port=PORT)
     client.run()
 
@@ -101,6 +155,7 @@ def run():
     print(f"Publishing gas plume near lat={LEAK_LAT:.6f}, lon={LEAK_LON:.6f}")
     print("Features: Wind drift, organic noise, centerline")
 
+    # Advertise gas isopleth publisher
     pub = roslibpy.Topic(client, TOPIC, MSG_TYPE)
     pub.advertise()
 
@@ -112,7 +167,7 @@ def run():
             sec = int(now)
             nanosec = int((now - sec) * 1e9)
 
-            # Simulate wind drift (plume center moves over time)
+            # Simulate wind drift: plume center moves in Lissajous pattern
             drift_n = math.sin(t * 0.2) * 8.0   # +/- 8m North
             drift_e = math.cos(t * 0.15) * 5.0  # +/- 5m East
 
@@ -120,17 +175,18 @@ def run():
                 LEAK_LAT, LEAK_LON, drift_n, drift_e
             )
 
-            # Simulate varying wind direction
-            wind_dir = t * 0.1  # Slowly rotating wind
+            # Slowly rotating wind direction
+            wind_dir = t * 0.1
 
             # Three concentric polygons: outer=low, mid=med, inner=high
-            # Different noise levels for each (outer = more turbulent)
+            # Outer ring has more noise (turbulent edges), inner is smoother
             polygons = [
                 {'points': make_ring(current_lat, current_lon, 50.0, segments=32, noise_factor=0.15)},
                 {'points': make_ring(current_lat, current_lon, 30.0, segments=28, noise_factor=0.12)},
                 {'points': make_ring(current_lat, current_lon, 12.0, segments=24, noise_factor=0.08)},
             ]
 
+            # Construct GasIsopleth message
             msg = {
                 'stamp': {'sec': sec, 'nanosec': nanosec},
                 'species': 'VOC',
@@ -142,7 +198,8 @@ def run():
             pub.publish(roslibpy.Message(msg))
             print(f"Published gas plume (drift: N={drift_n:.1f}m, E={drift_e:.1f}m)")
 
-            time.sleep(1.0)  # 1 Hz update rate
+            # 1 Hz update rate
+            time.sleep(1.0)
 
     except KeyboardInterrupt:
         print("\nStopping gas publisher...")

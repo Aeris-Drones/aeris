@@ -5,17 +5,22 @@ import { MapPin, Video, Home, Signal, Gauge, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
- * VehicleCard - Premium grid card for fleet sheet
- * 
- * Tesla/SpaceX-inspired design:
- * - Status indicator glow
- * - Battery arc visualization
- * - Clean metric tiles
- * - Subtle glass morphism
+ * Vehicle operational status for UI display.
+ *
+ * Status values drive visual styling (colors, glow effects) and available actions
+ * in the GCS. Critical statuses (error, returning) receive heightened visual
+ * prominence to ensure operator awareness during multi-vehicle operations.
  */
-
 export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle';
 
+/**
+ * Core telemetry snapshot for a single vehicle.
+ *
+ * Data is received via ROS telemetry topics and normalized for UI consumption.
+ * Altitude is relative to takeoff (AMSL offset applied upstream). Percentage
+ * fields (battery, linkQuality, coverage) are clamped 0-100 by the telemetry
+ * adapter to prevent display anomalies.
+ */
 export interface VehicleInfo {
   id: string;
   name: string;
@@ -26,6 +31,14 @@ export interface VehicleInfo {
   coverage?: number;
 }
 
+/**
+ * Props for the VehicleCard component.
+ *
+ * Callbacks integrate with the map viewport (onLocate), video streaming
+ * service (onViewFeed), and mission commander (onRTH). All callbacks are
+ * expected to be memoized by the parent to prevent unnecessary re-renders
+ * in the vehicle list.
+ */
 export interface VehicleCardProps {
   vehicle: VehicleInfo;
   isSelected: boolean;
@@ -34,65 +47,86 @@ export interface VehicleCardProps {
   onRTH?: () => void;
 }
 
-const statusConfig: Record<VehicleStatus, { 
-  label: string; 
+/**
+ * Visual styling configuration mapped by vehicle status.
+ *
+ * Glow intensity correlates with operational urgency to draw operator
+ * attention during high-stress scenarios (error, returning). Colors align
+ * with aviation standards: green (normal), amber (caution), red (warning).
+ */
+const statusConfig: Record<VehicleStatus, {
+  label: string;
   color: string;
   glow: string;
   dot: string;
 }> = {
-  active: { 
-    label: 'ACTIVE', 
+  active: {
+    label: 'ACTIVE',
     color: 'text-emerald-400',
     glow: 'shadow-[0_0_30px_rgba(52,211,153,0.15)]',
     dot: 'bg-emerald-400'
   },
-  warning: { 
-    label: 'WARNING', 
+  warning: {
+    label: 'WARNING',
     color: 'text-amber-400',
     glow: 'shadow-[0_0_30px_rgba(251,191,36,0.15)]',
     dot: 'bg-amber-400'
   },
-  error: { 
-    label: 'ERROR', 
+  error: {
+    label: 'ERROR',
     color: 'text-red-400',
     glow: 'shadow-[0_0_30px_rgba(248,113,113,0.2)]',
     dot: 'bg-red-400'
   },
-  returning: { 
-    label: 'RTH', 
+  returning: {
+    label: 'RTH',
     color: 'text-cyan-400',
     glow: 'shadow-[0_0_30px_rgba(34,211,238,0.15)]',
     dot: 'bg-cyan-400'
   },
-  idle: { 
-    label: 'STANDBY', 
+  idle: {
+    label: 'STANDBY',
     color: 'text-white/40',
     glow: '',
     dot: 'bg-white/40'
   },
 };
 
+/**
+ * Returns the appropriate color class for a given battery percentage.
+ *
+ * Thresholds align with operator training: <20% requires immediate RTH
+ * per flight safety protocols. Colors match statusConfig for consistency.
+ */
 function getBatteryColor(battery: number): string {
   if (battery > 50) return 'text-emerald-400';
   if (battery > 20) return 'text-amber-400';
   return 'text-red-400';
 }
 
+/**
+ * Returns the SVG stroke color class for the battery arc indicator.
+ * Mirrors getBatteryColor logic for visual consistency.
+ */
 function getBatteryStroke(battery: number): string {
   if (battery > 50) return 'stroke-emerald-400';
   if (battery > 20) return 'stroke-amber-400';
   return 'stroke-red-400';
 }
 
-// Battery arc SVG component - more compact
+/**
+ * Circular battery indicator using SVG stroke-dasharray technique.
+ *
+ * Renders a progress arc that depletes counter-clockwise as battery drains.
+ * The -90deg rotation ensures the arc starts at 12 o'clock position.
+ */
 function BatteryArc({ battery }: { battery: number }) {
   const radius = 26;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - battery / 100);
-  
+
   return (
     <svg className="h-16 w-16 -rotate-90" viewBox="0 0 60 60">
-      {/* Background arc */}
       <circle
         cx="30"
         cy="30"
@@ -102,7 +136,6 @@ function BatteryArc({ battery }: { battery: number }) {
         strokeWidth="3"
         className="text-white/[0.06]"
       />
-      {/* Battery arc */}
       <circle
         cx="30"
         cy="30"
@@ -118,6 +151,17 @@ function BatteryArc({ battery }: { battery: number }) {
   );
 }
 
+/**
+ * Displays a single vehicle's telemetry and provides quick actions.
+ *
+ * This component is rendered for each vehicle in the fleet sheet. It receives
+ * pre-normalized telemetry data from the vehicle store and delegates actions
+ * to the parent component to maintain loose coupling with map/video services.
+ *
+ * Performance: The component is optimized for frequent re-renders as telemetry
+ * updates arrive (typically 1-10Hz per vehicle). Avoid adding heavy computations
+ * or effects here; preprocess data in the telemetry adapter instead.
+ */
 export function VehicleCard({
   vehicle,
   isSelected,
@@ -138,7 +182,6 @@ export function VehicleCard({
         vehicle.status === 'error' && 'border-red-500/20'
       )}
     >
-      {/* Header - more compact */}
       <div className="flex items-start justify-between p-3 pb-0">
         <div className="flex flex-col gap-0.5">
           <span className="text-lg font-light text-white">{vehicle.name}</span>
@@ -149,8 +192,7 @@ export function VehicleCard({
             </span>
           </div>
         </div>
-        
-        {/* Battery gauge - smaller */}
+
         <div className="relative">
           <BatteryArc battery={vehicle.battery} />
           <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -162,7 +204,7 @@ export function VehicleCard({
         </div>
       </div>
 
-      {/* Metrics grid - more compact */}
+      {/* Telemetry metrics grid */}
       <div className="grid grid-cols-3 gap-px bg-white/[0.02] mx-3 my-2 rounded-lg overflow-hidden">
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Gauge className="h-3 w-3 text-white/30" />
@@ -181,7 +223,7 @@ export function VehicleCard({
         </div>
       </div>
 
-      {/* Actions - more compact */}
+      {/* Action buttons */}
       <div className="flex items-center gap-1.5 p-3 pt-0">
         <Button
           variant="ghost"

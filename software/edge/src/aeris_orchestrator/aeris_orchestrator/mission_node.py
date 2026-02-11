@@ -86,7 +86,13 @@ class TrackingContext:
 
 
 class MissionNode(Node):
-    """Mission lifecycle orchestrator for simulation and GCS integration."""
+    """Mission lifecycle orchestrator for simulation and GCS integration.
+
+    Manages state machine transitions (IDLE -> PLANNING -> SEARCHING -> TRACKING -> COMPLETE/ABORTED)
+    and coordinates multi-vehicle search patterns. Integrates thermal, acoustic, and gas
+    sensor detections to trigger focused tracking behaviors while maintaining ranger
+    overwatch orbits. Supports both GPS-based telemetry and GPS-denied VIO navigation.
+    """
 
     _ACTIVE_PROGRESS_STATES: Final[set[str]] = {"SEARCHING", "TRACKING"}
     _AUTONOMOUS_STATES: Final[set[str]] = {"SEARCHING", "TRACKING"}
@@ -128,7 +134,8 @@ class MissionNode(Node):
         )
         self._loop_budget_ms = float(self.declare_parameter("loop_budget_ms", 20.0).value)
         self._planning_cycles = int(self.declare_parameter("planning_cycles", 1).value)
-        # Kept for backward compatibility with older launch configs.
+        # Legacy parameters retained for backward compatibility with launch configs
+        # predating the unified tracking behavior implementation.
         self.declare_parameter("enable_tracking_simulation", False)
         self.declare_parameter("tracking_trigger_coverage_percent", 1.0)
         self.declare_parameter("tracking_hold_cycles", 50)
@@ -1879,8 +1886,8 @@ class MissionNode(Node):
             uses_dedicated_adapter=use_dedicated_adapter,
         )
 
-        # Transition first so the execution path starts/adapts streaming; latency
-        # measurement below intentionally times the first adapter-level setpoint emit.
+        # State transition precedes latency measurement to include the first MAVLink
+        # setpoint dispatch in the tracking response time budget.
         if self._state != "TRACKING":
             self._transition_to("TRACKING")
         else:
@@ -2091,7 +2098,8 @@ class MissionNode(Node):
             "altitude_m": candidate_altitude_m,
         }
 
-        # Avoid repeatedly inserting equivalent mitigation waypoints every loop.
+        # Skip duplicate mitigation insertions when the current target already
+        # provides adequate separation to prevent waypoint list bloat.
         if (
             math.hypot(
                 float(current_target.get("x", 0.0)) - candidate_x,
@@ -3285,7 +3293,8 @@ class MissionNode(Node):
             response.message = "abort_mission rejected due to mission_id mismatch"
             return response
 
-        # Pause setpoint streaming before switching MAVLink endpoints for RTL fan-out.
+        # Suspend active streaming to prevent setpoint race conditions during
+        # multi-endpoint RTL command dispatch.
         self._close_tracking_adapter()
         self._close_ranger_adapter()
         self._mavlink_adapter.stop_stream()
@@ -3416,8 +3425,8 @@ class MissionNode(Node):
                     self._transition_to("COMPLETE")
                 self._update_ranger_overwatch_orbit()
             elif self._state == "TRACKING":
-                # Keep non-tracking scout coverage progressing while a dedicated scout
-                # temporarily handles focused tracking.
+                # Parallel execution: continue search coverage with non-tracking scouts
+                # while the assigned tracking scout handles the focused investigation.
                 tracked_vehicle_id = self._tracking_context.assigned_scout_vehicle_id
                 for vehicle_id in sorted(self._scout_plans.keys()):
                     if vehicle_id == tracked_vehicle_id:

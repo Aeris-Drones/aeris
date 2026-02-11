@@ -1,3 +1,13 @@
+/**
+ * @file tile_contract.cpp
+ * @brief Implementation of the map tile streaming protocol contract
+ *
+ * Implements tile ID validation, SHA-256 hashing, and MapTile message
+ * construction as defined in the Aeris tile streaming protocol.
+ *
+ * @copyright Aeris Robotics 2024
+ */
+
 #include "aeris_map/tile_contract.hpp"
 
 #include <cstdint>
@@ -10,10 +20,19 @@
 
 namespace
 {
+
+/** @brief Regex pattern for Slippy Map tile ID format: "{zoom}/{x}/{y}" */
 constexpr char kTileIdPattern[] = R"(^([0-9]{1,2})/([0-9]+)/([0-9]+)$)";
+
+/** @brief MBTiles format version identifier */
 constexpr char kFormat[] = "mbtiles-1.3";
+
+/** @brief Minimum valid zoom level (world map) */
 constexpr int kMinZoom = 0;
+
+/** @brief Maximum valid zoom level (prevents integer overflow) */
 constexpr int kMaxZoom = 22;
+
 }  // namespace
 
 namespace aeris_map::tile_contract
@@ -28,16 +47,19 @@ bool is_valid_tile_id(const std::string & tile_id)
   }
 
   try {
+    // Validate zoom level is within supported range
     const int z = std::stoi(match[1].str());
     if (z < kMinZoom || z > kMaxZoom) {
       return false;
     }
 
+    // Validate x,y coordinates are within valid range for zoom level
     const uint64_t x = std::stoull(match[2].str());
     const uint64_t y = std::stoull(match[3].str());
     const uint64_t max_index = (1ULL << static_cast<uint64_t>(z)) - 1ULL;
     return x <= max_index && y <= max_index;
   } catch (const std::exception &) {
+    // stoi/stoull may throw on overflow
     return false;
   }
 }

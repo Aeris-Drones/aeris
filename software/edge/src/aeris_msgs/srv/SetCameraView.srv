@@ -1,9 +1,12 @@
-string command_type  # preset | path
-string preset_name   # wide | tracking | pov | orbit
-string target_vehicle
-CameraWaypoint[] path
-float32 transition_duration
-bool tracking_mode
+# Configure camera view mode and movement parameters.
+# Supports preset configurations or custom waypoint paths for cinematic shots.
+string command_type  # "preset" for named views, "path" for custom trajectory
+string preset_name   # Named preset: wide | tracking | pov | orbit
+string target_vehicle  # Vehicle ID to track (required for tracking/orbit modes)
+CameraWaypoint[] path  # Custom camera trajectory when command_type is "path"
+float32 transition_duration  # Seconds to transition to new view state
+bool tracking_mode   # Enable continuous target tracking during movement
 ---
-bool accepted
-string message
+# View configuration acceptance result.
+bool accepted  # True if view parameters are valid and accepted
+string message # Error details if rejected, confirmation if accepted

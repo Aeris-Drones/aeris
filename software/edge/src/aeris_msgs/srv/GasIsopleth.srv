@@ -1,3 +1,6 @@
-builtin_interfaces/Time target_time
+# Request gas concentration contour data at a specific point in time.
+# Enables mission control to visualize plume boundaries and identify source locations.
+builtin_interfaces/Time target_time  # Timestamp for temporal data lookup
 ---
+# Isopleth result containing concentration contours and plume centerline.
 aeris_msgs/GasIsopleth isopleth

@@ -1,55 +1,60 @@
-/**
- * AERIS GCS Vehicle Types
- * 
- * Extended vehicle types for fleet management and control.
- * Builds on the existing VehicleState from VehicleManager.
- */
-
 import type { VehicleState } from '@/lib/vehicle/VehicleManager';
 import { VehicleType } from '@/lib/ros/telemetry';
 
-// ============================================================================
-// Vehicle Status & Commands
-// ============================================================================
-
 /**
- * Operational status of a vehicle
+ * Operational status of a vehicle in the field.
+ *
+ * - active: Normal operation, executing mission
+ * - returning: Inbound to home/launch point
+ * - holding: Stationary at current position
+ * - offline: No telemetry received recently
+ * - landed: On ground, powered off or idle
+ * - emergency: Critical issue requiring immediate attention
  */
-export type VehicleStatus = 
-  | 'active'      // Normal operation
-  | 'returning'   // RTL in progress
-  | 'holding'     // Position hold
-  | 'offline'     // Lost connection
-  | 'landed'      // On ground
-  | 'emergency';  // Emergency state
+export type VehicleStatus =
+  | 'active'
+  | 'returning'
+  | 'holding'
+  | 'offline'
+  | 'landed'
+  | 'emergency';
 
 /**
- * Commands that can be sent to vehicles
+ * High-level commands that can be issued to vehicles.
+ *
+ * Published to ROS topic /vehicle/{id}/command for execution
+ * by the vehicle's onboard flight controller.
  */
-export type VehicleCommand = 
-  | 'WAYPOINT'    // Go to specific coordinates
-  | 'HOLD'        // Hold current position
-  | 'RESUME'      // Resume autonomous mission
-  | 'RECALL'      // Return to launch
-  | 'LAND';       // Land immediately
+export type VehicleCommand =
+  | 'WAYPOINT'
+  | 'HOLD'
+  | 'RESUME'
+  | 'RECALL'
+  | 'LAND';
 
 /**
- * Extended vehicle info for UI display
+ * Enriched vehicle information for UI display.
+ *
+ * Extends VehicleState with computed fields derived from telemetry
+ * freshness, battery status, and mission context.
  */
 export interface VehicleInfo extends VehicleState {
   status: VehicleStatus;
   batteryPercent: number;
-  signalStrength: number;  // 0-100
-  speed: number;           // m/s
-  altitude: number;        // meters AGL
-  distanceFromHome: number; // meters
+  signalStrength: number;
+  speed: number;
+  altitude: number;
+  distanceFromHome: number;
   isSelected: boolean;
   assignment?: string;
   missionProgressPercent?: number;
 }
 
 /**
- * Command request sent to ROS
+ * Command payload for vehicle control requests.
+ *
+ * Published to ROS and logged for audit trail. Params are optional
+ * and command-specific (e.g., WAYPOINT requires lat/lon/alt).
  */
 export interface VehicleCommandRequest {
   vehicleId: string;
@@ -62,12 +67,8 @@ export interface VehicleCommandRequest {
   };
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
 /**
- * Get display name for vehicle type
+ * Returns display name for a vehicle type.
  */
 export function getVehicleTypeName(type: VehicleType): string {
   switch (type) {
@@ -81,7 +82,7 @@ export function getVehicleTypeName(type: VehicleType): string {
 }
 
 /**
- * Get vehicle type description
+ * Returns human-readable description of vehicle capabilities.
  */
 export function getVehicleTypeDescription(type: VehicleType): string {
   switch (type) {
@@ -95,21 +96,26 @@ export function getVehicleTypeDescription(type: VehicleType): string {
 }
 
 /**
- * Get color for vehicle type
+ * Returns CSS color value for a vehicle type.
+ *
+ * Used for consistent visual identification across the UI.
  */
 export function getVehicleTypeColor(type: VehicleType): string {
   switch (type) {
     case VehicleType.SCOUT:
-      return 'var(--info)';  // Blue
+      return 'var(--info)';
     case VehicleType.RANGER:
-      return '#F97316';      // Orange
+      return '#F97316';
     default:
       return 'var(--muted-foreground)';
   }
 }
 
 /**
- * Get status display config
+ * Returns UI styling configuration for a vehicle status.
+ *
+ * Provides consistent colors, labels, and icon identifiers
+ * for status badges and indicators across components.
  */
 export function getVehicleStatusConfig(status: VehicleStatus): {
   label: string;
@@ -164,7 +170,9 @@ export function getVehicleStatusConfig(status: VehicleStatus): {
 }
 
 /**
- * Get battery level color
+ * Returns CSS class for battery level indicator.
+ *
+ * Thresholds: >50% success, >20% warning, <=20% danger.
  */
 export function getBatteryColor(percent: number): string {
   if (percent > 50) return 'text-success';
@@ -173,7 +181,9 @@ export function getBatteryColor(percent: number): string {
 }
 
 /**
- * Get signal strength color
+ * Returns CSS class for signal strength indicator.
+ *
+ * Thresholds: >70% success, >40% warning, <=40% danger.
  */
 export function getSignalColor(strength: number): string {
   if (strength > 70) return 'text-success';
@@ -182,7 +192,9 @@ export function getSignalColor(strength: number): string {
 }
 
 /**
- * Format altitude for display
+ * Formats altitude in meters for display.
+ *
+ * Values under 1m are shown as "0m" to avoid fractional noise.
  */
 export function formatAltitude(meters: number): string {
   if (meters < 1) return '0m';
@@ -190,7 +202,9 @@ export function formatAltitude(meters: number): string {
 }
 
 /**
- * Format speed for display
+ * Formats speed in meters per second for display.
+ *
+ * Values under 0.1 m/s are shown as "0 m/s" to filter noise.
  */
 export function formatSpeed(mps: number): string {
   if (mps < 0.1) return '0 m/s';
@@ -198,7 +212,9 @@ export function formatSpeed(mps: number): string {
 }
 
 /**
- * Format distance for display
+ * Formats distance with automatic unit selection.
+ *
+ * Uses meters for <1km, kilometers with 1 decimal for >=1km.
  */
 export function formatDistance(meters: number): string {
   if (meters < 1000) {
@@ -208,15 +224,27 @@ export function formatDistance(meters: number): string {
 }
 
 /**
- * Calculate speed from velocity vector
+ * Calculates scalar speed from 3D velocity vector.
+ *
+ * Uses Euclidean norm (magnitude) of the velocity components.
  */
 export function calculateSpeed(velocity: { x: number; y: number; z: number }): number {
   return Math.sqrt(velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2);
 }
 
 /**
- * Convert VehicleState to VehicleInfo with simulated data
- * In production, this would come from actual telemetry
+ * Converts raw VehicleState to enriched VehicleInfo for UI consumption.
+ *
+ * Derives computed fields:
+ * - status: based on telemetry age (offline if >5s stale)
+ * - signalStrength: decays linearly over 10s window
+ * - speed: calculated from velocity vector
+ * - altitude: extracted from position.y
+ * - distanceFromHome: horizontal distance from origin
+ *
+ * @param state - Raw vehicle state from VehicleManager
+ * @param isSelected - Whether this vehicle is currently selected in UI
+ * @returns Enriched vehicle info with computed display fields
  */
 export function vehicleStateToInfo(
   state: VehicleState,
@@ -237,7 +265,7 @@ export function vehicleStateToInfo(
   const status: VehicleStatus =
     telemetryAgeMs > offlineThresholdMs ? 'offline' : 'active';
   const batteryPercent = 100;
-  
+
   return {
     ...state,
     status,

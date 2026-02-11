@@ -1,62 +1,75 @@
-/**
- * Unified Detection System Types
- * Aggregates thermal, acoustic, and gas sensor detections into a common interface
- */
-
 import type { SensorType, ConfidenceLevel } from '@/lib/design-tokens';
 
 /**
- * Base detection interface - common fields across all sensor types
+ * Base detection interface shared across all sensor types.
+ *
+ * Location uses GPS coordinates (WGS84). localPosition is optional
+ * ENU coordinates relative to search origin for local reference.
+ *
+ * Status lifecycle:
+ *   new -> reviewing -> confirmed|dismissed
+ *                    -> expired (auto-timeout)
  */
 export interface BaseDetection {
-  /** Unique identifier for this detection */
   id: string;
-  /** Sensor type that generated this detection */
   sensorType: SensorType;
-  /** Detection confidence (0-1) */
+
+  /**
+   * Confidence score from 0.0 to 1.0.
+   *
+   * Interpretation varies by sensor:
+   * - thermal: classification confidence
+   * - acoustic: signal-to-noise ratio normalized
+   * - gas: concentration above baseline
+   */
   confidence: number;
-  /** Timestamp when detection was created */
+
   timestamp: number;
-  /** Last time this detection was updated */
   lastUpdate: number;
-  /** Geographic coordinates */
+
   location: {
     latitude: number;
     longitude: number;
     altitude: number;
   };
-  /** Local 3D coordinates (for rendering) */
+
+  /** Local ENU coordinates [east, up, north] relative to search origin */
   localPosition?: {
     x: number;
     y: number;
     z: number;
   };
-  /** Operator actions */
+
   status: DetectionStatus;
-  /** Optional operator notes */
   notes?: string;
-  /** Which vehicle detected this (if applicable) */
   vehicleId?: string;
 }
 
 /**
- * Detection status lifecycle
+ * Detection review workflow states.
+ *
+ * - new: Unreviewed, requires operator attention
+ * - reviewing: Currently being evaluated
+ * - confirmed: Validated as genuine
+ * - dismissed: False positive or irrelevant
+ * - expired: Auto-closed due to age without review
  */
 export type DetectionStatus =
-  | 'new'          // Just received, pulsing animation
-  | 'reviewing'    // Operator has expanded/viewed
-  | 'confirmed'    // Operator confirmed as real survivor
-  | 'dismissed'    // Operator marked as false positive
-  | 'expired';     // TTL expired, fading out
+  | 'new'
+  | 'reviewing'
+  | 'confirmed'
+  | 'dismissed'
+  | 'expired';
 
 /**
- * Thermal hotspot detection
+ * Thermal camera detection with temperature reading.
+ *
+ * boundingBox defines the region of interest in image coordinates
+ * (pixels from top-left origin).
  */
 export interface ThermalDetection extends BaseDetection {
   sensorType: 'thermal';
-  /** Temperature in Celsius */
   temperature: number;
-  /** Bounding box in pixels (if available) */
   boundingBox?: {
     x: number;
     y: number;
@@ -66,70 +79,60 @@ export interface ThermalDetection extends BaseDetection {
 }
 
 /**
- * Acoustic bearing detection
+ * Acoustic sensor detection with bearing and classification.
+ *
+ * - bearing: Direction to sound source in degrees (0-360, magnetic)
+ * - snr: Signal-to-noise ratio in dB
+ * - classification: Acoustic signature category
  */
 export interface AcousticDetection extends BaseDetection {
   sensorType: 'acoustic';
-  /** Bearing angle in degrees */
   bearing: number;
-  /** Signal-to-noise ratio in dB */
   snr: number;
-  /** Classification type */
   classification: 'vocal' | 'tapping' | 'mechanical' | 'unknown';
 }
 
 /**
- * Gas plume detection
+ * Gas sensor detection with concentration and environmental context.
+ *
+ * - species: Chemical compound detected (e.g., "CO", "CH4")
+ * - concentration: Measured value in specified units
+ * - wind data: Optional for plume modeling and source localization
  */
 export interface GasDetection extends BaseDetection {
   sensorType: 'gas';
-  /** Gas species detected */
   species: string;
-  /** Concentration value */
   concentration: number;
-  /** Concentration units */
   units: string;
-  /** Plume area (if available) */
   area?: number;
-  /** Wind direction vector */
   windDirection?: {
     x: number;
     y: number;
     z: number;
   };
-  /** Wind speed in m/s */
   windSpeed?: number;
 }
 
-/**
- * Union type for all detection types
- */
 export type Detection = ThermalDetection | AcousticDetection | GasDetection;
 
 /**
- * Detection filter options
+ * Filter criteria for detection queries.
+ *
+ * timeWindow: maximum age in milliseconds (from now)
  */
 export interface DetectionFilter {
-  /** Filter by sensor type */
   sensorTypes?: SensorType[];
-  /** Filter by status */
   statuses?: DetectionStatus[];
-  /** Minimum confidence threshold (0-1) */
   minConfidence?: number;
-  /** Filter by vehicle ID */
   vehicleId?: string;
-  /** Time window (only show detections from last N milliseconds) */
   timeWindow?: number;
 }
 
-/**
- * Detection sort options
- */
 export type DetectionSortBy = 'confidence' | 'time' | 'distance' | 'type';
 export type DetectionSortOrder = 'asc' | 'desc';
 
 /**
- * Operator action for detection
+ * Operator action recorded for audit trail.
  */
 export interface DetectionAction {
   detectionId: string;
@@ -140,7 +143,7 @@ export interface DetectionAction {
 }
 
 /**
- * Detection statistics
+ * Aggregated detection statistics for dashboard display.
  */
 export interface DetectionStats {
   total: number;
@@ -165,7 +168,13 @@ export interface DetectionStats {
 }
 
 /**
- * Helper to determine confidence level
+ * Map confidence score to discrete confidence level.
+ *
+ * Thresholds:
+ * - high: >=80%
+ * - medium: 50-79%
+ * - low: 20-49%
+ * - unverified: <20%
  */
 export function getDetectionConfidenceLevel(detection: Detection): ConfidenceLevel {
   const percentage = detection.confidence * 100;
@@ -176,7 +185,7 @@ export function getDetectionConfidenceLevel(detection: Detection): ConfidenceLev
 }
 
 /**
- * Helper to get human-readable sensor name
+ * Returns display name for a sensor type.
  */
 export function getSensorName(type: SensorType): string {
   switch (type) {
@@ -190,7 +199,7 @@ export function getSensorName(type: SensorType): string {
 }
 
 /**
- * Helper to get classification display name
+ * Returns human-readable classification label for acoustic detections.
  */
 export function getClassificationName(classification: AcousticDetection['classification']): string {
   switch (classification) {
@@ -206,7 +215,12 @@ export function getClassificationName(classification: AcousticDetection['classif
 }
 
 /**
- * Format detection for display
+ * Formats detection data as a concise summary string.
+ *
+ * Returns sensor-specific formatted output:
+ * - thermal: temperature and confidence
+ * - acoustic: classification and SNR
+ * - gas: species and concentration
  */
 export function formatDetectionSummary(detection: Detection): string {
   switch (detection.sensorType) {
@@ -220,7 +234,9 @@ export function formatDetectionSummary(detection: Detection): string {
 }
 
 /**
- * Calculate time since detection
+ * Formats timestamp as relative time string.
+ *
+ * Returns "Xs ago", "Xm ago", "Xh ago", or "Xd ago" based on elapsed time.
  */
 export function getTimeSince(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -238,7 +254,10 @@ export function getTimeSince(timestamp: number): string {
 }
 
 /**
- * Calculate distance from a reference point (in meters)
+ * Calculates 2D horizontal distance from reference point to detection.
+ *
+ * Uses localPosition if available, otherwise returns 0.
+ * Ignores Y (altitude) for ground distance calculation.
  */
 export function getDetectionDistance(
   detection: Detection,
@@ -253,7 +272,10 @@ export function getDetectionDistance(
 }
 
 /**
- * Get cardinal direction to detection
+ * Calculates cardinal direction from reference point to detection.
+ *
+ * Returns one of: N, NE, E, SE, S, SW, W, NW
+ * Returns 'Unknown' if localPosition is unavailable.
  */
 export function getDetectionDirection(
   detection: Detection,

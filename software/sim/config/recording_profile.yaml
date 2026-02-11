@@ -1,34 +1,84 @@
+# Rosbag2 recording profile for Aeris mission data capture.
+#
+# DESCRIPTION:
+#   Configures MCAP storage with zstd compression for efficient recording
+#   of telemetry, perception, and mapping data during simulation runs.
+#   This profile captures all critical topics for post-mission analysis
+#   and algorithm validation.
+#
+# USAGE:
+#   Set RECORDING_PROFILE environment variable when running simulation:
+#     RECORDING_PROFILE=default ./run_basic_sim.sh
+#
+#   Or use with record_sim_session.py directly:
+#     python3 record_sim_session.py --config default --duration 300
+#
+# STORAGE:
+#   - Format: MCAP (optimized for ROS 2)
+#   - Compression: zstd (file-level)
+#   - Max bag size: 500 MB per file (auto-splitting enabled)
+#
+# TOPIC CATEGORIES:
+#   - Clock and TF: Simulation time and transforms
+#   - Mapping: Map tiles, point clouds, RTAB-Map output
+#   - Sensors: Stereo cameras, IMU, odometry
+#   - Mission: State machine and event logs
+#   - Perception: Detection and event streams
+#   - Vehicle: PX4 telemetry for all drones
+
 {
-  "output_dir": "log/recordings",
-  "bag_name_prefix": "aeris_mission",
-  "max_size_mb": 500,
+  # Output configuration
+  "output_dir": "log/recordings",          # Relative to repo root or absolute path
+  "bag_name_prefix": "aeris_mission",      # Prefix for bag file names
+  "max_size_mb": 500,                      # Maximum bag file size before splitting
+
+  # Rosbag2 storage configuration
   "rosbag": {
-    "storage_id": "mcap",
-    "compression_mode": "file",
-    "compression_format": "zstd",
+    "storage_id": "mcap",                  # Storage format: mcap, sqlite3
+    "compression_mode": "file",            # Compression scope: file, message, none
+    "compression_format": "zstd",          # Compression algorithm: zstd, lz4, none
+
+    # -------------------------------------------------------------------------
+    # Recorded Topics
+    # -------------------------------------------------------------------------
     "topics": [
-      "/clock",
-      "/tf",
-      "/tf_static",
-      "/map/tiles",
-      "/map",
-      "/rtabmap/cloud_map",
-      "/rtabmap/info",
-      "/scout1/stereo/left/image_raw",
-      "/scout1/stereo/right/image_raw",
-      "/scout1/imu/data",
-      "/scout1/openvins/odom",
-      "/mission/state",
-      "/mission/events",
-      "/perception/detections",
-      "/perception/events",
-      "/simulation/camera/path_commands",
-      "/vehicle/scout1/px4/vehicle_local_position",
-      "/vehicle/scout1/px4/vehicle_status",
-      "/vehicle/scout1/trajectory_setpoint",
+      # --- Clock and Transforms ---
+      "/clock",                              # Simulation time (required for sim_time)
+      "/tf",                                 # Dynamic transforms
+      "/tf_static",                          # Static transforms
+
+      # --- Mapping and Localization ---
+      "/map/tiles",                          # Map tile stream
+      "/map",                                # Occupancy grid map
+      "/rtabmap/cloud_map",                  # RTAB-Map point cloud
+      "/rtabmap/info",                       # RTAB-Map statistics and loop closure info
+
+      # --- Scout 1 Sensors ---
+      "/scout1/stereo/left/image_raw",       # Left stereo camera images
+      "/scout1/stereo/right/image_raw",      # Right stereo camera images
+      "/scout1/imu/data",                    # IMU measurements
+      "/scout1/openvins/odom",               # Visual-inertial odometry
+
+      # --- Mission and Perception ---
+      "/mission/state",                      # Mission state machine state
+      "/mission/events",                     # Mission event log
+      "/perception/detections",              # Object detection results
+      "/perception/events",                  # Perception event stream
+
+      # --- Simulation Control ---
+      "/simulation/camera/path_commands",    # Camera path commands
+
+      # --- Vehicle Telemetry: Scout 1 ---
+      "/vehicle/scout1/px4/vehicle_local_position",  # Local position estimate
+      "/vehicle/scout1/px4/vehicle_status",          # Vehicle status flags
+      "/vehicle/scout1/trajectory_setpoint",         # Position/velocity setpoints
+
+      # --- Vehicle Telemetry: Scout 2 ---
       "/vehicle/scout2/px4/vehicle_local_position",
       "/vehicle/scout2/px4/vehicle_status",
       "/vehicle/scout2/trajectory_setpoint",
+
+      # --- Vehicle Telemetry: Ranger 1 ---
       "/vehicle/ranger1/px4/vehicle_local_position",
       "/vehicle/ranger1/px4/vehicle_status",
       "/vehicle/ranger1/trajectory_setpoint"

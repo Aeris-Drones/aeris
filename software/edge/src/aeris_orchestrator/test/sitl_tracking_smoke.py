@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""SITL smoke harness for Story 1.5 tracking reassignment behavior."""
+"""SITL smoke test for multi-vehicle tracking reassignment.
+
+Validates that when a gas detection occurs:
+- The nearest scout is dispatched for tracking
+- Non-target scouts continue their search assignments
+- Ranger overwatch assignments persist through tracking
+- System returns to SEARCHING after tracking resolution
+
+Scenario: Two scouts searching partitioned zones with one ranger in overwatch.
+Detection triggers reassignment of nearest scout while preserving fleet state.
+"""
 
 from __future__ import annotations
 

@@ -5,11 +5,19 @@ import { Flame, AudioLines, Wind, Crosshair, Check, X, MapPin } from 'lucide-rea
 import { cn } from '@/lib/utils';
 
 /**
- * DetectionCard - Detection list item with full details
- * 
- * Per spec: Show confidence, time, vehicle, temperature/reading, sector, signature type
+ * Sensor detection with triage workflow state.
+ *
+ * Position uses ENU (East-North-Up) local coordinates relative to the search
+ * area origin. This allows consistent spatial reasoning across vehicles without
+ * requiring global geodetic transformations for short-range operations.
+ *
+ * Status lifecycle: new -> reviewing -> confirmed|dismissed
+ *
+ * Sensor-specific readings:
+ * - thermal: surface temperature in Celsius
+ * - acoustic: sound pressure level in decibels
+ * - gas: chemical concentration in parts per million
  */
-
 export interface Detection {
   id: string;
   sensorType: 'thermal' | 'acoustic' | 'gas';
@@ -19,19 +27,22 @@ export interface Detection {
   vehicleId: string;
   vehicleName: string;
   position: [number, number, number];
-  // Extended details
-  temperature?: number; // For thermal (°C)
-  decibels?: number; // For acoustic (dB)
-  concentration?: number; // For gas (ppm)
-  sector?: string; // e.g., "Sector C-4"
-  signatureType?: string; // e.g., "Human signature likely"
+  temperature?: number;
+  decibels?: number;
+  concentration?: number;
+  sector?: string;
+  signatureType?: string;
 }
 
 export interface DetectionCardProps {
   detection: Detection;
+  /** Whether this detection is newly arrived (for highlighting) */
   isNew: boolean;
+  /** Callback when operator confirms detection as valid */
   onConfirm: () => void;
+  /** Callback when operator marks detection as false positive */
   onDismiss: () => void;
+  /** Callback to center map on detection location */
   onLocate: () => void;
 }
 
@@ -60,6 +71,13 @@ function getReading(detection: Detection): string {
   }
 }
 
+/**
+ * Generates human-readable classification based on confidence thresholds.
+ *
+ * Higher confidence produces more specific descriptions to help operators
+ * prioritize review efforts. Low-confidence detections use vague language
+ * to indicate uncertainty without dismissing the alert entirely.
+ */
 function getDefaultSignature(detection: Detection): string {
   const conf = detection.confidence;
   switch (detection.sensorType) {
@@ -72,6 +90,20 @@ function getDefaultSignature(detection: Detection): string {
   }
 }
 
+/**
+ * Detection triage card for operator review workflow.
+ *
+ * Presents sensor detections in a format optimized for rapid assessment:
+ * - Large confidence percentage for quick prioritization
+ * - Color-coded sensor badges for immediate type identification
+ * - Contextual signature description based on confidence level
+ * - Clear action hierarchy: locate (info) -> dismiss (negative) -> confirm (positive)
+ *
+ * Visual state changes communicate resolution status:
+ * - Confirmed: Reduced opacity with emerald border accent
+ * - Dismissed: Heavily reduced opacity (archived appearance)
+ * - Actionable: Full prominence with interactive controls
+ */
 export function DetectionCard({
   detection,
   isNew,
@@ -84,8 +116,10 @@ export function DetectionCard({
   const isActionable = detection.status === 'new' || detection.status === 'reviewing';
   const conf = Math.round(detection.confidence * 100);
   const reading = getReading(detection);
-  const signature = detection.signatureType || getDefaultSignature(detection);
+
+  // Derive sector from ENU coordinates when not explicitly provided
   const sector = detection.sector || `Zone ${detection.position[0] > 0 ? 'E' : 'W'}-${Math.abs(Math.round(detection.position[2] / 50))}`;
+  const signature = detection.signatureType || getDefaultSignature(detection);
 
   return (
     <div
@@ -98,15 +132,12 @@ export function DetectionCard({
         detection.status === 'dismissed' && 'opacity-30'
       )}
     >
-      {/* Header row */}
       <div className="flex items-center gap-3 px-4 py-3">
-        {/* Sensor badge */}
         <div className={cn('flex items-center gap-2 px-2.5 py-1 rounded-md', sensor.bg)}>
           <SensorIcon className={cn('h-4 w-4', sensor.color)} />
           <span className={cn('text-xs font-medium', sensor.color)}>{sensor.label}</span>
         </div>
 
-        {/* Status badge */}
         {isNew && (
           <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-medium uppercase">
             New
@@ -120,7 +151,7 @@ export function DetectionCard({
 
         <div className="flex-1" />
 
-        {/* Confidence */}
+        {/* Confidence percentage with color coding */}
         <span className={cn(
           'font-mono text-xl font-medium',
           conf >= 85 ? 'text-emerald-400' : conf >= 70 ? 'text-white' : 'text-white/50'
@@ -129,9 +160,7 @@ export function DetectionCard({
         </span>
       </div>
 
-      {/* Details row */}
       <div className="px-4 pb-3 space-y-2">
-        {/* Metadata line */}
         <div className="flex items-center gap-3 text-xs text-white/50">
           <span>{formatTime(detection.timestamp)}</span>
           <span>·</span>
@@ -140,7 +169,6 @@ export function DetectionCard({
           <span className="font-mono">{reading}</span>
         </div>
 
-        {/* Signature and sector */}
         <div className="flex items-center gap-2 text-sm">
           <MapPin className="h-3.5 w-3.5 text-white/30" />
           <span className="text-white/60">{sector}</span>
@@ -149,7 +177,6 @@ export function DetectionCard({
         </div>
       </div>
 
-      {/* Actions row */}
       {isActionable && (
         <div className="flex items-center gap-2 px-4 py-2 border-t border-white/[0.04] bg-white/[0.01]">
           <Button
@@ -183,7 +210,6 @@ export function DetectionCard({
         </div>
       )}
 
-      {/* Non-actionable: just locate */}
       {!isActionable && (
         <div className="flex items-center gap-2 px-4 py-2 border-t border-white/[0.04] bg-white/[0.01]">
           <Button

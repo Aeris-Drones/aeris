@@ -1,16 +1,9 @@
 /**
- * AERIS GCS Mission Types
- * 
- * Core types for mission state management, progress tracking,
- * and statistics for disaster response drone swarm operations.
- */
-
-// ============================================================================
-// Mission Phase & State
-// ============================================================================
-
-/**
- * Mission lifecycle phases
+ * Mission lifecycle phases for search and rescue operations.
+ *
+ * State machine transitions:
+ * IDLE -> PLANNING -> SEARCHING <-> TRACKING -> COMPLETE
+ * Any state can transition to ABORTED.
  */
 export type MissionPhase =
   | 'IDLE'
@@ -21,40 +14,33 @@ export type MissionPhase =
   | 'ABORTED';
 
 /**
- * Core mission state for persistence and control
+ * Core mission state with timing tracking.
+ *
+ * totalPausedTime accumulates all paused durations to calculate
+ * actual mission elapsed time excluding pauses.
  */
 export interface MissionState {
-  /** Current phase of the mission */
   phase: MissionPhase;
-  /** Unix timestamp when mission started */
   startTime?: number;
-  /** Unix timestamp when mission ended */
   endTime?: number;
-  /** Unix timestamp when mission was paused (undefined if not paused) */
   pausedAt?: number;
-  /** Total time spent paused in milliseconds */
   totalPausedTime: number;
-  /** Unique mission ID for tracking */
   missionId?: string;
 }
 
 /**
- * Real-time mission progress data
+ * Progress metrics for ongoing search operations.
+ *
+ * Grid progress tracks the search pattern completion when using
+ * systematic grid-based search algorithms.
  */
 export interface MissionProgress {
-  /** Coverage percentage (0-100) */
   coveragePercent: number;
-  /** Total search area in square kilometers */
   searchAreaKm2: number;
-  /** Covered area in square kilometers */
   coveredAreaKm2: number;
-  /** Number of active drones in the swarm */
   activeDrones: number;
-  /** Total drones assigned to mission */
   totalDrones: number;
-  /** Estimated time remaining in seconds */
   estimatedTimeRemaining?: number;
-  /** Grid cells completed / total */
   gridProgress?: {
     completed: number;
     total: number;
@@ -62,38 +48,30 @@ export interface MissionProgress {
 }
 
 /**
- * Aggregated mission statistics
+ * Aggregated statistics for mission reporting and analytics.
+ *
+ * detectionRate is detections per hour. timeToFirstDetection
+ * measures search efficiency from mission start.
  */
 export interface MissionStats {
-  /** Total elapsed time in seconds (excluding paused time) */
   elapsedSeconds: number;
-  /** Detection counts by sensor type */
   detectionCounts: {
     thermal: number;
     acoustic: number;
     gas: number;
     total: number;
   };
-  /** Number of confirmed survivors */
   confirmedSurvivors: number;
-  /** Number of dismissed false positives */
   dismissedDetections: number;
-  /** Number of pending detections awaiting review */
   pendingDetections: number;
-  /** Average time to first detection in seconds */
   timeToFirstDetection?: number;
-  /** Detection rate (detections per minute) */
   detectionRate?: number;
 }
 
-// ============================================================================
-// Mission Commands
-// ============================================================================
-
 /**
- * Commands that can be issued to the mission control system
+ * High-level mission commands for state machine control.
  */
-export type MissionCommand = 
+export type MissionCommand =
   | 'START'
   | 'PAUSE'
   | 'RESUME'
@@ -101,7 +79,7 @@ export type MissionCommand =
   | 'COMPLETE';
 
 /**
- * Mission command message for ROS publishing
+ * Mission command message for ROS publishing.
  */
 export interface MissionCommandMessage {
   command: MissionCommand;
@@ -110,12 +88,11 @@ export interface MissionCommandMessage {
   metadata?: Record<string, unknown>;
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
 
 /**
- * Format seconds into MM:SS format for timer display
+ * Formats seconds into MM:SS format for timer display.
+ *
+ * Handles negative values (for countdowns) by displaying absolute value.
  */
 export function formatMissionTime(seconds: number): string {
   const absSeconds = Math.abs(Math.floor(seconds));
@@ -125,32 +102,42 @@ export function formatMissionTime(seconds: number): string {
 }
 
 /**
- * Format seconds into human-readable duration (e.g., "5m", "1h 30m")
+ * Formats seconds into human-readable duration (e.g., "5m", "1h 30m").
+ *
+ * Automatically selects appropriate unit based on magnitude:
+ * - <60s: shows seconds
+ * - <60min: shows minutes
+ * - >=60min: shows hours and minutes
  */
 export function formatDuration(seconds: number): string {
   const absSeconds = Math.abs(Math.floor(seconds));
-  
+
   if (absSeconds < 60) {
     return `${absSeconds}s`;
   }
-  
+
   const mins = Math.floor(absSeconds / 60);
   if (mins < 60) {
     return `${mins}m`;
   }
-  
+
   const hours = Math.floor(mins / 60);
   const remainingMins = mins % 60;
-  
+
   if (remainingMins === 0) {
     return `${hours}h`;
   }
-  
+
   return `${hours}h ${remainingMins}m`;
 }
 
 /**
- * Format area with appropriate units
+ * Formats area with automatic unit selection for readability.
+ *
+ * Thresholds:
+ * - <0.01 km²: displays in m²
+ * - <1 km²: displays in hectares
+ * - >=1 km²: displays in km²
  */
 export function formatArea(km2: number): string {
   if (km2 < 0.01) {
@@ -164,7 +151,10 @@ export function formatArea(km2: number): string {
 }
 
 /**
- * Generate a unique mission ID
+ * Generates a unique mission identifier.
+ *
+ * Format: MSN-{timestamp}-{random} in uppercase.
+ * Provides collision-resistant IDs for mission tracking and logging.
  */
 export function generateMissionId(): string {
   const timestamp = Date.now().toString(36);
@@ -173,7 +163,10 @@ export function generateMissionId(): string {
 }
 
 /**
- * Get phase display configuration
+ * Returns UI styling configuration for a mission phase.
+ *
+ * Provides consistent labels, colors, and icon identifiers
+ * for phase badges and status indicators.
  */
 export function getMissionPhaseConfig(phase: MissionPhase): {
   label: string;
@@ -228,23 +221,24 @@ export function getMissionPhaseConfig(phase: MissionPhase): {
 }
 
 /**
- * Calculate elapsed seconds from mission state
+ * Calculate elapsed mission time in seconds, accounting for pauses.
+ *
+ * Returns 0 if mission hasn't started (IDLE phase or no startTime).
+ * Uses endTime if mission is complete, otherwise uses current time.
  */
 export function calculateElapsedSeconds(state: MissionState): number {
   if (state.phase === 'IDLE' || !state.startTime) {
     return 0;
   }
-  
+
   const now = state.endTime ?? Date.now();
   const endPoint = state.pausedAt ?? now;
   const elapsed = endPoint - state.startTime - state.totalPausedTime;
-  
+
   return Math.max(0, Math.floor(elapsed / 1000));
 }
 
-/**
- * Default initial mission state
- */
+/** Returns initial state for a new mission. */
 export function getInitialMissionState(): MissionState {
   return {
     phase: 'IDLE',
@@ -252,9 +246,7 @@ export function getInitialMissionState(): MissionState {
   };
 }
 
-/**
- * Default initial mission progress
- */
+/** Returns initial progress metrics for mission start. */
 export function getInitialMissionProgress(): MissionProgress {
   return {
     coveragePercent: 0,
@@ -265,9 +257,7 @@ export function getInitialMissionProgress(): MissionProgress {
   };
 }
 
-/**
- * Default initial mission stats
- */
+/** Returns initial statistics for a new mission. */
 export function getInitialMissionStats(): MissionStats {
   return {
     elapsedSeconds: 0,

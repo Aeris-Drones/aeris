@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-"""Validate VIO drift against simulation ground truth over a fixed mission window."""
+"""Validate VIO drift against simulation ground truth over a fixed mission window.
+
+This module collects Visual-Inertial Odometry (VIO) samples and ground truth
+odometry from a ROS 2 simulation, computes drift metrics (RMS, max error),
+and generates validation reports for navigation accuracy assessment.
+
+Typical usage example:
+    # Run with default profile
+    python validate_vio_navigation_drift.py
+
+    # Run with custom duration and thresholds
+    python validate_vio_navigation_drift.py --duration-sec 300 --max-rms-m 2.0
+"""
 
 from __future__ import annotations
 
@@ -10,16 +22,18 @@ import math
 import time
 from bisect import bisect_left
 from pathlib import Path
+from typing import Any
 
 try:
     import rclpy
     from nav_msgs.msg import Odometry
     from rclpy.node import Node
 except ModuleNotFoundError as error:
-    rclpy = None
-    Odometry = object  # type: ignore[assignment]
+    rclpy = None  # type: ignore[assignment]
+    Odometry = object  # type: ignore[assignment,misc]
 
     class Node:  # type: ignore[no-redef]
+        """Placeholder Node class when ROS 2 is unavailable."""
         pass
 
     _ROS_IMPORT_ERROR = error
@@ -27,7 +41,18 @@ else:
     _ROS_IMPORT_ERROR = None
 
 
-def _load_profile(path: Path) -> dict:
+def _load_profile(path: Path) -> dict[str, Any]:
+    """Load and validate a JSON profile configuration.
+
+    Args:
+        path: Path to the JSON profile file.
+
+    Returns:
+        Parsed profile dictionary.
+
+    Raises:
+        ValueError: If the profile root is not a JSON object.
+    """
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("profile root must be a JSON object")
@@ -35,6 +60,14 @@ def _load_profile(path: Path) -> dict:
 
 
 def _stamp_to_seconds(message: Odometry) -> float:
+    """Extract timestamp from an Odometry message in seconds.
+
+    Args:
+        message: ROS Odometry message with header timestamp.
+
+    Returns:
+        Timestamp in seconds, or current time if stamp is zero.
+    """
     stamp = message.header.stamp
     seconds = float(stamp.sec) + (float(stamp.nanosec) / 1e9)
     if seconds <= 0.0:
@@ -43,7 +76,15 @@ def _stamp_to_seconds(message: Odometry) -> float:
 
 
 class DriftCollector(Node):
+    """ROS 2 node that collects VIO and ground truth odometry samples."""
+
     def __init__(self, *, vio_topic: str, truth_topic: str) -> None:
+        """Initialize the collector and subscribe to odometry topics.
+
+        Args:
+            vio_topic: ROS topic name for VIO odometry.
+            truth_topic: ROS topic name for ground truth odometry.
+        """
         super().__init__("vio_navigation_drift_validator")
         self.vio_samples: list[tuple[float, float, float]] = []
         self.truth_samples: list[tuple[float, float, float]] = []
@@ -54,6 +95,11 @@ class DriftCollector(Node):
         )
 
     def _handle_vio(self, message: Odometry) -> None:
+        """Process a VIO odometry message.
+
+        Args:
+            message: Incoming VIO Odometry message.
+        """
         stamp_sec = _stamp_to_seconds(message)
         self.vio_samples.append(
             (
@@ -64,6 +110,11 @@ class DriftCollector(Node):
         )
 
     def _handle_truth(self, message: Odometry) -> None:
+        """Process a ground truth odometry message.
+
+        Args:
+            message: Incoming ground truth Odometry message.
+        """
         stamp_sec = _stamp_to_seconds(message)
         self.truth_samples.append(
             (
@@ -80,6 +131,19 @@ def _nearest_truth_sample(
     target_stamp: float,
     max_time_offset_sec: float,
 ) -> tuple[float, float, float] | None:
+    """Find the nearest ground truth sample to a target timestamp.
+
+    Uses binary search for efficient lookup in the sorted truth samples.
+
+    Args:
+        truth_samples: List of (timestamp, x, y) ground truth samples.
+        truth_times: Sorted list of timestamps from truth_samples.
+        target_stamp: Target timestamp to match.
+        max_time_offset_sec: Maximum allowed time offset for a match.
+
+    Returns:
+        The nearest sample tuple, or None if beyond max_time_offset_sec.
+    """
     if not truth_samples:
         return None
     index = bisect_left(truth_times, target_stamp)
@@ -106,6 +170,18 @@ def _compute_drift_metrics(
     *,
     max_time_offset_sec: float,
 ) -> tuple[dict[str, float], list[dict[str, float]]]:
+    """Compute drift metrics by matching VIO samples to ground truth.
+
+    Args:
+        vio_samples: List of (timestamp, x, y) VIO samples.
+        truth_samples: List of (timestamp, x, y) ground truth samples.
+        max_time_offset_sec: Maximum allowed time offset for matching.
+
+    Returns:
+        Tuple of (metrics dictionary, list of matched sample dictionaries).
+        Metrics include sample_count, matched_sample_count, unmatched_sample_count,
+        rms_m, max_error_m, and mean_error_m.
+    """
     matched_rows: list[dict[str, float]] = []
     errors: list[float] = []
     sorted_truth = sorted(truth_samples, key=lambda sample: sample[0])
@@ -163,11 +239,17 @@ def _compute_drift_metrics(
     )
 
 
-def _value_or_default(value, default):
+def _value_or_default(value: Any, default: Any) -> Any:
+    """Return default if value is None, otherwise return value."""
     return default if value is None else value
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for drift validation.
+
+    Returns:
+        Parsed arguments namespace.
+    """
     parser = argparse.ArgumentParser(
         description="Compare VIO odometry against simulation ground truth drift metrics."
     )
@@ -200,6 +282,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    """Main entry point for VIO drift validation.
+
+    Returns:
+        Exit code (0 for pass, 1 for fail or error).
+    """
     args = parse_args()
     if _ROS_IMPORT_ERROR is not None:
         raise RuntimeError(

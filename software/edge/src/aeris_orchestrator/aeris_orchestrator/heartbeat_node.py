@@ -1,3 +1,11 @@
+"""Minimal orchestrator heartbeat publisher for early bring-up verification.
+
+Provides a lightweight liveness signal used by system health monitors
+to verify orchestrator process availability before full mission
+capabilities are initialized. The heartbeat format includes host
+identity to aid distributed debugging across multi-node deployments.
+"""
+
 import os
 from datetime import datetime, timezone
 
@@ -7,9 +15,24 @@ from std_msgs.msg import String
 
 
 class HeartbeatNode(Node):
-    """Minimal orchestrator heartbeat publisher for early bring-up."""
+    """ROS 2 node that publishes periodic heartbeat messages.
+
+    Publishes timestamped heartbeat messages containing host identity
+    and sequence numbers to enable external health monitoring and
+    debugging of distributed orchestrator deployments.
+
+    Attributes:
+        _publisher: ROS publisher for heartbeat String messages.
+        _timer: Periodic timer triggering heartbeat publications.
+        _sequence: Monotonic sequence counter for message ordering.
+    """
 
     def __init__(self) -> None:
+        """Initialize the heartbeat node with configurable parameters.
+
+        Declares and retrieves parameters for queue depth, topic name,
+        and publication period. Creates the publisher and timer.
+        """
         super().__init__("aeris_orchestrator_heartbeat")
         qos_depth = self.declare_parameter("heartbeat_queue_depth", 10).value
         topic = self.declare_parameter("heartbeat_topic", "orchestrator/heartbeat").value
@@ -24,6 +47,12 @@ class HeartbeatNode(Node):
         )
 
     def _publish_heartbeat(self) -> None:
+        """Publish a heartbeat message with timestamp and host identity.
+
+        Constructs a heartbeat message containing UTC timestamp, host
+        nodename, and sequence number. Publishes via ROS and increments
+        the sequence counter.
+        """
         timestamp = datetime.now(timezone.utc).isoformat()
         host_id = os.uname().nodename
 
@@ -35,6 +64,14 @@ class HeartbeatNode(Node):
 
 
 def main(args=None) -> None:
+    """Entry point for the heartbeat node executable.
+
+    Initializes ROS 2, creates the HeartbeatNode, and spins until
+    shutdown is requested via interrupt or signal.
+
+    Args:
+        args: Optional command-line arguments passed to rclpy.init().
+    """
     rclpy.init(args=args)
     node = HeartbeatNode()
     try:

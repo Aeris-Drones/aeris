@@ -1,4 +1,35 @@
-"""Evidence bundling CLI for Aeris bench runs."""
+"""Evidence bundling CLI for Aeris bench runs.
+
+This module provides a command-line interface for collecting, hashing, and
+signing test artifacts from simulation runs. It creates cryptographically
+verifiable bundles containing SHA-256 manifests and optional Ed25519 signatures.
+
+The bundling process:
+    1. Scans input directories for files matching a time window
+    2. Computes SHA-256 hashes for each file
+    3. Generates a JSON manifest with file metadata
+    4. Optionally signs the manifest with Ed25519
+    5. Outputs either a tarball or manifest-only JSON
+
+Example:
+    Bundle recent test artifacts::
+
+        from aeris_evidence.evidence_bundle import main
+        import sys
+        sys.argv = [
+            "evidence_bundle",
+            "--input-dir", "/tmp/test_outputs",
+            "--window-sec", "3600",
+            "--out", "/tmp/evidence.tgz"
+        ]
+        main()
+
+Attributes:
+    DEFAULT_WINDOW_SEC (int): Default time window in seconds (15 minutes).
+    DEFAULT_OUTPUT (str): Default output path for bundles.
+    MANIFEST_NAME (str): Filename for the manifest within the tarball.
+    SIGNATURE_NAME (str): Filename for the signature within the tarball.
+"""
 
 from __future__ import annotations
 
@@ -7,12 +38,16 @@ import json
 import sys
 import tarfile
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nacl.signing import SigningKey
 
 DEFAULT_WINDOW_SEC = 900
 DEFAULT_OUTPUT = "/tmp/aeris_evidence.tgz"

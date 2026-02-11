@@ -13,23 +13,44 @@ import { Button } from '@/components/ui/button';
 import { Plane, Battery, AlertTriangle, OctagonX, Pause } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/**
- * FleetSheet - Premium expanded sheet for fleet management
- * 
- * Per spec: Fleet Actions: RECALL ALL, HOLD POSITIONS
- */
-
 interface FleetSheetProps {
+  /** All vehicles in the connected fleet */
   vehicles: VehicleInfo[];
+  /** Currently selected vehicle for highlighting */
   selectedVehicleId?: string | null;
+  /** Callback to center map on vehicle location */
   onLocate: (id: string) => void;
+  /** Callback to open video feed for vehicle */
   onViewFeed: (id: string) => void;
+  /** Callback to initiate return-to-home for vehicle */
   onRTH: (id: string) => void;
+  /** Callback for emergency recall of all vehicles */
   onRecallAll?: () => void;
+  /** Callback to pause all vehicles at current positions */
   onHoldPositions?: () => void;
+  /** Trigger element that opens the drawer */
   trigger: React.ReactNode;
 }
 
+/**
+ * Fleet management drawer with status overview and emergency controls.
+ *
+ * Provides operators with a comprehensive view of all connected vehicles
+ * and quick access to fleet-wide emergency actions. The visual status bar
+ * offers immediate fleet health assessment at a glance.
+ *
+ * Emergency controls are positioned at the bottom for thumb accessibility
+ * on tablet interfaces commonly used in field operations.
+ *
+ * @param vehicles - All vehicles in the connected fleet
+ * @param selectedVehicleId - Currently selected vehicle for highlighting
+ * @param onLocate - Callback to center map on vehicle location
+ * @param onViewFeed - Callback to open video feed for vehicle
+ * @param onRTH - Callback to initiate return-to-home for vehicle
+ * @param onRecallAll - Callback for emergency recall of all vehicles
+ * @param onHoldPositions - Callback to pause all vehicles at current positions
+ * @param trigger - Trigger element that opens the drawer
+ */
 export function FleetSheet({
   vehicles,
   selectedVehicleId,
@@ -49,11 +70,15 @@ export function FleetSheet({
 
   const handleLocate = (id: string) => {
     onLocate(id);
-    setOpen(false); // Close sheet when locating
+    setOpen(false);
   };
+
+  // Fleet-wide aggregations for the header summary
   const activeCount = vehicles.filter(v => v.status === 'active' || v.status === 'warning').length;
   const warningCount = vehicles.filter(v => v.status === 'warning' || v.status === 'error').length;
   const avgBattery = Math.round(vehicles.reduce((sum, v) => sum + v.battery, 0) / (vehicles.length || 1));
+
+  // Fleet status bar provides immediate visual health assessment
 
   return (
     <Drawer open={open} onOpenChange={setOpen}>
@@ -64,7 +89,6 @@ export function FleetSheet({
       </DrawerTrigger>
       <DrawerContent className="max-h-[85vh] bg-[#0a0a0f]/95 backdrop-blur-2xl border-white/[0.06]">
         <div className="mx-auto w-full max-w-3xl">
-          {/* Header */}
           <DrawerHeader className="pb-0">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -93,7 +117,6 @@ export function FleetSheet({
             </div>
           </DrawerHeader>
 
-          {/* Fleet summary bar */}
           <div className="flex items-center gap-2 px-4 py-4 border-b border-white/[0.04]">
             {vehicles.map((v) => (
               <div
@@ -112,7 +135,6 @@ export function FleetSheet({
             ))}
           </div>
 
-          {/* Vehicle grid */}
           <div className="max-h-[45vh] overflow-y-auto px-4 py-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {vehicles.map((vehicle) => (
@@ -135,7 +157,7 @@ export function FleetSheet({
             )}
           </div>
 
-          {/* Fleet Actions */}
+          {/* Emergency controls positioned for thumb accessibility on tablets */}
           <div className="flex items-center justify-center gap-3 px-4 py-4 border-t border-white/[0.04]">
             <Button
               variant="outline"

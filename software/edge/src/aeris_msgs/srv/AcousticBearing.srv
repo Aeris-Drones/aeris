@@ -1,3 +1,6 @@
-builtin_interfaces/Time target_time
+# Request acoustic bearing data at a specific point in time.
+# Used by mission analytics to correlate sound sources with vehicle position.
+builtin_interfaces/Time target_time  # Timestamp for temporal data lookup
 ---
+# Bearing result containing direction-of-arrival estimation from microphone arrays.
 aeris_msgs/AcousticBearing bearing

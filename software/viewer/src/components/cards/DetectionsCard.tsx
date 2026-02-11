@@ -6,14 +6,9 @@ import { Flame, AudioLines, Wind, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
- * DetectionsCard - Command Dock card showing detection summary
- * 
- * Per spec Section 4.3 - Compact view:
- * - Sensor type badges with counts
- * - "Tap to review" prompt
- * - Pending vs confirmed summary
+ * Detection represents a single sensor detection event.
+ * Multiple sensor types (thermal, acoustic, gas) can be active simultaneously.
  */
-
 export interface Detection {
   id: string;
   sensorType: 'thermal' | 'acoustic' | 'gas';
@@ -31,27 +26,49 @@ export interface DetectionsCardProps {
   latestDetection?: Detection;
 }
 
+/**
+ * Sensor configuration with color coding for visual differentiation.
+ * Colors align with industry standards for intuitive recognition:
+ * - Thermal: Orange (heat/fire association, FLIR standard)
+ * - Acoustic: Blue (sound wave visualization)
+ * - Gas: Yellow (caution/warning association for chemical hazards)
+ */
 const sensorConfig = {
-  thermal: { 
-    Icon: Flame, 
-    color: 'text-orange-500', 
+  thermal: {
+    Icon: Flame,
+    color: 'text-orange-500',
     bg: 'bg-orange-500/20',
     label: 'Thermal'
   },
-  acoustic: { 
-    Icon: AudioLines, 
-    color: 'text-blue-500', 
+  acoustic: {
+    Icon: AudioLines,
+    color: 'text-blue-500',
     bg: 'bg-blue-500/20',
     label: 'Acoustic'
   },
-  gas: { 
-    Icon: Wind, 
-    color: 'text-yellow-500', 
+  gas: {
+    Icon: Wind,
+    color: 'text-yellow-500',
     bg: 'bg-yellow-500/20',
     label: 'Gas'
   },
 };
 
+/**
+ * DetectionsCard displays multi-sensor detection counts and review status.
+ *
+ * UI/UX Decisions:
+ * - Sensor counts are displayed as distinct "pills" with icons for quick scanning
+ * - Color coding matches sensor type (orange=thermal, blue=acoustic, yellow=gas)
+ * - Confirmed/total ratio shows investigation progress
+ * - "Review" chevron indicates the card is clickable for detailed view
+ * - Pending badge uses success color to indicate actionable items
+ *
+ * Accessibility:
+ * - Icons reinforce sensor type in addition to color
+ * - Text labels accompany all numeric values
+ * - Sufficient color contrast for all sensor indicators
+ */
 export function DetectionsCard({
   thermalCount,
   acousticCount,
@@ -71,7 +88,6 @@ export function DetectionsCard({
         hasPending && 'border-[var(--success)]/30'
       )}
     >
-      {/* Header */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium uppercase tracking-wider text-white/50">
           Detections
@@ -83,9 +99,7 @@ export function DetectionsCard({
         )}
       </div>
 
-      {/* Sensor counts */}
       <div className="flex items-center gap-2">
-        {/* Thermal */}
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.thermal.bg)}>
           <Flame className={cn('h-4 w-4', sensorConfig.thermal.color)} />
           <span className={cn('font-mono text-sm font-bold', sensorConfig.thermal.color)}>
@@ -93,7 +107,6 @@ export function DetectionsCard({
           </span>
         </div>
 
-        {/* Acoustic */}
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.acoustic.bg)}>
           <AudioLines className={cn('h-4 w-4', sensorConfig.acoustic.color)} />
           <span className={cn('font-mono text-sm font-bold', sensorConfig.acoustic.color)}>
@@ -101,7 +114,6 @@ export function DetectionsCard({
           </span>
         </div>
 
-        {/* Gas */}
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.gas.bg)}>
           <Wind className={cn('h-4 w-4', sensorConfig.gas.color)} />
           <span className={cn('font-mono text-sm font-bold', sensorConfig.gas.color)}>
@@ -110,7 +122,6 @@ export function DetectionsCard({
         </div>
       </div>
 
-      {/* Footer: confirmed count and tap prompt */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <span className="font-mono text-sm text-[var(--success)]">
@@ -119,7 +130,7 @@ export function DetectionsCard({
           <span className="text-xs text-white/40">/</span>
           <span className="font-mono text-sm text-white/60">{totalCount}</span>
         </div>
-        
+
         <div className="flex items-center gap-1 text-white/40">
           <span className="text-xs">Review</span>
           <ChevronRight className="h-4 w-4" />

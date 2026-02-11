@@ -7,33 +7,38 @@ import { useZoneContext } from '@/context/ZoneContext';
 import type { ZonePriority } from '@/types/zone';
 
 /**
- * ZoneToolbar - Minimal zone drawing toolbar for v2 dashboard
- * 
- * Per spec Section 3.5 / Phase 6:
- * - Priority dropdown (Critical/High/Elevated)
- * - Point counter
- * - Zone naming
- * - Undo, Cancel, Finish actions
+ * Visual styling configuration for zone priority levels.
+ *
+ * Icons and colors follow emergency response conventions:
+ * - Critical (1): Red with warning triangle for immediate attention
+ * - High (2): Orange with alert circle for significant concern
+ * - Elevated (3): Yellow with info icon for awareness
  */
-
 const priorityConfig: Record<ZonePriority, { label: string; color: string; bg: string; Icon: typeof AlertTriangle }> = {
   1: { label: 'CRITICAL', color: 'text-red-400', bg: 'bg-red-500/20', Icon: AlertTriangle },
   2: { label: 'HIGH', color: 'text-orange-400', bg: 'bg-orange-500/20', Icon: AlertCircle },
   3: { label: 'ELEVATED', color: 'text-yellow-400', bg: 'bg-yellow-500/20', Icon: Info },
 };
 
-function PriorityDropdown({ 
-  value, 
-  onChange 
-}: { 
-  value: ZonePriority; 
+/**
+ * Custom dropdown for selecting zone priority levels.
+ *
+ * Replaces the native select element to maintain consistent styling
+ * with the GCS dark theme and provide visual priority indicators.
+ * Click-outside behavior ensures the dropdown closes when the operator
+ * interacts with other parts of the interface.
+ */
+function PriorityDropdown({
+  value,
+  onChange
+}: {
+  value: ZonePriority;
   onChange: (priority: ZonePriority) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const current = priorityConfig[value];
 
-  // Close on click outside
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -97,6 +102,21 @@ function PriorityDropdown({
   );
 }
 
+/**
+ * Toolbar for creating and managing geographic priority zones.
+ *
+ * Priority zones define regions of interest with associated urgency levels
+ * (Critical, High, Elevated) that influence vehicle behavior and operator
+ * alerting. Zones are used for mission planning, threat assessment, and
+ * automated response triggers.
+ *
+ * The toolbar operates in two modes:
+ * - Idle: Select priority level and initiate zone drawing
+ * - Drawing: Place polygon points on the map to define zone boundaries
+ *
+ * Minimum 3 points required to create a valid polygon. Zones are stored
+ * in the ZoneContext and synchronized across the GCS interface.
+ */
 export function ZoneToolbar() {
   const {
     zones,
@@ -136,7 +156,6 @@ export function ZoneToolbar() {
     }
   };
 
-  // Not drawing - show compact mode with zone count and delete option
   if (!isDrawing) {
     return (
       <div className={cn(
@@ -144,13 +163,11 @@ export function ZoneToolbar() {
         'bg-black/60 backdrop-blur-md',
         'border border-white/10'
       )}>
-        {/* Priority dropdown */}
         <span className="text-xs text-white/40">Priority:</span>
         <PriorityDropdown value={drawing.currentPriority} onChange={setPriority} />
 
         <div className="w-px h-5 bg-white/10" />
 
-        {/* Start button */}
         <button
           onClick={() => startDrawing(drawing.currentPriority)}
           className={cn(
@@ -164,12 +181,11 @@ export function ZoneToolbar() {
           Draw Zone
         </button>
 
-        {/* Zone count and delete */}
         {zones.length > 0 && (
           <>
             <div className="w-px h-5 bg-white/10" />
             <span className="text-xs text-white/40">{zones.length} zone{zones.length !== 1 ? 's' : ''}</span>
-            
+
             {selectedZoneId && (
               <button
                 onClick={handleDeleteSelected}
@@ -188,7 +204,6 @@ export function ZoneToolbar() {
     );
   }
 
-  // Drawing mode - show full controls with name input
   const currentPriority = priorityConfig[drawing.currentPriority];
 
   return (
@@ -197,7 +212,6 @@ export function ZoneToolbar() {
       'bg-black/60 backdrop-blur-md',
       'border border-white/10'
     )}>
-      {/* Priority indicator */}
       <div className={cn('flex items-center gap-2', currentPriority.color)}>
         <currentPriority.Icon className="h-4 w-4" />
         <span className="text-xs font-medium">{currentPriority.label}</span>
@@ -205,7 +219,6 @@ export function ZoneToolbar() {
 
       <div className="w-px h-5 bg-white/10" />
 
-      {/* Zone name input */}
       <input
         type="text"
         value={zoneName}
@@ -220,7 +233,6 @@ export function ZoneToolbar() {
 
       <div className="w-px h-5 bg-white/10" />
 
-      {/* Point counter */}
       <div className="flex items-center gap-2">
         <span className="text-xs text-white/50">Points:</span>
         <span className="font-mono text-sm text-white">{pointCount}</span>
@@ -231,7 +243,6 @@ export function ZoneToolbar() {
 
       <div className="w-px h-5 bg-white/10" />
 
-      {/* Actions */}
       <div className="flex items-center gap-1.5">
         <button
           onClick={undoLastPoint}
