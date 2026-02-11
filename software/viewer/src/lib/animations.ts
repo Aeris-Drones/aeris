@@ -1,11 +1,5 @@
-/**
- * Framer Motion Animation Presets for AERIS GCS Dashboard
- * Premium, Apple-style animations with spring physics
- */
-
 import type { Variants, Transition } from 'framer-motion';
 
-// Base transition presets
 export const transitions = {
   fast: {
     type: 'tween',
@@ -44,7 +38,6 @@ export const transitions = {
   } as Transition,
 } as const;
 
-// Panel animations (glass panels, sidebars)
 export const panelVariants: Variants = {
   hidden: {
     opacity: 0,
@@ -65,7 +58,6 @@ export const panelVariants: Variants = {
   },
 };
 
-// Card animations (detection cards, vehicle cards)
 export const cardVariants: Variants = {
   hidden: {
     opacity: 0,
@@ -94,7 +86,6 @@ export const cardVariants: Variants = {
   },
 };
 
-// List item stagger animations
 export const listContainerVariants: Variants = {
   hidden: { opacity: 0 },
   visible: {
@@ -130,7 +121,6 @@ export const listItemVariants: Variants = {
   },
 };
 
-// Fade animations
 export const fadeVariants: Variants = {
   hidden: { opacity: 0 },
   visible: {
@@ -143,7 +133,6 @@ export const fadeVariants: Variants = {
   },
 };
 
-// Scale animations (buttons, badges)
 export const scaleVariants: Variants = {
   hidden: {
     opacity: 0,
@@ -161,7 +150,6 @@ export const scaleVariants: Variants = {
   },
 };
 
-// Slide animations for bottom sheets
 export const slideUpVariants: Variants = {
   hidden: {
     y: '100%',
@@ -218,7 +206,6 @@ export const slideRightVariants: Variants = {
   },
 };
 
-// Pulse animation for new detections
 export const pulseVariants: Variants = {
   initial: {
     boxShadow: '0 0 0 0 var(--confidence-high)',
@@ -237,7 +224,6 @@ export const pulseVariants: Variants = {
   },
 };
 
-// Glow animation for status indicators
 export const glowVariants: Variants = {
   nominal: {
     boxShadow: '0 0 10px var(--success)',
@@ -274,7 +260,6 @@ export const glowVariants: Variants = {
   },
 };
 
-// Number counter animation (for telemetry values)
 export const numberVariants: Variants = {
   initial: { opacity: 0, y: 10 },
   animate: {
@@ -289,7 +274,6 @@ export const numberVariants: Variants = {
   },
 };
 
-// Progress ring animation
 export const progressRingVariants: Variants = {
   hidden: {
     pathLength: 0,
@@ -309,7 +293,6 @@ export const progressRingVariants: Variants = {
   }),
 };
 
-// Tooltip/popover animations
 export const tooltipVariants: Variants = {
   hidden: {
     opacity: 0,
@@ -334,7 +317,6 @@ export const tooltipVariants: Variants = {
   },
 };
 
-// Skeleton loading animation
 export const skeletonVariants: Variants = {
   initial: {
     backgroundPosition: '-200% 0',
@@ -349,7 +331,6 @@ export const skeletonVariants: Variants = {
   },
 };
 
-// Button press animation
 export const buttonVariants: Variants = {
   idle: { scale: 1 },
   hover: {
@@ -362,7 +343,6 @@ export const buttonVariants: Variants = {
   },
 };
 
-// Detection card status-specific animations
 export const detectionCardVariants = {
   thermal: {
     borderColor: 'var(--sensor-thermal)',
@@ -378,7 +358,6 @@ export const detectionCardVariants = {
   },
 } as const;
 
-// Stagger configuration helper
 export function getStaggerConfig(itemCount: number, baseDelay = 0.05) {
   return {
     staggerChildren: Math.max(0.02, baseDelay / Math.sqrt(itemCount)),
@@ -386,7 +365,6 @@ export function getStaggerConfig(itemCount: number, baseDelay = 0.05) {
   };
 }
 
-// Animation presets for common use cases
 export const presets = {
   panel: panelVariants,
   card: cardVariants,

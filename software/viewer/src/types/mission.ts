@@ -1,17 +1,3 @@
-/**
- * AERIS GCS Mission Types
- * 
- * Core types for mission state management, progress tracking,
- * and statistics for disaster response drone swarm operations.
- */
-
-// ============================================================================
-// Mission Phase & State
-// ============================================================================
-
-/**
- * Mission lifecycle phases
- */
 export type MissionPhase =
   | 'IDLE'
   | 'PLANNING'
@@ -20,79 +6,43 @@ export type MissionPhase =
   | 'COMPLETE'
   | 'ABORTED';
 
-/**
- * Core mission state for persistence and control
- */
 export interface MissionState {
-  /** Current phase of the mission */
   phase: MissionPhase;
-  /** Unix timestamp when mission started */
   startTime?: number;
-  /** Unix timestamp when mission ended */
   endTime?: number;
-  /** Unix timestamp when mission was paused (undefined if not paused) */
   pausedAt?: number;
-  /** Total time spent paused in milliseconds */
   totalPausedTime: number;
-  /** Unique mission ID for tracking */
   missionId?: string;
 }
 
-/**
- * Real-time mission progress data
- */
 export interface MissionProgress {
-  /** Coverage percentage (0-100) */
   coveragePercent: number;
-  /** Total search area in square kilometers */
   searchAreaKm2: number;
-  /** Covered area in square kilometers */
   coveredAreaKm2: number;
-  /** Number of active drones in the swarm */
   activeDrones: number;
-  /** Total drones assigned to mission */
   totalDrones: number;
-  /** Estimated time remaining in seconds */
   estimatedTimeRemaining?: number;
-  /** Grid cells completed / total */
   gridProgress?: {
     completed: number;
     total: number;
   };
 }
 
-/**
- * Aggregated mission statistics
- */
 export interface MissionStats {
-  /** Total elapsed time in seconds (excluding paused time) */
   elapsedSeconds: number;
-  /** Detection counts by sensor type */
   detectionCounts: {
     thermal: number;
     acoustic: number;
     gas: number;
     total: number;
   };
-  /** Number of confirmed survivors */
   confirmedSurvivors: number;
-  /** Number of dismissed false positives */
   dismissedDetections: number;
-  /** Number of pending detections awaiting review */
   pendingDetections: number;
-  /** Average time to first detection in seconds */
   timeToFirstDetection?: number;
-  /** Detection rate (detections per minute) */
   detectionRate?: number;
 }
 
-// ============================================================================
-// Mission Commands
-// ============================================================================
-
-/**
- * Commands that can be issued to the mission control system
- */
 export type MissionCommand = 
   | 'START'
   | 'PAUSE'
@@ -149,9 +99,6 @@ export function formatDuration(seconds: number): string {
   return `${hours}h ${remainingMins}m`;
 }
 
-/**
- * Format area with appropriate units
- */
 export function formatArea(km2: number): string {
   if (km2 < 0.01) {
     const m2 = km2 * 1_000_000;
@@ -163,18 +110,12 @@ export function formatArea(km2: number): string {
   return `${km2.toFixed(2)} km²`;
 }
 
-/**
- * Generate a unique mission ID
- */
 export function generateMissionId(): string {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 6);
   return `MSN-${timestamp}-${random}`.toUpperCase();
 }
 
-/**
- * Get phase display configuration
- */
 export function getMissionPhaseConfig(phase: MissionPhase): {
   label: string;
   color: string;
@@ -227,24 +168,18 @@ export function getMissionPhaseConfig(phase: MissionPhase): {
   }
 }
 
-/**
- * Calculate elapsed seconds from mission state
- */
 export function calculateElapsedSeconds(state: MissionState): number {
   if (state.phase === 'IDLE' || !state.startTime) {
     return 0;
   }
-  
+
   const now = state.endTime ?? Date.now();
   const endPoint = state.pausedAt ?? now;
   const elapsed = endPoint - state.startTime - state.totalPausedTime;
-  
+
   return Math.max(0, Math.floor(elapsed / 1000));
 }
 
-/**
- * Default initial mission state
- */
 export function getInitialMissionState(): MissionState {
   return {
     phase: 'IDLE',
@@ -252,9 +187,6 @@ export function getInitialMissionState(): MissionState {
   };
 }
 
-/**
- * Default initial mission progress
- */
 export function getInitialMissionProgress(): MissionProgress {
   return {
     coveragePercent: 0,
@@ -265,9 +197,6 @@ export function getInitialMissionProgress(): MissionProgress {
   };
 }
 
-/**
- * Default initial mission stats
- */
 export function getInitialMissionStats(): MissionStats {
   return {
     elapsedSeconds: 0,

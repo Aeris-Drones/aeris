@@ -136,7 +136,7 @@ export function useROSConnection(options: ROSConnectionOptions = {}): ROSConnect
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    
+
     if (autoConnect) {
       timer = setTimeout(() => {
         connect();

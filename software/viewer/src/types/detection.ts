@@ -1,62 +1,36 @@
-/**
- * Unified Detection System Types
- * Aggregates thermal, acoustic, and gas sensor detections into a common interface
- */
-
 import type { SensorType, ConfidenceLevel } from '@/lib/design-tokens';
 
-/**
- * Base detection interface - common fields across all sensor types
- */
 export interface BaseDetection {
-  /** Unique identifier for this detection */
   id: string;
-  /** Sensor type that generated this detection */
   sensorType: SensorType;
-  /** Detection confidence (0-1) */
   confidence: number;
-  /** Timestamp when detection was created */
   timestamp: number;
-  /** Last time this detection was updated */
   lastUpdate: number;
-  /** Geographic coordinates */
   location: {
     latitude: number;
     longitude: number;
     altitude: number;
   };
-  /** Local 3D coordinates (for rendering) */
   localPosition?: {
     x: number;
     y: number;
     z: number;
   };
-  /** Operator actions */
   status: DetectionStatus;
-  /** Optional operator notes */
   notes?: string;
-  /** Which vehicle detected this (if applicable) */
   vehicleId?: string;
 }
 
-/**
- * Detection status lifecycle
- */
 export type DetectionStatus =
-  | 'new'          // Just received, pulsing animation
-  | 'reviewing'    // Operator has expanded/viewed
-  | 'confirmed'    // Operator confirmed as real survivor
-  | 'dismissed'    // Operator marked as false positive
-  | 'expired';     // TTL expired, fading out
+  | 'new'
+  | 'reviewing'
+  | 'confirmed'
+  | 'dismissed'
+  | 'expired';
 
-/**
- * Thermal hotspot detection
- */
 export interface ThermalDetection extends BaseDetection {
   sensorType: 'thermal';
-  /** Temperature in Celsius */
   temperature: number;
-  /** Bounding box in pixels (if available) */
   boundingBox?: {
     x: number;
     y: number;
@@ -65,72 +39,40 @@ export interface ThermalDetection extends BaseDetection {
   };
 }
 
-/**
- * Acoustic bearing detection
- */
 export interface AcousticDetection extends BaseDetection {
   sensorType: 'acoustic';
-  /** Bearing angle in degrees */
   bearing: number;
-  /** Signal-to-noise ratio in dB */
   snr: number;
-  /** Classification type */
   classification: 'vocal' | 'tapping' | 'mechanical' | 'unknown';
 }
 
-/**
- * Gas plume detection
- */
 export interface GasDetection extends BaseDetection {
   sensorType: 'gas';
-  /** Gas species detected */
   species: string;
-  /** Concentration value */
   concentration: number;
-  /** Concentration units */
   units: string;
-  /** Plume area (if available) */
   area?: number;
-  /** Wind direction vector */
   windDirection?: {
     x: number;
     y: number;
     z: number;
   };
-  /** Wind speed in m/s */
   windSpeed?: number;
 }
 
-/**
- * Union type for all detection types
- */
 export type Detection = ThermalDetection | AcousticDetection | GasDetection;
 
-/**
- * Detection filter options
- */
 export interface DetectionFilter {
-  /** Filter by sensor type */
   sensorTypes?: SensorType[];
-  /** Filter by status */
   statuses?: DetectionStatus[];
-  /** Minimum confidence threshold (0-1) */
   minConfidence?: number;
-  /** Filter by vehicle ID */
   vehicleId?: string;
-  /** Time window (only show detections from last N milliseconds) */
   timeWindow?: number;
 }
 
-/**
- * Detection sort options
- */
 export type DetectionSortBy = 'confidence' | 'time' | 'distance' | 'type';
 export type DetectionSortOrder = 'asc' | 'desc';
 
-/**
- * Operator action for detection
- */
 export interface DetectionAction {
   detectionId: string;
   action: 'confirm' | 'dismiss' | 'add_note';
@@ -139,9 +81,6 @@ export interface DetectionAction {
   notes?: string;
 }
 
-/**
- * Detection statistics
- */
 export interface DetectionStats {
   total: number;
   byType: {
@@ -164,9 +103,6 @@ export interface DetectionStats {
   };
 }
 
-/**
- * Helper to determine confidence level
- */
 export function getDetectionConfidenceLevel(detection: Detection): ConfidenceLevel {
   const percentage = detection.confidence * 100;
   if (percentage >= 80) return 'high';
@@ -175,9 +111,6 @@ export function getDetectionConfidenceLevel(detection: Detection): ConfidenceLev
   return 'unverified';
 }
 
-/**
- * Helper to get human-readable sensor name
- */
 export function getSensorName(type: SensorType): string {
   switch (type) {
     case 'thermal':
@@ -189,9 +122,6 @@ export function getSensorName(type: SensorType): string {
   }
 }
 
-/**
- * Helper to get classification display name
- */
 export function getClassificationName(classification: AcousticDetection['classification']): string {
   switch (classification) {
     case 'vocal':
@@ -205,9 +135,6 @@ export function getClassificationName(classification: AcousticDetection['classif
   }
 }
 
-/**
- * Format detection for display
- */
 export function formatDetectionSummary(detection: Detection): string {
   switch (detection.sensorType) {
     case 'thermal':
@@ -219,9 +146,6 @@ export function formatDetectionSummary(detection: Detection): string {
   }
 }
 
-/**
- * Calculate time since detection
- */
 export function getTimeSince(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000);
 
@@ -237,9 +161,6 @@ export function getTimeSince(timestamp: number): string {
   return `${days}d ago`;
 }
 
-/**
- * Calculate distance from a reference point (in meters)
- */
 export function getDetectionDistance(
   detection: Detection,
   referencePoint: { x: number; z: number }
@@ -252,9 +173,6 @@ export function getDetectionDistance(
   return Math.sqrt(dx * dx + dz * dz);
 }
 
-/**
- * Get cardinal direction to detection
- */
 export function getDetectionDirection(
   detection: Detection,
   referencePoint: { x: number; z: number }

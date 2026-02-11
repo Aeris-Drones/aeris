@@ -1,56 +1,33 @@
-/**
- * AERIS GCS Vehicle Types
- * 
- * Extended vehicle types for fleet management and control.
- * Builds on the existing VehicleState from VehicleManager.
- */
-
 import type { VehicleState } from '@/lib/vehicle/VehicleManager';
 import { VehicleType } from '@/lib/ros/telemetry';
 
-// ============================================================================
-// Vehicle Status & Commands
-// ============================================================================
+export type VehicleStatus =
+  | 'active'
+  | 'returning'
+  | 'holding'
+  | 'offline'
+  | 'landed'
+  | 'emergency';
 
-/**
- * Operational status of a vehicle
- */
-export type VehicleStatus = 
-  | 'active'      // Normal operation
-  | 'returning'   // RTL in progress
-  | 'holding'     // Position hold
-  | 'offline'     // Lost connection
-  | 'landed'      // On ground
-  | 'emergency';  // Emergency state
+export type VehicleCommand =
+  | 'WAYPOINT'
+  | 'HOLD'
+  | 'RESUME'
+  | 'RECALL'
+  | 'LAND';
 
-/**
- * Commands that can be sent to vehicles
- */
-export type VehicleCommand = 
-  | 'WAYPOINT'    // Go to specific coordinates
-  | 'HOLD'        // Hold current position
-  | 'RESUME'      // Resume autonomous mission
-  | 'RECALL'      // Return to launch
-  | 'LAND';       // Land immediately
-
-/**
- * Extended vehicle info for UI display
- */
 export interface VehicleInfo extends VehicleState {
   status: VehicleStatus;
   batteryPercent: number;
-  signalStrength: number;  // 0-100
-  speed: number;           // m/s
-  altitude: number;        // meters AGL
-  distanceFromHome: number; // meters
+  signalStrength: number;
+  speed: number;
+  altitude: number;
+  distanceFromHome: number;
   isSelected: boolean;
   assignment?: string;
   missionProgressPercent?: number;
 }
 
-/**
- * Command request sent to ROS
- */
 export interface VehicleCommandRequest {
   vehicleId: string;
   command: VehicleCommand;
@@ -62,13 +39,6 @@ export interface VehicleCommandRequest {
   };
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-/**
- * Get display name for vehicle type
- */
 export function getVehicleTypeName(type: VehicleType): string {
   switch (type) {
     case VehicleType.SCOUT:
@@ -80,9 +50,6 @@ export function getVehicleTypeName(type: VehicleType): string {
   }
 }
 
-/**
- * Get vehicle type description
- */
 export function getVehicleTypeDescription(type: VehicleType): string {
   switch (type) {
     case VehicleType.SCOUT:
@@ -94,23 +61,17 @@ export function getVehicleTypeDescription(type: VehicleType): string {
   }
 }
 
-/**
- * Get color for vehicle type
- */
 export function getVehicleTypeColor(type: VehicleType): string {
   switch (type) {
     case VehicleType.SCOUT:
-      return 'var(--info)';  // Blue
+      return 'var(--info)';
     case VehicleType.RANGER:
-      return '#F97316';      // Orange
+      return '#F97316';
     default:
       return 'var(--muted-foreground)';
   }
 }
 
-/**
- * Get status display config
- */
 export function getVehicleStatusConfig(status: VehicleStatus): {
   label: string;
   color: string;
@@ -163,43 +124,28 @@ export function getVehicleStatusConfig(status: VehicleStatus): {
   }
 }
 
-/**
- * Get battery level color
- */
 export function getBatteryColor(percent: number): string {
   if (percent > 50) return 'text-success';
   if (percent > 20) return 'text-warning';
   return 'text-danger';
 }
 
-/**
- * Get signal strength color
- */
 export function getSignalColor(strength: number): string {
   if (strength > 70) return 'text-success';
   if (strength > 40) return 'text-warning';
   return 'text-danger';
 }
 
-/**
- * Format altitude for display
- */
 export function formatAltitude(meters: number): string {
   if (meters < 1) return '0m';
   return `${meters.toFixed(0)}m`;
 }
 
-/**
- * Format speed for display
- */
 export function formatSpeed(mps: number): string {
   if (mps < 0.1) return '0 m/s';
   return `${mps.toFixed(1)} m/s`;
 }
 
-/**
- * Format distance for display
- */
 export function formatDistance(meters: number): string {
   if (meters < 1000) {
     return `${meters.toFixed(0)}m`;
@@ -207,17 +153,10 @@ export function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)}km`;
 }
 
-/**
- * Calculate speed from velocity vector
- */
 export function calculateSpeed(velocity: { x: number; y: number; z: number }): number {
   return Math.sqrt(velocity.x ** 2 + velocity.y ** 2 + velocity.z ** 2);
 }
 
-/**
- * Convert VehicleState to VehicleInfo with simulated data
- * In production, this would come from actual telemetry
- */
 export function vehicleStateToInfo(
   state: VehicleState,
   isSelected: boolean = false
@@ -237,7 +176,7 @@ export function vehicleStateToInfo(
   const status: VehicleStatus =
     telemetryAgeMs > offlineThresholdMs ? 'offline' : 'active';
   const batteryPercent = 100;
-  
+
   return {
     ...state,
     status,
