@@ -19,6 +19,19 @@ _EPSILON = 1e-6
 
 
 def validate_polygon(polygon: Iterable[dict[str, float]]) -> tuple[bool, str]:
+    """Validate a polygon for waypoint generation.
+
+    Checks that the polygon contains at least 3 points and has a
+    non-zero area after normalization.
+
+    Args:
+        polygon: Iterable of point dictionaries with 'x' and 'z' keys.
+
+    Returns:
+        Tuple of (is_valid, error_message). is_valid is True if the
+        polygon passes validation, False otherwise with error_message
+        describing the failure reason.
+    """
     normalized = _normalize_polygon(polygon)
     if len(normalized) < 3:
         return False, "polygon must contain at least 3 points"
@@ -38,6 +51,22 @@ def generate_waypoints(
     spiral_radial_step_m: float = 3.0,
     spiral_angular_step_rad: float = 0.35,
 ) -> list[Waypoint]:
+    """Generate search pattern waypoints within a polygon boundary.
+
+    Creates either lawnmower (boustrophedon) or spiral waypoint patterns
+    based on the specified pattern type.
+
+    Args:
+        pattern: Pattern type, either "lawnmower" or "spiral".
+        polygon: Iterable of point dictionaries defining the boundary.
+        lawnmower_track_spacing_m: Spacing between parallel tracks for lawnmower pattern.
+        spiral_radial_step_m: Radial increment for spiral pattern.
+        spiral_angular_step_rad: Angular increment in radians for spiral pattern.
+
+    Returns:
+        List of waypoint dictionaries with 'x' and 'z' keys. Returns empty
+        list if pattern type is not recognized.
+    """
     normalized = _normalize_polygon(polygon)
     if pattern == "lawnmower":
         return generate_lawnmower_waypoints(
@@ -55,6 +84,22 @@ def generate_waypoints(
 def partition_polygon_for_scouts(
     polygon: Iterable[dict[str, float]], scout_vehicle_ids: Iterable[str]
 ) -> list[dict[str, object]]:
+    """Partition a polygon into zones for multi-scout coverage.
+
+    Divides the polygon using axis-aligned bounding box subdivision
+    along the longest axis. Assigns partitions to scouts in a
+    deterministic order.
+
+    Args:
+        polygon: Iterable of point dictionaries defining the search area.
+        scout_vehicle_ids: Iterable of scout vehicle identifier strings.
+
+    Returns:
+        List of partition dictionaries, each containing:
+        - vehicle_id: Normalized vehicle identifier
+        - zone_id: Generated zone identifier
+        - polygon: List of points defining the partition boundary
+    """
     normalized = _normalize_polygon(polygon)
     if len(normalized) < 3:
         return []
@@ -134,6 +179,19 @@ def partition_polygon_for_scouts(
 def generate_lawnmower_waypoints(
     polygon: Iterable[dict[str, float]], *, track_spacing_m: float = 5.0
 ) -> list[Waypoint]:
+    """Generate lawnmower (boustrophedon) search pattern waypoints.
+
+    Creates parallel track lines across the polygon with alternating
+    directions to minimize turns. Tracks are spaced according to the
+    specified spacing parameter.
+
+    Args:
+        polygon: Iterable of point dictionaries defining the search area.
+        track_spacing_m: Distance between parallel tracks in meters.
+
+    Returns:
+        List of waypoint dictionaries forming the lawnmower pattern.
+    """
     normalized = _normalize_polygon(polygon)
     if track_spacing_m <= 0:
         track_spacing_m = 5.0
@@ -185,6 +243,20 @@ def generate_spiral_waypoints(
     radial_step_m: float = 3.0,
     angular_step_rad: float = 0.35,
 ) -> list[Waypoint]:
+    """Generate spiral search pattern waypoints.
+
+    Creates an Archimedean spiral pattern starting from the polygon
+    centroid and expanding outward. Waypoints are clipped to the
+    polygon boundary.
+
+    Args:
+        polygon: Iterable of point dictionaries defining the search area.
+        radial_step_m: Radial distance increment per revolution.
+        angular_step_rad: Angular increment between waypoints in radians.
+
+    Returns:
+        List of waypoint dictionaries forming the spiral pattern.
+    """
     normalized = _normalize_polygon(polygon)
     if radial_step_m <= 0:
         radial_step_m = 3.0
@@ -224,10 +296,30 @@ def generate_spiral_waypoints(
 
 
 def point_in_polygon(point: dict[str, float], polygon: Iterable[dict[str, float]]) -> bool:
+    """Check if a point lies within a polygon boundary.
+
+    Uses the ray casting algorithm to determine if the point is inside
+    the polygon or on its boundary.
+
+    Args:
+        point: Dictionary with 'x' and 'z' keys defining the point.
+        polygon: Iterable of point dictionaries defining the boundary.
+
+    Returns:
+        True if the point is inside or on the polygon boundary.
+    """
     return _point_in_polygon_or_boundary(point, _normalize_polygon(polygon))
 
 
 def _normalize_polygon(polygon: Iterable[dict[str, float]]) -> list[Waypoint]:
+    """Normalize a polygon by filtering invalid points and closing the loop.
+
+    Args:
+        polygon: Iterable of point dictionaries to normalize.
+
+    Returns:
+        List of valid point dictionaries with duplicate endpoints removed.
+    """
     normalized: list[Waypoint] = []
     for point in polygon:
         if not isinstance(point, dict):
@@ -250,6 +342,14 @@ def _normalize_polygon(polygon: Iterable[dict[str, float]]) -> list[Waypoint]:
 
 
 def _polygon_area(polygon: list[Waypoint]) -> float:
+    """Calculate the signed area of a polygon using the shoelace formula.
+
+    Args:
+        polygon: List of point dictionaries defining the polygon.
+
+    Returns:
+        Absolute area of the polygon in square meters.
+    """
     area = 0.0
     size = len(polygon)
     if size < 3:
@@ -262,6 +362,14 @@ def _polygon_area(polygon: list[Waypoint]) -> float:
 
 
 def _bounding_box(polygon: list[Waypoint]) -> tuple[float, float, float, float]:
+    """Compute the axis-aligned bounding box of a polygon.
+
+    Args:
+        polygon: List of point dictionaries.
+
+    Returns:
+        Tuple of (min_x, max_x, min_z, max_z) coordinates.
+    """
     xs = [point["x"] for point in polygon]
     zs = [point["z"] for point in polygon]
     return min(xs), max(xs), min(zs), max(zs)
@@ -270,6 +378,15 @@ def _bounding_box(polygon: list[Waypoint]) -> tuple[float, float, float, float]:
 def _line_intersections_with_polygon(
     polygon: list[Waypoint], *, horizontal_line_z: float
 ) -> list[float]:
+    """Find intersections between a horizontal line and polygon edges.
+
+    Args:
+        polygon: List of point dictionaries defining the polygon.
+        horizontal_line_z: Z-coordinate of the horizontal line.
+
+    Returns:
+        Sorted list of x-coordinates where the line intersects polygon edges.
+    """
     intersections: list[float] = []
     for index, current in enumerate(polygon):
         nxt = polygon[(index + 1) % len(polygon)]
@@ -293,6 +410,17 @@ def _line_intersections_with_polygon(
 
 
 def _point_in_polygon_or_boundary(point: Waypoint, polygon: list[Waypoint]) -> bool:
+    """Check if a point is inside a polygon or on its boundary.
+
+    Uses ray casting algorithm with boundary detection.
+
+    Args:
+        point: Dictionary with 'x' and 'z' coordinates.
+        polygon: List of point dictionaries defining the polygon.
+
+    Returns:
+        True if point is inside or on the polygon boundary.
+    """
     for index, current in enumerate(polygon):
         nxt = polygon[(index + 1) % len(polygon)]
         if _point_on_segment(point, current, nxt):
@@ -315,6 +443,16 @@ def _point_in_polygon_or_boundary(point: Waypoint, polygon: list[Waypoint]) -> b
 
 
 def _point_on_segment(point: Waypoint, start: Waypoint, end: Waypoint) -> bool:
+    """Check if a point lies on a line segment.
+
+    Args:
+        point: Point to test.
+        start: Segment start point.
+        end: Segment end point.
+
+    Returns:
+        True if the point is collinear with and between the segment endpoints.
+    """
     cross = (point["z"] - start["z"]) * (end["x"] - start["x"]) - (
         point["x"] - start["x"]
     ) * (end["z"] - start["z"])
@@ -334,6 +472,14 @@ def _point_on_segment(point: Waypoint, start: Waypoint, end: Waypoint) -> bool:
 
 
 def _centroid(polygon: list[Waypoint]) -> Waypoint:
+    """Calculate the centroid (geometric center) of a polygon.
+
+    Args:
+        polygon: List of point dictionaries.
+
+    Returns:
+        Dictionary with 'x' and 'z' coordinates of the centroid.
+    """
     sum_x = sum(point["x"] for point in polygon)
     sum_z = sum(point["z"] for point in polygon)
     count = max(len(polygon), 1)
@@ -341,6 +487,14 @@ def _centroid(polygon: list[Waypoint]) -> Waypoint:
 
 
 def _deduplicate_sequential_points(waypoints: list[Waypoint]) -> list[Waypoint]:
+    """Remove consecutive duplicate waypoints from a list.
+
+    Args:
+        waypoints: List of waypoint dictionaries.
+
+    Returns:
+        List with consecutive duplicates removed.
+    """
     if not waypoints:
         return []
 
@@ -363,6 +517,18 @@ def _clip_polygon_axis_range(
     upper: float,
     include_upper: bool,
 ) -> list[Waypoint]:
+    """Clip a polygon to an axis-aligned range.
+
+    Args:
+        polygon: List of point dictionaries to clip.
+        axis: Axis to clip along, either 'x' or 'z'.
+        lower: Lower boundary of the clip range.
+        upper: Upper boundary of the clip range.
+        include_upper: Whether to include the upper boundary.
+
+    Returns:
+        Clipped polygon as a list of point dictionaries.
+    """
     if not polygon:
         return []
     clipped = _clip_polygon_half_plane(
@@ -394,6 +560,18 @@ def _clip_polygon_half_plane(
     keep_greater: bool,
     include_boundary: bool,
 ) -> list[Waypoint]:
+    """Clip a polygon to a half-plane using the Sutherland-Hodgman algorithm.
+
+    Args:
+        polygon: List of point dictionaries to clip.
+        axis: Axis to clip along, either 'x' or 'z'.
+        boundary: Boundary coordinate value.
+        keep_greater: If True, keep points greater than boundary; else keep lesser.
+        include_boundary: Whether points on the boundary are included.
+
+    Returns:
+        Clipped polygon as a list of point dictionaries.
+    """
     if axis not in {"x", "z"}:
         return []
     if not polygon:
@@ -447,6 +625,18 @@ def _is_inside_half_plane(
     keep_greater: bool,
     include_boundary: bool,
 ) -> bool:
+    """Check if a point is inside a half-plane.
+
+    Args:
+        point: Point dictionary to test.
+        axis: Axis to test along, either 'x' or 'z'.
+        boundary: Boundary coordinate value.
+        keep_greater: If True, inside means greater than boundary.
+        include_boundary: Whether points on boundary are considered inside.
+
+    Returns:
+        True if the point is within the half-plane.
+    """
     value = point[axis]
     if keep_greater:
         if include_boundary:
@@ -460,6 +650,17 @@ def _is_inside_half_plane(
 def _segment_axis_intersection(
     start: Waypoint, end: Waypoint, *, axis: str, boundary: float
 ) -> Waypoint | None:
+    """Find the intersection of a line segment with an axis-aligned boundary.
+
+    Args:
+        start: Start point of the segment.
+        end: End point of the segment.
+        axis: Axis to intersect, either 'x' or 'z'.
+        boundary: Coordinate value of the boundary line.
+
+    Returns:
+        Intersection point dictionary or None if no intersection exists.
+    """
     start_axis = start[axis]
     end_axis = end[axis]
     delta = end_axis - start_axis

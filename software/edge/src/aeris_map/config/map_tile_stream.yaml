@@ -1,36 +1,83 @@
+# Map Tile Publisher Configuration
+#
+# This file configures the map_tile_publisher node which converts RTAB-Map
+# SLAM output into MBTiles format for streaming to ground station operators.
+#
+# Coordinate System:
+# - Uses Web Mercator projection (EPSG:3857) for global tile compatibility
+# - Default origin: San Francisco, CA (37.7749, -122.4194)
+# - Tile format: 256x256 PNG at zoom level 18 (~0.6m/pixel at equator)
+#
+# Bandwidth Optimization:
+# - publish_on_change_only: Only publish tiles when content changes
+# - republish_interval_sec: Periodic full sync to ensure consistency
+# - max_cached_tiles: LRU cache prevents unbounded memory growth
+
 map_tile_publisher:
   ros__parameters:
     use_sim_time: true
 
-    # Topic configuration for map tile streaming to ground station.
+    # -------------------------------------------------------------------------
+    # Topic Configuration
+    # -------------------------------------------------------------------------
+    # Descriptor topic for tile availability announcements.
+    # Ground station subscribes to this for low-latency tile notifications.
     topic: /map/tiles
+
+    # Service name for on-demand tile byte retrieval.
+    # Ground station calls this service to fetch actual tile payloads.
     tile_service_name: /map/get_tile_bytes
 
-    # Map source selection: 'occupancy' for 2D grid maps, 'pointcloud' for 3D.
-    # Pointcloud tiles require higher bandwidth but preserve elevation data.
+    # -------------------------------------------------------------------------
+    # Map Source Selection
+    # -------------------------------------------------------------------------
+    # Source options:
+    #   - occupancy:    2D grid maps from /map (lower bandwidth, navigation)
+    #   - pointcloud:   3D point clouds from /rtabmap/cloud_map (elevation data)
+    #   - hybrid:       Both sources combined (highest fidelity, most bandwidth)
     map_source: occupancy
     occupancy_topic: /map
     point_cloud_topic: /rtabmap/cloud_map
 
-    # Tile generation parameters tuned for 256x256 PNG tiles at zoom level 18.
-    # This balances detail vs bandwidth for typical 4G uplink constraints.
+    # -------------------------------------------------------------------------
+    # Tile Generation Parameters
+    # -------------------------------------------------------------------------
+    # Zoom level 18 provides ~0.6m resolution at equator, balancing detail
+    # against bandwidth constraints for typical 4G/LTE uplinks (1-5 Mbps).
     queue_depth: 50
     zoom: 18
     tile_size_px: 256
 
-    # Caching strategy: only publish changed tiles to reduce bandwidth,
-    # with periodic full republish to ensure ground station consistency.
+    # -------------------------------------------------------------------------
+    # Caching and Deduplication
+    # -------------------------------------------------------------------------
+    # publish_on_change_only avoids redundant transmissions when tiles are
+    # static. republish_interval_sec ensures ground station consistency even
+    # if packets are dropped.
     publish_on_change_only: true
     republish_interval_sec: 5.0
     max_cached_tiles: 500
 
-    # MBTiles SQLite cache for offline map persistence and resume capability.
+    # -------------------------------------------------------------------------
+    # Persistent Storage
+    # -------------------------------------------------------------------------
+    # MBTiles SQLite database enables:
+    # - Resume capability after connection drops
+    # - Offline map access for disconnected operations
+    # - Post-mission analysis and replay
     mbtiles_path: /tmp/aeris/map_tiles/live_map.mbtiles
 
-    # WGS84 origin for global tile coordinate reference.
-    # Default location: San Francisco (used for sim scenarios).
+    # -------------------------------------------------------------------------
+    # Geographic Origin
+    # -------------------------------------------------------------------------
+    # WGS84 coordinates for local-to-global coordinate transformation.
+    # Update this for each operational area to minimize projection error.
     origin_lat_deg: 37.7749
     origin_lon_deg: -122.4194
 
-    # Layer identifiers for multi-layer map composition in ground station UI.
+    # -------------------------------------------------------------------------
+    # Layer Metadata
+    # -------------------------------------------------------------------------
+    # Layer identifiers enable multi-layer composition in ground station UI.
+    # Format: [source_type, fetch_endpoint, mime_type]
     layer_ids: ["occupancy", "fetch-service:/map/get_tile_bytes", "mime:image/png"]

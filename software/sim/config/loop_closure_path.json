@@ -1,5 +1,7 @@
 {
-  "description": "Repeatable loop trajectory for Story 2.1 validation",
+  "_description": "Loop trajectory for validating SLAM loop closure detection.",
+  "_purpose": "Tests if visual SLAM systems correctly detect when the vehicle returns to a previously visited location.",
+  "description": "Repeatable loop trajectory for SLAM integration validation",
   "world": "disaster_scene",
   "vehicle": "scout1",
   "waypoints": [

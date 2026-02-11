@@ -1,6 +1,18 @@
-from __future__ import annotations
+"""Replay recorded Aeris missions and optionally launch the cinematic world.
 
-"""Replay recorded Aeris missions and optionally launch the cinematic world."""
+This module provides functionality to replay rosbag recordings from
+Aeris simulation missions, with optional world launching and camera
+preset triggering for mission analysis and demonstration.
+
+Typical usage example:
+    # Replay a bag file
+    python replay_mission.py --bag /path/to/bag
+
+    # Launch world and replay with camera preset
+    python replay_mission.py --bag /path/to/bag --launch-world --camera-preset wide
+"""
+
+from __future__ import annotations
 
 import argparse
 import os
@@ -9,6 +21,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 TOOLS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TOOLS_DIR.parent.parent
@@ -18,6 +31,11 @@ RUN_SIM = TOOLS_DIR / "run_basic_sim.sh"
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for mission replay.
+
+    Returns:
+        Parsed arguments namespace.
+    """
     parser = argparse.ArgumentParser(description="Replay Aeris mission recordings")
     parser.add_argument("--bag", required=True, help="Path to rosbag directory or metadata file")
     parser.add_argument(
@@ -37,6 +55,20 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_bag_path(arg: str) -> Path:
+    """Resolve the bag path from user input.
+
+    Handles various input formats including directories, metadata files,
+    and database files.
+
+    Args:
+        arg: User-provided path string.
+
+    Returns:
+        Resolved Path object pointing to the bag directory.
+
+    Raises:
+        FileNotFoundError: If the path does not exist.
+    """
     bag_path = Path(arg).expanduser()
     if not bag_path.exists():
         raise FileNotFoundError(f"Bag path not found: {bag_path}")
@@ -49,7 +81,18 @@ def resolve_bag_path(arg: str) -> Path:
     return bag_path
 
 
-def launch_world(world_path: str | None) -> subprocess.Popen | None:
+def launch_world(world_path: str | None) -> subprocess.Popen[Any] | None:
+    """Launch the simulation world using the run_basic_sim.sh script.
+
+    Args:
+        world_path: Path to the world SDF file, or None to skip.
+
+    Returns:
+        Subprocess handle if launched, None otherwise.
+
+    Raises:
+        FileNotFoundError: If the simulation script or world file is not found.
+    """
     if not world_path:
         return None
     if not RUN_SIM.exists():
@@ -67,6 +110,16 @@ def launch_world(world_path: str | None) -> subprocess.Popen | None:
 
 
 def send_camera_preset(preset: str, target: str, track: bool) -> int:
+    """Send a camera preset command to the simulation.
+
+    Args:
+        preset: Name of the camera preset to activate.
+        target: Target vehicle name.
+        track: Whether to enable tracking mode.
+
+    Returns:
+        Return code from the camera command (0 for success).
+    """
     if not SEND_CAMERA.exists():
         print("[replay_mission] Camera sender not found; skipping preset trigger", file=sys.stderr)
         return 1
@@ -78,6 +131,17 @@ def send_camera_preset(preset: str, target: str, track: bool) -> int:
 
 
 def build_play_command(bag_path: Path, speed: float, loop: bool, pause: bool) -> list[str]:
+    """Build the ros2 bag play command with options.
+
+    Args:
+        bag_path: Path to the bag directory.
+        speed: Playback speed multiplier.
+        loop: Whether to loop playback.
+        pause: Whether to start paused.
+
+    Returns:
+        Command list for subprocess execution.
+    """
     cmd = ["ros2", "bag", "play", str(bag_path)]
     if speed and speed != 1.0:
         cmd += ["-r", str(speed)]
@@ -89,6 +153,11 @@ def build_play_command(bag_path: Path, speed: float, loop: bool, pause: bool) ->
 
 
 def main() -> int:
+    """Main entry point for mission replay.
+
+    Returns:
+        Exit code (0 for success, non-zero for errors).
+    """
     args = parse_args()
     try:
         bag_path = resolve_bag_path(args.bag)
@@ -112,14 +181,14 @@ def main() -> int:
     world_proc = None
     if args.launch_world:
         world_proc = launch_world(args.world)
-        time.sleep(5)  # allow Gazebo to initialize
+        time.sleep(5)  # Allow Gazebo to initialize
 
     print(f"[replay_mission] Playing bag from {bag_path}")
     print("Command: " + " ".join(play_cmd))
 
     play_proc = subprocess.Popen(play_cmd)
 
-    def terminate(*_):
+    def terminate(*_: Any) -> None:
         if play_proc.poll() is None:
             play_proc.send_signal(signal.SIGINT)
         if world_proc and world_proc.poll() is None:
@@ -129,7 +198,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, terminate)
 
     if args.camera_preset:
-        # wait briefly so the service exists
+        # Wait briefly so the service exists
         time.sleep(2)
         send_camera_preset(args.camera_preset, args.camera_target, args.camera_track)
 

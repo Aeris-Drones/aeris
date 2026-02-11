@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
-"""Helper for spawning multiple PX4 SITL instances with unique MAVLink ports."""
+"""Helper for spawning multiple PX4 SITL instances with unique MAVLink ports.
+
+This module provides functionality to configure and launch multiple PX4
+Software-In-The-Loop (SITL) drone instances with collision avoidance
+validation and environment configuration for multi-drone simulations.
+
+Typical usage example:
+    # Validate configuration only
+    python run_multi_drone_sitl.py --config multi_drone.yaml
+
+    # Launch SITL instances
+    python run_multi_drone_sitl.py --config multi_drone.yaml --execute
+"""
+
+from __future__ import annotations
+
 import argparse
 import json
 import math
@@ -9,16 +24,40 @@ import signal
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 
-def load_config(path: Path):
+def load_config(path: Path) -> list[dict[str, Any]]:
+    """Load and validate the vehicle configuration file.
+
+    Args:
+        path: Path to the JSON configuration file.
+
+    Returns:
+        List of vehicle configuration dictionaries.
+
+    Raises:
+        ValueError: If the configuration is missing required fields.
+    """
     data = json.loads(path.read_text())
     if "vehicles" not in data or not isinstance(data["vehicles"], list):
         raise ValueError("Config must contain a 'vehicles' list")
     return data["vehicles"]
 
 
-def validate(vehicles):
+def validate(vehicles: list[dict[str, Any]]) -> None:
+    """Validate vehicle configurations for uniqueness and separation.
+
+    Checks that all vehicle names are unique, all MAVLink ports are unique,
+    and that vehicles are spaced at least 50 meters apart for collision
+    avoidance.
+
+    Args:
+        vehicles: List of vehicle configuration dictionaries.
+
+    Raises:
+        ValueError: If validation fails for names, ports, or spacing.
+    """
     names = set()
     ports = set()
     poses = []
@@ -40,7 +79,7 @@ def validate(vehicles):
         names.add(name)
         ports.add(port)
 
-    # Ensure ≥50 m separation between all vehicles
+    # Ensure minimum 50m separation between all vehicles
     for i in range(len(poses)):
         for j in range(i + 1, len(poses)):
             name_i, xyz_i = poses[i]
@@ -52,7 +91,19 @@ def validate(vehicles):
                 )
 
 
-def summarize(vehicles, *, gps_denied: bool = False, external_vision: bool = False):
+def summarize(
+    vehicles: list[dict[str, Any]], *, gps_denied: bool = False, external_vision: bool = False
+) -> str:
+    """Generate a human-readable summary of the configuration.
+
+    Args:
+        vehicles: List of vehicle configuration dictionaries.
+        gps_denied: Whether GPS-denied mode is enabled.
+        external_vision: Whether external vision mode is enabled.
+
+    Returns:
+        Multi-line string summarizing the configuration.
+    """
     lines = ["Multi-drone configuration:"]
     lines.append(
         f"- profile: gps_denied={'on' if gps_denied else 'off'}, "
@@ -65,7 +116,25 @@ def summarize(vehicles, *, gps_denied: bool = False, external_vision: bool = Fal
     return "\n".join(lines)
 
 
-def execute(vehicles, *, gps_denied: bool = False, external_vision: bool = False):
+def execute(
+    vehicles: list[dict[str, Any]], *, gps_denied: bool = False, external_vision: bool = False
+) -> None:
+    """Spawn PX4 SITL processes for each configured vehicle.
+
+    Configures environment variables for MAVLink ports, GPS-denied mode,
+    and external vision aiding before launching px4 processes.
+
+    Args:
+        vehicles: List of vehicle configuration dictionaries.
+        gps_denied: Enable GPS-denied profile with vision altitude reference.
+        external_vision: Enable external vision position aiding.
+
+    Raises:
+        RuntimeError: If PX4 binary is not found or processes fail.
+
+    Returns:
+        None. Blocks until all PX4 processes terminate.
+    """
     px4_bin = os.environ.get("PX4_BIN") or shutil.which("px4")
     if not px4_bin:
         raise RuntimeError(
@@ -111,7 +180,7 @@ def execute(vehicles, *, gps_denied: bool = False, external_vision: bool = False
 
     user_terminated = False
 
-    def shutdown(*_):
+    def shutdown(*_: Any) -> None:
         nonlocal user_terminated
         user_terminated = True
         for _, proc in processes:
@@ -133,7 +202,8 @@ def execute(vehicles, *, gps_denied: bool = False, external_vision: bool = False
         raise RuntimeError(f"PX4 SITL process failed: {details}")
 
 
-def main():
+def main() -> None:
+    """Parse arguments and execute the multi-drone SITL launcher."""
     parser = argparse.ArgumentParser(description="PX4 multi-drone SITL launcher")
     parser.add_argument(
         "--config",

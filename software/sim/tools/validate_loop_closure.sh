@@ -1,16 +1,69 @@
 #!/usr/bin/env bash
+#
+# validate_loop_closure.sh - Loop closure validation for SLAM systems
+#
+# DESCRIPTION:
+#   Validates SLAM loop closure by capturing and analyzing RTAB-Map info output,
+#   odometry data, and TF chain evidence. Verifies that the robot returns to
+#   the starting position within specified tolerances.
+#
+# USAGE:
+#   ./validate_loop_closure.sh [options]
+#
+# ENVIRONMENT VARIABLES:
+#   SCOUT_NAME                    - Name of the scout vehicle (default: scout1)
+#   TRAJECTORY_JSON               - Path to trajectory waypoints JSON (default: software/sim/config/loop_closure_path.json)
+#   OUTPUT_DIR                    - Output directory for validation artifacts (default: output/rtabmap_loop_closure)
+#   INFO_SAMPLE_SEC               - Duration to sample RTAB-Map info (default: 45)
+#   ODOM_SAMPLE_SEC               - Duration to sample odometry (default: 45)
+#   ODOM_TOPIC                    - Odometry topic to monitor (default: /{SCOUT_NAME}/openvins/odom)
+#   TRAJECTORY_CLOSURE_TOLERANCE_M - Trajectory loop closure tolerance in meters (default: 3.0)
+#   START_END_TOLERANCE_M         - Start/end position tolerance in meters (default: 3.0)
+#   CLOSURE_TOKEN_REGEX           - Regex pattern for loop closure detection (default: "loop|closure|optimized|constraint")
+#
+# OUTPUT ARTIFACTS:
+#   ${OUTPUT_DIR}/rtabmap_info.log       - RTAB-Map info topic output
+#   ${OUTPUT_DIR}/openvins_odom.log      - OpenVINS odometry samples
+#   ${OUTPUT_DIR}/tf_map_odom.log        - TF transform map->odom samples
+#   ${OUTPUT_DIR}/tf_odom_base_link.log  - TF transform odom->base_link samples
+#
+# EXIT CODES:
+#   0 - Loop closure validated successfully
+#   1 - Validation failed (trajectory error, no closure signal, or TF missing)
+#
+
 set -euo pipefail
 
+# =============================================================================
+# Configuration
+# =============================================================================
+
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+# Vehicle and trajectory configuration
 SCOUT_NAME=${SCOUT_NAME:-scout1}
 TRAJECTORY_JSON=${TRAJECTORY_JSON:-software/sim/config/loop_closure_path.json}
+
+# Output configuration
 OUTPUT_DIR=${OUTPUT_DIR:-output/rtabmap_loop_closure}
+
+# Sampling durations
 INFO_SAMPLE_SEC=${INFO_SAMPLE_SEC:-45}
 ODOM_SAMPLE_SEC=${ODOM_SAMPLE_SEC:-45}
+
+# Topic configuration
 ODOM_TOPIC=${ODOM_TOPIC:-"/${SCOUT_NAME}/openvins/odom"}
+
+# Tolerance parameters
 TRAJECTORY_CLOSURE_TOLERANCE_M=${TRAJECTORY_CLOSURE_TOLERANCE_M:-3.0}
 START_END_TOLERANCE_M=${START_END_TOLERANCE_M:-3.0}
+
+# Loop closure detection pattern
 CLOSURE_TOKEN_REGEX=${CLOSURE_TOKEN_REGEX:-"loop|closure|optimized|constraint"}
+
+# =============================================================================
+# Output Directory Setup
+# =============================================================================
 
 mkdir -p "${OUTPUT_DIR}"
 INFO_LOG="${OUTPUT_DIR}/rtabmap_info.log"
@@ -18,12 +71,19 @@ ODOM_LOG="${OUTPUT_DIR}/openvins_odom.log"
 TF_MAP_ODOM_LOG="${OUTPUT_DIR}/tf_map_odom.log"
 TF_ODOM_BASE_LOG="${OUTPUT_DIR}/tf_odom_base_link.log"
 
+# =============================================================================
+# Trajectory Validation
+# =============================================================================
+
 echo "[validate_loop_closure] Using trajectory: ${TRAJECTORY_JSON}"
+
+# Verify trajectory file exists
 if [[ ! -f "${TRAJECTORY_JSON}" ]]; then
   echo "[validate_loop_closure] ERROR: trajectory file missing: ${TRAJECTORY_JSON}" >&2
   exit 1
 fi
 
+# Validate that trajectory forms a closed loop using Python validation utilities
 if ! expected_endpoint=$(PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}" python3 - "${TRAJECTORY_JSON}" "${TRAJECTORY_CLOSURE_TOLERANCE_M}" <<'PY'
 import sys
 from pathlib import Path
@@ -46,19 +106,32 @@ PY
   exit 1
 fi
 
+# Parse expected endpoint coordinates
 read -r expected_x expected_y expected_z <<< "${expected_endpoint}"
 
+# =============================================================================
+# Data Capture Phase
+# =============================================================================
+
+# Capture RTAB-Map info topic for loop closure signal detection
 echo "[validate_loop_closure] Capture /rtabmap/info for ${INFO_SAMPLE_SEC}s"
 timeout "${INFO_SAMPLE_SEC}"s ros2 topic echo /rtabmap/info > "${INFO_LOG}" 2>&1 || true &
 info_pid=$!
 
+# Capture OpenVINS odometry topic for position tracking
 echo "[validate_loop_closure] Capture ${ODOM_TOPIC} for ${ODOM_SAMPLE_SEC}s"
 timeout "${ODOM_SAMPLE_SEC}"s ros2 topic echo "${ODOM_TOPIC}" > "${ODOM_LOG}" 2>&1 || true &
 odom_pid=$!
 
+# Wait for data capture to complete
 wait "${info_pid}" || true
 wait "${odom_pid}" || true
 
+# =============================================================================
+# Loop Closure Signal Validation
+# =============================================================================
+
+# Analyze RTAB-Map info log for loop closure indicators
 if ! PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}" python3 - "${INFO_LOG}" "${CLOSURE_TOKEN_REGEX}" <<'PY'
 import sys
 from pathlib import Path
@@ -75,6 +148,11 @@ then
   exit 1
 fi
 
+# =============================================================================
+# Odometry Position Validation
+# =============================================================================
+
+# Verify final odometry position is near expected trajectory endpoint
 if ! PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}" python3 - "${ODOM_LOG}" "${expected_x}" "${expected_y}" "${expected_z}" "${START_END_TOLERANCE_M}" <<'PY'
 import sys
 from pathlib import Path
@@ -102,18 +180,32 @@ then
   exit 1
 fi
 
+# =============================================================================
+# TF Chain Validation
+# =============================================================================
+
 echo "[validate_loop_closure] Capture TF chain map->odom and odom->base_link"
+
+# Capture map to odom transform
 timeout 15s ros2 run tf2_ros tf2_echo map odom > "${TF_MAP_ODOM_LOG}" 2>&1 || true
+
+# Capture odom to base_link transform
 timeout 15s ros2 run tf2_ros tf2_echo odom base_link > "${TF_ODOM_BASE_LOG}" 2>&1 || true
 
+# Verify TF data was captured
 if ! grep -q "Translation" "${TF_MAP_ODOM_LOG}"; then
   echo "[validate_loop_closure] ERROR: missing TF evidence for map->odom in ${TF_MAP_ODOM_LOG}" >&2
   exit 1
 fi
+
 if ! grep -q "Translation" "${TF_ODOM_BASE_LOG}"; then
   echo "[validate_loop_closure] ERROR: missing TF evidence for odom->base_link in ${TF_ODOM_BASE_LOG}" >&2
   exit 1
 fi
+
+# =============================================================================
+# Success Output
+# =============================================================================
 
 echo "[validate_loop_closure] Loop-closure signal detected in ${INFO_LOG}"
 echo "[validate_loop_closure] TF chain evidence captured in ${TF_MAP_ODOM_LOG} and ${TF_ODOM_BASE_LOG}"

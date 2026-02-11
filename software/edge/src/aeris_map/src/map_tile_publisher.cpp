@@ -1,3 +1,20 @@
+/**
+ * @file map_tile_publisher.cpp
+ * @brief ROS 2 node for publishing map tiles from SLAM output
+ *
+ * The MapTilePublisher node converts RTAB-Map SLAM output (occupancy grids
+ * and point clouds) into MBTiles format for streaming to ground station
+ * operators. It implements the Aeris tile streaming protocol with:
+ *
+ * - Slippy Map tile coordinate generation
+ * - PNG rasterization with configurable zoom levels
+ * - SQLite-backed MBTiles storage
+ * - Change-detection for bandwidth optimization
+ * - ROS 2 topic and service interfaces
+ *
+ * @copyright Aeris Robotics 2024
+ */
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -31,52 +48,68 @@
 
 namespace
 {
+
+// ROS topic and service names
 constexpr char kTileTopic[] = "/map/tiles";
 constexpr char kOccupancyTopic[] = "/map";
 constexpr char kPointCloudTopic[] = "/rtabmap/cloud_map";
 constexpr char kGetTileService[] = "/map/get_tile_bytes";
 
+// Map source mode constants
 constexpr char kMapSourceOccupancy[] = "occupancy";
 constexpr char kMapSourcePointCloud[] = "point_cloud";
 constexpr char kMapSourceHybrid[] = "hybrid";
 
+// Default tile generation parameters
 constexpr int kDefaultTileSizePx = 256;
 constexpr int kDefaultZoom = 18;
+
+// Geographic constants for Web Mercator projection
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kMetersPerDegreeLat = 111320.0;
 constexpr double kMaxWebMercatorLatDeg = 85.05112878;
 
+/** @brief Grid key for tile raster lookup (x, y tile coordinates) */
 using TileGridKey = std::pair<int, int>;
 
+/** @brief Cached tile payload with metadata for change detection */
 struct TilePayload
 {
-  std::vector<uint8_t> data;
-  std::string hash_sha256;
-  uint32_t byte_size{0};
-  builtin_interfaces::msg::Time published_at;
+  std::vector<uint8_t> data;              ///< Raw PNG bytes
+  std::string hash_sha256;                ///< Content hash for deduplication
+  uint32_t byte_size{0};                  ///< Payload size
+  builtin_interfaces::msg::Time published_at;  ///< Original publication time
 };
 
+/** @brief In-memory tile raster buffer for PNG generation */
 struct TileRaster
 {
-  int x{0};
-  int y{0};
-  std::vector<uint8_t> rgba;
-  bool touched{false};
+  int x{0};                               ///< Tile X coordinate
+  int y{0};                               ///< Tile Y coordinate
+  std::vector<uint8_t> rgba;              ///< RGBA pixel data (tile_size^2 * 4)
+  bool touched{false};                    ///< True if any pixel was written
 };
 
+/** @brief Slippy map pixel coordinate within a tile */
 struct SlippyPixel
 {
-  int xtile{0};
-  int ytile{0};
-  int px{0};
-  int py{0};
+  int xtile{0};                           ///< Tile X index
+  int ytile{0};                           ///< Tile Y index
+  int px{0};                              ///< Pixel X within tile (0-tile_size)
+  int py{0};                              ///< Pixel Y within tile (0-tile_size)
 };
 
+/** @brief PNG write callback context for memory output */
 struct MemoryWriter
 {
-  std::vector<uint8_t> * out;
+  std::vector<uint8_t> * out;             ///< Output buffer
 };
 
+/**
+ * @brief Returns the default MBTiles database path.
+ *
+ * Uses XDG_CACHE_HOME if set, otherwise falls back to ~/.cache or /tmp.
+ */
 std::string default_mbtiles_path()
 {
   const char * xdg_cache_home = std::getenv("XDG_CACHE_HOME");
@@ -92,21 +125,35 @@ std::string default_mbtiles_path()
   return "/tmp/aeris/map_tiles/live_map.mbtiles";
 }
 
+/** @brief PNG write callback: appends data to memory buffer */
 void png_write_callback(png_structp png_ptr, png_bytep data, png_size_t length)
 {
   auto * writer = static_cast<MemoryWriter *>(png_get_io_ptr(png_ptr));
   writer->out->insert(writer->out->end(), data, data + length);
 }
 
+/** @brief PNG flush callback: no-op for memory output */
 void png_flush_callback(png_structp)
 {
 }
 
+/**
+ * @brief Converts Slippy Map Y coordinate to TMS row convention.
+ *
+ * MBTiles 1.3 specification uses TMS row indexing (origin at bottom-left)
+ * while Slippy Map uses origin at top-left.
+ */
 int tms_row_from_slippy(int z, int y)
 {
   return ((1 << z) - 1) - y;
 }
 
+/**
+ * @brief Converts local Cartesian coordinates to WGS84 lat/lon.
+ *
+ * Uses equirectangular approximation suitable for small operational areas
+ * (within ~10km of origin). Accuracy degrades at high latitudes.
+ */
 std::pair<double, double> local_xy_to_lat_lon(
   double x_m,
   double y_m,
@@ -120,6 +167,14 @@ std::pair<double, double> local_xy_to_lat_lon(
   return {lat, lon};
 }
 
+/**
+ * @brief Converts WGS84 coordinates to Slippy Map tile and pixel coordinates.
+ *
+ * Implements the standard Web Mercator projection used by OpenStreetMap
+ * and most web mapping services.
+ *
+ * @return SlippyPixel if coordinates are valid, std::nullopt otherwise
+ */
 std::optional<SlippyPixel> slippy_pixel_from_lat_lon(
   double lat_deg,
   double lon_deg,
@@ -130,11 +185,13 @@ std::optional<SlippyPixel> slippy_pixel_from_lat_lon(
     return std::nullopt;
   }
 
+  // Clamp to Web Mercator bounds to avoid projection singularities
   const double clamped_lat = std::clamp(lat_deg, -kMaxWebMercatorLatDeg, kMaxWebMercatorLatDeg);
   const double clamped_lon = std::clamp(lon_deg, -180.0, 180.0);
   const double lat_rad = clamped_lat * kPi / 180.0;
   const double n = std::pow(2.0, zoom);
 
+  // Web Mercator projection formulas
   const double x_pixel_global = ((clamped_lon + 180.0) / 360.0) * n * static_cast<double>(tile_size_px);
   const double y_pixel_global =
     ((1.0 - std::asinh(std::tan(lat_rad)) / kPi) / 2.0) * n * static_cast<double>(tile_size_px);
@@ -157,16 +214,32 @@ std::optional<SlippyPixel> slippy_pixel_from_lat_lon(
   return SlippyPixel{xtile, ytile, px, py};
 }
 
+/**
+ * @brief Converts occupancy grid value to RGBA color.
+ *
+ * - Unknown (-1): Semi-transparent gray
+ * - Occupied (100): Black
+ * - Free (0): White
+ * - Intermediate values: Grayscale gradient
+ */
 std::array<uint8_t, 4> occupancy_to_rgba(int8_t value)
 {
   if (value < 0) {
-    return {127, 127, 127, 220};
+    return {127, 127, 127, 220};  // Unknown: gray with transparency
   }
   const uint8_t clamped = static_cast<uint8_t>(std::clamp<int>(value, 0, 100));
   const uint8_t intensity = static_cast<uint8_t>(255 - (clamped * 2));
   return {intensity, intensity, intensity, 255};
 }
 
+/**
+ * @brief Converts point elevation (Z coordinate) to RGBA color.
+ *
+ * Maps elevation range -10m to +40m to a color gradient:
+ * - Low elevation: Blue/cyan
+ * - Mid elevation: Green/yellow
+ * - High elevation: Red
+ */
 std::array<uint8_t, 4> point_to_rgba(float z_m)
 {
   const double clamped_z = std::clamp(static_cast<double>(z_m), -10.0, 40.0);
@@ -177,6 +250,13 @@ std::array<uint8_t, 4> point_to_rgba(float z_m)
   return {red, green, blue, 255};
 }
 
+/**
+ * @brief Encodes RGBA pixel data to PNG format.
+ *
+ * Uses libpng for compression. Returns empty vector on failure.
+ *
+ * @throws std::runtime_error on PNG encoding failure
+ */
 std::vector<uint8_t> encode_png_rgba(const std::vector<uint8_t> & rgba, int width, int height)
 {
   std::vector<uint8_t> out;
@@ -225,6 +305,16 @@ std::vector<uint8_t> encode_png_rgba(const std::vector<uint8_t> & rgba, int widt
   return out;
 }
 
+/**
+ * @brief Normalizes map source mode string to canonical form.
+ *
+ * Accepts various aliases for each mode:
+ * - occupancy: "occupancy", "grid"
+ * - point_cloud: "pointcloud", "point_cloud", "cloud"
+ * - hybrid: "hybrid", "both"
+ *
+ * @throws std::invalid_argument for unrecognized modes
+ */
 std::string normalize_source_mode(std::string mode)
 {
   std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) {
@@ -247,12 +337,20 @@ std::string normalize_source_mode(std::string mode)
 
 }  // namespace
 
+/**
+ * @brief ROS 2 node for publishing map tiles from SLAM output.
+ *
+ * Subscribes to occupancy grids and/or point clouds from RTAB-Map,
+ * converts them to MBTiles format, and publishes tile descriptors
+ * for ground station consumption.
+ */
 class MapTilePublisher : public rclcpp::Node
 {
 public:
   MapTilePublisher()
   : rclcpp::Node("aeris_map_tile_publisher")
   {
+    // Load parameters with defaults
     queue_depth_ = static_cast<int>(this->declare_parameter<int64_t>("queue_depth", 50));
     tile_topic_ = this->declare_parameter<std::string>("topic", kTileTopic);
     occupancy_topic_ = this->declare_parameter<std::string>("occupancy_topic", kOccupancyTopic);
@@ -284,6 +382,7 @@ public:
     map_source_ = normalize_source_mode(
       this->declare_parameter<std::string>("map_source", kMapSourceOccupancy));
 
+    // Configure layer IDs based on map source
     const std::vector<std::string> default_layer_ids =
       (map_source_ == kMapSourcePointCloud)
       ? std::vector<std::string>{
@@ -297,11 +396,13 @@ public:
 
     initialize_mbtiles();
 
+    // Configure publisher with reliable QoS for tile delivery
     auto qos = rclcpp::QoS(rclcpp::KeepLast(static_cast<size_t>(queue_depth_)))
                  .reliable()
                  .durability_volatile();
     publisher_ = this->create_publisher<aeris_msgs::msg::MapTile>(tile_topic_, qos);
 
+    // Subscribe to map sources based on configuration
     const bool use_occupancy =
       (map_source_ == kMapSourceOccupancy) || (map_source_ == kMapSourceHybrid);
     const bool use_point_cloud =
@@ -321,6 +422,7 @@ public:
         std::bind(&MapTilePublisher::handle_point_cloud, this, std::placeholders::_1));
     }
 
+    // Service for on-demand tile byte retrieval
     tile_service_ = this->create_service<aeris_msgs::srv::GetMapTileBytes>(
       tile_service_name_,
       std::bind(
@@ -359,6 +461,12 @@ public:
   }
 
 private:
+  /**
+   * @brief Initializes the MBTiles SQLite database.
+   *
+   * Creates the database file if it doesn't exist and sets up the
+   * required schema (metadata and tiles tables per MBTiles 1.3 spec).
+   */
   void initialize_mbtiles()
   {
     const std::filesystem::path db_path(mbtiles_path_);
@@ -390,6 +498,7 @@ private:
     upsert_metadata("bounds", "-180.0,-85.0511,180.0,85.0511");
   }
 
+  /** @brief Executes a SQL statement on the MBTiles database. */
   void exec_sql(const std::string & sql)
   {
     char * err_msg = nullptr;
@@ -401,6 +510,7 @@ private:
     }
   }
 
+  /** @brief Inserts or updates a metadata key-value pair. */
   void upsert_metadata(const std::string & key, const std::string & value)
   {
     sqlite3_stmt * stmt = nullptr;
@@ -422,6 +532,7 @@ private:
     sqlite3_finalize(stmt);
   }
 
+  /** @brief Inserts or updates a tile in the MBTiles database. */
   void upsert_tile_blob(int z, int x, int y, const std::vector<uint8_t> & bytes)
   {
     sqlite3_stmt * stmt = nullptr;
@@ -445,6 +556,12 @@ private:
     sqlite3_finalize(stmt);
   }
 
+  /**
+   * @brief Retrieves or creates a tile raster buffer.
+   *
+   * Ensures a TileRaster exists for the given coordinates,
+   * initializing with zeroed RGBA data if new.
+   */
   TileRaster & ensure_tile(
     std::map<TileGridKey, TileRaster> & rasters,
     int xtile,
@@ -469,6 +586,7 @@ private:
     return it->second;
   }
 
+  /** @brief Writes an RGBA pixel to a tile raster. */
   void put_pixel(
     TileRaster & tile,
     int px,
@@ -488,6 +606,12 @@ private:
     tile.touched = true;
   }
 
+  /**
+   * @brief Rasterizes an occupancy grid into tile buffers.
+   *
+   * Iterates through all grid cells, projects each to geographic
+   * coordinates, and maps to the appropriate tile and pixel.
+   */
   std::map<TileGridKey, TileRaster> rasterize_occupancy(
     const nav_msgs::msg::OccupancyGrid & grid) const
   {
@@ -508,11 +632,13 @@ private:
           continue;
         }
 
+        // Convert grid cell to local metric coordinates
         const double local_x_m =
           grid.info.origin.position.x + ((static_cast<double>(gx) + 0.5) * resolution);
         const double local_y_m =
           grid.info.origin.position.y + ((static_cast<double>(gy) + 0.5) * resolution);
 
+        // Project to geographic and then to tile coordinates
         const auto [lat, lon] =
           local_xy_to_lat_lon(local_x_m, local_y_m, origin_lat_deg_, origin_lon_deg_);
         const auto slippy = slippy_pixel_from_lat_lon(lat, lon, zoom_, tile_size_px_);
@@ -528,6 +654,12 @@ private:
     return rasters;
   }
 
+  /**
+   * @brief Rasterizes a point cloud into tile buffers.
+   *
+   * Iterates through all points, projects each to geographic
+   * coordinates, and colors by elevation (Z coordinate).
+   */
   std::map<TileGridKey, TileRaster> rasterize_point_cloud(
     const sensor_msgs::msg::PointCloud2 & cloud) const
   {
@@ -576,6 +708,12 @@ private:
     return rasters;
   }
 
+  /**
+   * @brief Publishes a single tile with change detection and caching.
+   *
+   * Computes content hash, checks against cache for duplicates,
+   * persists to MBTiles, and publishes descriptor if changed.
+   */
   void publish_tile(
     int xtile,
     int ytile,
@@ -615,7 +753,7 @@ private:
         const rclcpp::Time previous_publish_time(prev->second.published_at);
         const double elapsed = (publish_time - previous_publish_time).seconds();
         if (elapsed < republish_interval_sec_) {
-          return;
+          return;  // Skip unchanged tiles within republish interval
         }
       }
 
@@ -626,6 +764,7 @@ private:
       }
       tile_cache_[tile_id] = std::move(payload);
 
+      // Enforce LRU cache size limit
       while (cache_order_.size() > max_cached_tiles_) {
         const std::string oldest = cache_order_.front();
         cache_order_.pop_front();
@@ -643,6 +782,12 @@ private:
       descriptor.hash_sha256.c_str());
   }
 
+  /**
+   * @brief Publishes all tiles from a rasterization result.
+   *
+   * Encodes each touched tile to PNG and publishes with
+   * consistent timestamp for batch correlation.
+   */
   void publish_raster_tiles(
     const std::map<TileGridKey, TileRaster> & rasters,
     const char * source_label)
@@ -674,6 +819,7 @@ private:
     }
   }
 
+  /** @brief ROS callback for occupancy grid messages. */
   void handle_occupancy_grid(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
   {
     try {
@@ -684,6 +830,7 @@ private:
     }
   }
 
+  /** @brief ROS callback for point cloud messages. */
   void handle_point_cloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
   {
     try {
@@ -694,6 +841,7 @@ private:
     }
   }
 
+  /** @brief ROS service handler for tile byte retrieval. */
   void handle_get_tile_bytes(
     const std::shared_ptr<aeris_msgs::srv::GetMapTileBytes::Request> request,
     std::shared_ptr<aeris_msgs::srv::GetMapTileBytes::Response> response)
@@ -726,6 +874,7 @@ private:
     response->data = it->second.data;
   }
 
+  // Configuration parameters
   int queue_depth_{50};
   int zoom_{kDefaultZoom};
   int tile_size_px_{kDefaultTileSizePx};

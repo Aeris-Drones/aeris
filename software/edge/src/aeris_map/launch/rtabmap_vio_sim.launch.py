@@ -18,6 +18,17 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description() -> LaunchDescription:
+    """Generate the launch description for the VIO-based SLAM pipeline.
+
+    Configures and launches three main components:
+    - OpenVINS: Visual-inertial odometry using stereo cameras and IMU
+    - RTAB-Map: Real-time appearance-based mapping with loop closure
+    - Map tile publisher: Streams map tiles to ground station
+
+    Returns:
+        LaunchDescription: A complete launch configuration with all nodes,
+        launch arguments, and parameter configurations for the SLAM pipeline.
+    """
     # Resolve config paths relative to this launch file location.
     package_root = Path(__file__).resolve().parents[1]
     cache_root = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache')))

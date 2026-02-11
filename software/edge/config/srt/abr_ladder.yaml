@@ -1,40 +1,78 @@
 # ABR (Adaptive Bitrate) ladder configuration for SRT video streaming.
-# Defines quality tiers from 360p to 1080p with bitrate constraints
-# for reliable transmission over variable-bandwidth mesh networks.
+#
+# Purpose:
+#   Defines quality tiers from 360p to 1080p with bitrate constraints
+#   for reliable transmission over variable-bandwidth mesh networks.
+#   Used by the video streaming subsystem to select appropriate quality
+#   levels based on available bandwidth and latency requirements.
+#
+# Quality Tiers:
+#   - base_360p:    Minimum viable quality for low-bandwidth links
+#   - perf_540p:    Balanced quality for moderate bandwidth
+#   - detail_720p:  High quality for inspection tasks
+#   - survey_1080p: Maximum quality for detailed survey work
+#   - lowlight_720p: Enhanced bitrate for noise reduction in low light
+#
+# Configuration Keys:
+#   resolution:           Video dimensions (WIDTHxHEIGHT)
+#   target_bitrate_kbps:  Nominal encoding bitrate
+#   max_bitrate_kbps:     Peak bitrate for burst tolerance
+#   gop:                  Group of Pictures size (frames between keyframes)
+#   fps:                  Target frames per second
+#
+# Constraints:
+#   max_total_bitrate_kbps:  Aggregate bandwidth limit across all streams
+#   min_latency_ms:          Minimum SRT latency buffer
+#   max_latency_ms:          Maximum acceptable end-to-end latency
+
 version: 1
+
 ladder:
+  # Base quality tier for degraded network conditions
   - name: base_360p
     resolution: 640x360
     target_bitrate_kbps: 900
     max_bitrate_kbps: 1200
     gop: 60
     fps: 30
+
+  # Balanced quality for general operation
   - name: perf_540p
     resolution: 960x540
     target_bitrate_kbps: 1800
     max_bitrate_kbps: 2400
     gop: 60
     fps: 30
+
+  # High quality for target identification
   - name: detail_720p
     resolution: 1280x720
     target_bitrate_kbps: 3200
     max_bitrate_kbps: 4200
     gop: 60
     fps: 30
+
+  # Maximum quality for detailed survey missions
   - name: survey_1080p
     resolution: 1920x1080
     target_bitrate_kbps: 5200
     max_bitrate_kbps: 6500
     gop: 60
     fps: 30
+
+  # Higher bitrate 720p for low-light noise reduction
   - name: lowlight_720p
     resolution: 1280x720
     target_bitrate_kbps: 4200
     max_bitrate_kbps: 5200
-    gop: 30
+    gop: 30  # Shorter GOP for faster recovery
     fps: 30
 
+# Global streaming constraints
 constraints:
+  # Maximum aggregate bitrate across all concurrent streams
   max_total_bitrate_kbps: 8000
-  min_latency_ms: 75
-  max_latency_ms: 250
+
+  # SRT latency bounds (affects buffer size and recovery)
+  min_latency_ms: 75   # Minimum for stable transmission
+  max_latency_ms: 250  # Maximum for operator responsiveness

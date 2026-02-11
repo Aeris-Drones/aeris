@@ -4,6 +4,35 @@
 Measures wall-clock time from mission liftoff (or immediate start) to
 the first MapTile publication. Used to characterize end-to-end system
 startup performance and identify bottlenecks in the mapping pipeline.
+
+Usage:
+    ros2 run aeris_tools first_tile_timer [options]
+    python3 first_tile_timer.py [--timeout-sec SEC] [--start-mode MODE]
+
+Examples:
+    # Default: wait for SEARCHING state on /orchestrator/mission_state
+    ros2 run aeris_tools first_tile_timer
+
+    # Immediate start mode (no liftoff wait)
+    ros2 run aeris_tools first_tile_timer --start-mode immediate
+
+    # Custom mission state trigger with extended timeout
+    ros2 run aeris_tools first_tile_timer \
+        --liftoff-state RUNNING \
+        --liftoff-topic /mission/state \
+        --timeout-sec 300
+
+Exit Codes:
+    0: First tile received within timeout
+    2: Timeout waiting for first tile after liftoff
+    3: Timeout waiting for liftoff state
+    4: Unknown timer start condition failure
+    130: Interrupted by user (Ctrl+C)
+
+Debugging:
+    - Verify /map/tiles is publishing: `ros2 topic hz /map/tiles`
+    - Check mission state: `ros2 topic echo /orchestrator/mission_state`
+    - Use --start-mode immediate to bypass liftoff detection
 """
 
 import argparse
@@ -67,6 +96,11 @@ class FirstTileTimer(Node):
         self.create_timer(0.5, self._timeout_callback)
 
     def _liftoff_callback(self, msg: MissionState) -> None:
+        """Handle mission state change and start timer on liftoff.
+
+        Args:
+            msg: MissionState message containing current state.
+        """
         if self._liftoff_seen or self._completed:
             return
         state = msg.state.strip().upper()
@@ -81,6 +115,11 @@ class FirstTileTimer(Node):
         )
 
     def _tile_callback(self, msg: MapTile) -> None:  # noqa: ARG002
+        """Handle incoming tile message and record latency.
+
+        Args:
+            msg: Received MapTile message (unused, required by callback signature).
+        """
         if self._completed:
             return
         if not self._liftoff_seen:
@@ -97,6 +136,7 @@ class FirstTileTimer(Node):
             rclpy.shutdown()
 
     def _timeout_callback(self) -> None:
+        """Check for timeout and report failure if threshold exceeded."""
         if self._completed:
             return
 
@@ -129,6 +169,11 @@ class FirstTileTimer(Node):
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Returns:
+        Parsed arguments namespace.
+    """
     parser = argparse.ArgumentParser(
         description="Print how long it took to observe the first /map/tiles sample."
     )
@@ -157,7 +202,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+def main() -> int:
+    """Main entry point.
+
+    Returns:
+        Exit code (0 for success, non-zero for error).
+    """
     args = parse_args()
     rclpy.init()
     node = FirstTileTimer(
@@ -175,7 +225,11 @@ def main() -> None:
         if rclpy.ok():
             rclpy.shutdown()
         node.destroy_node()
-    sys.exit(node.exit_code)
+    return node.exit_code
+
+
+if __name__ == "__main__":
+    sys.exit(main())
 
 
 if __name__ == "__main__":

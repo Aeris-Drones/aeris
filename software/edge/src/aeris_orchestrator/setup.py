@@ -1,3 +1,11 @@
+"""Aeris Orchestrator ROS 2 package setup configuration.
+
+Defines package metadata, entry points, and installation requirements
+for the Aeris mission orchestration system. The orchestrator coordinates
+multi-vehicle search and tracking missions through ROS 2 services and
+topics, integrating sensor detections with MAVLink autopilot commands.
+"""
+
 from setuptools import setup
 
 

@@ -10,6 +10,13 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description() -> LaunchDescription:
+    """Generate the launch description for the perception demo.
+
+    Returns:
+        LaunchDescription: A launch description containing all nodes for the
+        perception demonstration, including thermal/acoustic/gas publishers
+        and mesh impairment relays.
+    """
     nodes = [
         Node(
             package="aeris_perception",

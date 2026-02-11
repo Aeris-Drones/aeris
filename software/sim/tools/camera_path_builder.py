@@ -1,14 +1,41 @@
 #!/usr/bin/env python3
-"""Generate cinematic camera waypoint JSON files for Story 1.4."""
+"""Generate cinematic camera waypoint JSON files for mission recording.
+
+This module provides functionality to create camera path configurations
+for simulation missions. It supports both custom keyframe definitions
+and predefined cinematic templates for smooth camera movements during
+simulation replays.
+
+Typical usage example:
+    # Generate from template
+    python camera_path_builder.py --template --output path.json
+
+    # Generate from keyframes
+    python camera_path_builder.py --keyframe "0,-60,0,70,0,-0.5,0,55" --output path.json
+"""
+
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
-from typing import List
+from typing import Any
 
 
-def parse_keyframe(keyframe: str) -> dict:
+def parse_keyframe(keyframe: str) -> dict[str, Any]:
+    """Parse a keyframe string into a waypoint dictionary.
+
+    Args:
+        keyframe: Comma-separated string with 8 values:
+            time,x,y,z,roll,pitch,yaw,fov (time in seconds, angles in degrees)
+
+    Returns:
+        Dictionary containing the parsed waypoint data with position,
+        orientation, field of view, and focal distance.
+
+    Raises:
+        ValueError: If the keyframe string does not contain exactly 8 values.
+    """
     parts = [p.strip() for p in keyframe.split(',') if p.strip()]
     if len(parts) != 8:
         raise ValueError(
@@ -24,7 +51,17 @@ def parse_keyframe(keyframe: str) -> dict:
     }
 
 
-def build_default_path() -> List[dict]:
+def build_default_path() -> list[dict[str, Any]]:
+    """Build the default cinematic camera path template.
+
+    Creates a three-point cinematic arc that starts wide, moves closer
+to the action, and ends with a dramatic low-angle shot. Suitable for
+    showcasing vehicle movements in disaster scene simulations.
+
+    Returns:
+        List of waypoint dictionaries defining a three-point cinematic arc
+        suitable for showcasing vehicle movements in the simulation.
+    """
     return [
         {
             "time_from_start": 0.0,
@@ -51,6 +88,7 @@ def build_default_path() -> List[dict]:
 
 
 def main() -> None:
+    """Parse command-line arguments and generate camera path JSON."""
     parser = argparse.ArgumentParser(description="Camera path JSON generator")
     parser.add_argument(
         "--output",
@@ -72,7 +110,7 @@ def main() -> None:
     if args.template and args.keyframe:
         raise SystemExit("Use either --template or --keyframe entries, not both")
 
-    waypoints: List[dict]
+    waypoints: list[dict[str, Any]]
     if args.template:
         waypoints = build_default_path()
     elif args.keyframe:
