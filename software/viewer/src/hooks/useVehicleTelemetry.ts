@@ -82,6 +82,7 @@ export function useVehicleTelemetry() {
         if (!('returnTrajectory' in payload)) {
           return;
         }
+<<<<<<< HEAD
         if (payload.returnTrajectory === null || payload.returnTrajectory === undefined) {
           const vehicleId = (payload.vehicleId ?? '').trim();
           if (vehicleId) {
@@ -93,11 +94,15 @@ export function useVehicleTelemetry() {
           }
           return;
         }
-        const vehicleId = payload.returnTrajectory.vehicleId?.trim();
+        const returnTrajectory = payload.returnTrajectory;
+        if (!returnTrajectory) {
+          return;
+        }
+        const vehicleId = returnTrajectory.vehicleId?.trim();
         if (!vehicleId) {
           return;
         }
-        const points = (payload.returnTrajectory.points ?? [])
+        const points = (returnTrajectory.points ?? [])
           .map(point => {
             const x = Number(point.x);
             const z = Number(point.z);
