@@ -67,6 +67,28 @@ if(BUILD_TESTING)
     )
     target_link_libraries(test_slam_backend slam_backend)
   endif()
+
+  ament_add_gtest(test_map_tile_publisher test/test_map_tile_publisher.cpp)
+  if(TARGET test_map_tile_publisher)
+    target_include_directories(test_map_tile_publisher PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_compile_features(test_map_tile_publisher PRIVATE cxx_std_17)
+    target_link_libraries(
+      test_map_tile_publisher
+      tile_contract
+      slam_backend
+      PNG::PNG
+      SQLite::SQLite3
+    )
+    ament_target_dependencies(
+      test_map_tile_publisher
+      rclcpp
+      aeris_msgs
+      nav_msgs
+      sensor_msgs
+    )
+  endif()
 endif()
 
 ament_package()

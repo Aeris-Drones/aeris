@@ -14,6 +14,7 @@ from pathlib import Path
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
+from launch.actions import OpaqueFunction
 from launch_ros.actions import Node
 
 
@@ -129,6 +130,17 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
 
+    def launch_mode_actions(context):
+        selected_mode = LaunchConfiguration('slam_mode').perform(context).strip().lower()
+        actions = []
+
+        # The VIO stack is only needed when the active SLAM mode resolves to VIO.
+        if selected_mode in {'vio', 'rtabmap', 'rtabmap_vio'}:
+            actions.extend([openvins_node, rtabmap_node])
+
+        actions.append(map_tile_node)
+        return actions
+
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('openvins_config', default_value=openvins_config_default),
@@ -177,7 +189,5 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('map_frame', default_value='map'),
         DeclareLaunchArgument('odom_frame', default_value='odom'),
         DeclareLaunchArgument('base_frame', default_value='base_link'),
-        openvins_node,
-        rtabmap_node,
-        map_tile_node,
+        OpaqueFunction(function=launch_mode_actions),
     ])

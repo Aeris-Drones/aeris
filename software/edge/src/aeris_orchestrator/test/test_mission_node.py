@@ -1782,15 +1782,12 @@ def test_progress_payload_includes_vehicle_assignment_labels_and_progress(
     assert "vehicleOnline" in payload
 
 
-def test_normalize_slam_mode_maps_legacy_aliases_and_logs_warning(
-    mission_harness, monkeypatch
-) -> None:
-    mission_node, observer = mission_harness
-    del observer
-
+def test_normalize_slam_mode_maps_legacy_aliases_and_logs_warning() -> None:
     warnings: list[str] = []
-    logger = SimpleNamespace(warning=lambda message: warnings.append(str(message)))
-    monkeypatch.setattr(MissionNode, "get_logger", lambda self: logger)
+    mission_node = MissionNode.__new__(MissionNode)
+    mission_node.get_logger = lambda: SimpleNamespace(
+        warning=lambda message: warnings.append(str(message))
+    )
 
     assert mission_node._normalize_slam_mode("rtabmap_vio") == "vio"
     assert mission_node._normalize_slam_mode("rtabmap") == "vio"
@@ -1800,15 +1797,12 @@ def test_normalize_slam_mode_maps_legacy_aliases_and_logs_warning(
     assert "Legacy slam_mode" in warnings[0]
 
 
-def test_normalize_slam_mode_falls_back_to_unknown_and_logs_warning(
-    mission_harness, monkeypatch
-) -> None:
-    mission_node, observer = mission_harness
-    del observer
-
+def test_normalize_slam_mode_falls_back_to_unknown_and_logs_warning() -> None:
     warnings: list[str] = []
-    logger = SimpleNamespace(warning=lambda message: warnings.append(str(message)))
-    monkeypatch.setattr(MissionNode, "get_logger", lambda self: logger)
+    mission_node = MissionNode.__new__(MissionNode)
+    mission_node.get_logger = lambda: SimpleNamespace(
+        warning=lambda message: warnings.append(str(message))
+    )
 
     assert mission_node._normalize_slam_mode("unrecognized_mode") == "unknown"
     assert warnings
@@ -1840,6 +1834,32 @@ def test_progress_payload_reports_unknown_slam_mode_when_mode_is_invalid(
     payload = json.loads(captured[-1])
     assert payload["vehicleSlamModes"]["scout_1"] == "unknown"
     assert payload["vehicleSlamModes"]["scout_2"] == "unknown"
+
+
+def test_vehicle_slam_mode_snapshot_uses_vehicle_specific_slam_mode_overrides() -> None:
+    mission_node = MissionNode.__new__(MissionNode)
+    mission_node._normalize_vehicle_id = lambda value: str(value).strip().lower()
+    mission_node._slam_mode = "vio"
+    mission_node._vehicle_slam_mode_overrides = {
+        "scout_1": "vio",
+        "scout_2": "liosam",
+        "ranger_1": "unknown",
+    }
+    mission_node._scout_endpoints = [
+        ScoutEndpoint(vehicle_id="scout_1", host="127.0.0.1", port=14541),
+        ScoutEndpoint(vehicle_id="scout_2", host="127.0.0.1", port=14542),
+    ]
+    mission_node._scout_plans = {}
+    mission_node._active_scout_vehicle_id = ""
+    mission_node._ranger_endpoints = [
+        ScoutEndpoint(vehicle_id="ranger_1", host="127.0.0.1", port=14543),
+    ]
+    mission_node._active_ranger_vehicle_id = ""
+
+    snapshot = mission_node._vehicle_slam_mode_snapshot()
+    assert snapshot["scout_1"] == "vio"
+    assert snapshot["scout_2"] == "liosam"
+    assert snapshot["ranger_1"] == "unknown"
 
 
 def test_vehicle_command_targets_only_requested_endpoint(

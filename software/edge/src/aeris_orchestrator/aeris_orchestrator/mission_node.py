@@ -211,6 +211,12 @@ class MissionNode(Node):
         self._slam_mode = self._normalize_slam_mode(
             str(self.declare_parameter("slam_mode", "vio").value)
         )
+        self._vehicle_slam_modes_json = str(
+            self.declare_parameter("vehicle_slam_modes_json", "").value
+        )
+        self._vehicle_slam_mode_overrides = self._parse_vehicle_slam_mode_overrides(
+            self._vehicle_slam_modes_json
+        )
         self._vio_odom_stale_sec = max(
             0.0, float(self.declare_parameter("vio_odom_stale_sec", 1.0).value)
         )
@@ -1173,6 +1179,45 @@ class MissionNode(Node):
         )
         return self._SLAM_MODE_UNKNOWN
 
+    def _parse_vehicle_slam_mode_overrides(self, raw_json: str) -> dict[str, str]:
+        payload_raw = raw_json.strip()
+        if not payload_raw:
+            return {}
+
+        try:
+            payload = json.loads(payload_raw)
+        except json.JSONDecodeError:
+            self.get_logger().warning(
+                "Invalid vehicle_slam_modes_json; falling back to global slam_mode"
+            )
+            return {}
+
+        if not isinstance(payload, dict):
+            self.get_logger().warning(
+                "vehicle_slam_modes_json must be a JSON object; "
+                "falling back to global slam_mode"
+            )
+            return {}
+
+        overrides: dict[str, str] = {}
+        for raw_vehicle_id, raw_mode in payload.items():
+            if not isinstance(raw_mode, str):
+                continue
+            vehicle_id = self._normalize_vehicle_id(str(raw_vehicle_id))
+            if not vehicle_id:
+                continue
+            overrides[vehicle_id] = self._normalize_slam_mode(raw_mode)
+
+        return overrides
+
+    def _slam_mode_for_vehicle(self, vehicle_id: str) -> str:
+        normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
+        if not normalized_vehicle_id:
+            return self._SLAM_MODE_UNKNOWN
+        return self._vehicle_slam_mode_overrides.get(
+            normalized_vehicle_id, self._slam_mode
+        )
+
     def _vehicle_position_source_snapshot(self) -> dict[str, str]:
         sources: dict[str, str] = {}
         for endpoint in self._scout_endpoints:
@@ -1187,16 +1232,26 @@ class MissionNode(Node):
         slam_modes: dict[str, str] = {}
 
         for endpoint in self._scout_endpoints:
-            slam_modes[endpoint.vehicle_id] = self._slam_mode
+            slam_modes[endpoint.vehicle_id] = self._slam_mode_for_vehicle(
+                endpoint.vehicle_id
+            )
         for vehicle_id in self._scout_plans.keys():
-            slam_modes[vehicle_id] = self._slam_mode
+            slam_modes[vehicle_id] = self._slam_mode_for_vehicle(vehicle_id)
         if self._active_scout_vehicle_id:
-            slam_modes[self._active_scout_vehicle_id] = self._slam_mode
+            slam_modes[self._active_scout_vehicle_id] = self._slam_mode_for_vehicle(
+                self._active_scout_vehicle_id
+            )
 
         for endpoint in self._ranger_endpoints:
-            slam_modes.setdefault(endpoint.vehicle_id, self._SLAM_MODE_UNKNOWN)
+            slam_modes.setdefault(
+                endpoint.vehicle_id,
+                self._slam_mode_for_vehicle(endpoint.vehicle_id),
+            )
         if self._active_ranger_vehicle_id:
-            slam_modes.setdefault(self._active_ranger_vehicle_id, self._SLAM_MODE_UNKNOWN)
+            slam_modes.setdefault(
+                self._active_ranger_vehicle_id,
+                self._slam_mode_for_vehicle(self._active_ranger_vehicle_id),
+            )
 
         return dict(sorted(slam_modes.items()))
 

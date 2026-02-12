@@ -43,6 +43,7 @@
 #include "aeris_msgs/srv/get_map_tile_bytes.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 
@@ -145,6 +146,23 @@ void png_flush_callback(png_structp)
 int tms_row_from_slippy(int z, int y)
 {
   return ((1 << z) - 1) - y;
+}
+
+/**
+ * @brief Parses a tile id string in `z/x/y` form.
+ *
+ * @return Parsed z/x/y tuple when valid, std::nullopt otherwise.
+ */
+std::optional<std::array<int, 3>> parse_tile_id(const std::string & tile_id)
+{
+  int z = 0;
+  int x = 0;
+  int y = 0;
+  char trailing = '\0';
+  if (std::sscanf(tile_id.c_str(), "%d/%d/%d%c", &z, &x, &y, &trailing) != 3) {
+    return std::nullopt;
+  }
+  return std::array<int, 3>{z, x, y};
 }
 
 /**
@@ -313,11 +331,13 @@ std::vector<uint8_t> encode_png_rgba(const std::vector<uint8_t> & rgba, int widt
  * converts them to MBTiles format, and publishes tile descriptors
  * for ground station consumption.
  */
+namespace
+{
 class MapTilePublisher : public rclcpp::Node
 {
 public:
-  MapTilePublisher()
-  : rclcpp::Node("aeris_map_tile_publisher")
+  explicit MapTilePublisher(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
+  : rclcpp::Node("aeris_map_tile_publisher", options)
   {
     // Load parameters with defaults
     queue_depth_ = static_cast<int>(this->declare_parameter<int64_t>("queue_depth", 50));
@@ -370,11 +390,7 @@ public:
 
     // Configure layer IDs based on map source
     const std::vector<std::string> default_layer_ids =
-      (slam_backend_.use_point_cloud && !slam_backend_.use_occupancy)
-      ? std::vector<std::string>{
-        "point_cloud", "fetch-service:/map/get_tile_bytes", "mime:image/png"}
-      : std::vector<std::string>{
-        "occupancy", "fetch-service:/map/get_tile_bytes", "mime:image/png"};
+      default_layer_ids_for_activation(slam_backend_);
 
     layer_ids_ = this->declare_parameter<std::vector<std::string>>(
       "layer_ids",
@@ -389,19 +405,7 @@ public:
     publisher_ = this->create_publisher<aeris_msgs::msg::MapTile>(tile_topic_, qos);
 
     // Subscribe to map sources based on backend capability contract.
-    if (slam_backend_.use_occupancy) {
-      occupancy_subscription_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-        occupancy_topic_,
-        rclcpp::SensorDataQoS(),
-        std::bind(&MapTilePublisher::handle_occupancy_grid, this, std::placeholders::_1));
-    }
-
-    if (slam_backend_.use_point_cloud) {
-      point_cloud_subscription_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        point_cloud_topic_,
-        rclcpp::SensorDataQoS(),
-        std::bind(&MapTilePublisher::handle_point_cloud, this, std::placeholders::_1));
-    }
+    configure_backend_subscriptions();
 
     // Service for on-demand tile byte retrieval
     tile_service_ = this->create_service<aeris_msgs::srv::GetMapTileBytes>(
@@ -411,6 +415,9 @@ public:
         this,
         std::placeholders::_1,
         std::placeholders::_2));
+
+    parameter_callback_handle_ = this->add_on_set_parameters_callback(
+      std::bind(&MapTilePublisher::handle_parameter_updates, this, std::placeholders::_1));
 
     RCLCPP_INFO(
       this->get_logger(),
@@ -457,6 +464,106 @@ private:
    * Creates the database file if it doesn't exist and sets up the
    * required schema (metadata and tiles tables per MBTiles 1.3 spec).
    */
+  std::vector<std::string> default_layer_ids_for_activation(
+    const aeris_map::slam_backend::BackendActivation & activation) const
+  {
+    if (activation.use_point_cloud && !activation.use_occupancy) {
+      return {"point_cloud", "fetch-service:/map/get_tile_bytes", "mime:image/png"};
+    }
+    return {"occupancy", "fetch-service:/map/get_tile_bytes", "mime:image/png"};
+  }
+
+  void configure_backend_subscriptions()
+  {
+    if (slam_backend_.use_occupancy) {
+      occupancy_subscription_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+        occupancy_topic_,
+        rclcpp::SensorDataQoS(),
+        std::bind(&MapTilePublisher::handle_occupancy_grid, this, std::placeholders::_1));
+    } else {
+      occupancy_subscription_.reset();
+    }
+
+    if (slam_backend_.use_point_cloud) {
+      point_cloud_subscription_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+        point_cloud_topic_,
+        rclcpp::SensorDataQoS(),
+        std::bind(&MapTilePublisher::handle_point_cloud, this, std::placeholders::_1));
+    } else {
+      point_cloud_subscription_.reset();
+    }
+  }
+
+  rcl_interfaces::msg::SetParametersResult handle_parameter_updates(
+    const std::vector<rclcpp::Parameter> & parameters)
+  {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    result.reason = "accepted";
+
+    std::string requested_slam_mode = slam_mode_;
+    std::string requested_map_source = map_source_;
+    bool backend_config_changed = false;
+
+    for (const auto & parameter : parameters) {
+      if (parameter.get_name() == "slam_mode") {
+        if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+          result.successful = false;
+          result.reason = "slam_mode must be a string";
+          return result;
+        }
+        requested_slam_mode = parameter.as_string();
+        backend_config_changed = true;
+      } else if (parameter.get_name() == "map_source") {
+        if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
+          result.successful = false;
+          result.reason = "map_source must be a string";
+          return result;
+        }
+        requested_map_source = parameter.as_string();
+        backend_config_changed = true;
+      }
+    }
+
+    if (!backend_config_changed) {
+      return result;
+    }
+
+    const auto backend_start_result = aeris_map::slam_backend::start_backend(
+      requested_slam_mode,
+      requested_map_source,
+      occupancy_topic_,
+      point_cloud_topic_);
+    if (!backend_start_result.status.ready) {
+      result.successful = false;
+      result.reason =
+        "SLAM backend update failed: code=" +
+        aeris_map::slam_backend::startup_error_code_name(backend_start_result.status.code) +
+        " message=" + backend_start_result.status.message;
+      return result;
+    }
+
+    const auto previous_default_layer_ids = default_layer_ids_for_activation(slam_backend_);
+    const bool using_default_layer_ids = layer_ids_ == previous_default_layer_ids;
+
+    slam_mode_ = aeris_map::slam_backend::normalize_backend_mode(requested_slam_mode);
+    slam_backend_ = backend_start_result.activation;
+    map_source_ = slam_backend_.map_source;
+    if (using_default_layer_ids) {
+      layer_ids_ = default_layer_ids_for_activation(slam_backend_);
+    }
+    configure_backend_subscriptions();
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Updated SLAM backend at runtime. slam_mode=%s source=%s occupancy=%s point_cloud=%s",
+      slam_backend_.contract.mode.c_str(),
+      map_source_.c_str(),
+      slam_backend_.use_occupancy ? "enabled" : "disabled",
+      slam_backend_.use_point_cloud ? "enabled" : "disabled");
+
+    return result;
+  }
   void initialize_mbtiles()
   {
     const std::filesystem::path db_path(mbtiles_path_);
@@ -552,6 +659,66 @@ private:
    * Ensures a TileRaster exists for the given coordinates,
    * initializing with zeroed RGBA data if new.
    */
+  std::optional<std::vector<uint8_t>> lookup_tile_blob_from_mbtiles(
+    const std::string & tile_id)
+  {
+    const auto parsed = parse_tile_id(tile_id);
+    if (!parsed.has_value()) {
+      return std::nullopt;
+    }
+
+    const int z = (*parsed)[0];
+    const int x = (*parsed)[1];
+    const int y = (*parsed)[2];
+
+    sqlite3_stmt * stmt = nullptr;
+    constexpr const char * kSql =
+      "SELECT tile_data FROM tiles "
+      "WHERE zoom_level=? AND tile_column=? AND tile_row=?;";
+    if (sqlite3_prepare_v2(db_, kSql, -1, &stmt, nullptr) != SQLITE_OK) {
+      throw std::runtime_error("Failed to prepare tile lookup statement");
+    }
+
+    sqlite3_bind_int(stmt, 1, z);
+    sqlite3_bind_int(stmt, 2, x);
+    sqlite3_bind_int(stmt, 3, tms_row_from_slippy(z, y));
+
+    const int rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+      const auto * blob = static_cast<const uint8_t *>(sqlite3_column_blob(stmt, 0));
+      const int size = sqlite3_column_bytes(stmt, 0);
+      std::vector<uint8_t> bytes;
+      if (blob != nullptr && size > 0) {
+        bytes.assign(blob, blob + size);
+      }
+      sqlite3_finalize(stmt);
+      return bytes;
+    }
+
+    if (rc != SQLITE_DONE) {
+      const std::string err = sqlite3_errmsg(db_);
+      sqlite3_finalize(stmt);
+      throw std::runtime_error("Failed to execute tile lookup statement: " + err);
+    }
+
+    sqlite3_finalize(stmt);
+    return std::nullopt;
+  }
+
+  void upsert_tile_cache_locked(const std::string & tile_id, TilePayload payload)
+  {
+    const auto prev = tile_cache_.find(tile_id);
+    if (prev == tile_cache_.end()) {
+      cache_order_.push_back(tile_id);
+    }
+    tile_cache_[tile_id] = std::move(payload);
+
+    while (cache_order_.size() > max_cached_tiles_) {
+      const std::string oldest = cache_order_.front();
+      cache_order_.pop_front();
+      tile_cache_.erase(oldest);
+    }
+  }
   TileRaster & ensure_tile(
     std::map<TileGridKey, TileRaster> & rasters,
     int xtile,
@@ -749,17 +916,7 @@ private:
 
       upsert_tile_blob(zoom_, xtile, ytile, bytes);
 
-      if (prev == tile_cache_.end()) {
-        cache_order_.push_back(tile_id);
-      }
-      tile_cache_[tile_id] = std::move(payload);
-
-      // Enforce LRU cache size limit
-      while (cache_order_.size() > max_cached_tiles_) {
-        const std::string oldest = cache_order_.front();
-        cache_order_.pop_front();
-        tile_cache_.erase(oldest);
-      }
+      upsert_tile_cache_locked(tile_id, std::move(payload));
     }
 
     publisher_->publish(descriptor);
@@ -847,7 +1004,33 @@ private:
 
     std::scoped_lock<std::mutex> lock(cache_mutex_);
     const auto it = tile_cache_.find(request->tile_id);
-    if (it == tile_cache_.end()) {
+    if (it != tile_cache_.end()) {
+      response->found = true;
+      response->content_type = "image/png";
+      response->hash_sha256 = it->second.hash_sha256;
+      response->byte_size = it->second.byte_size;
+      response->published_at = it->second.published_at;
+      response->data = it->second.data;
+      return;
+    }
+
+    std::optional<std::vector<uint8_t>> db_tile_bytes;
+    try {
+      db_tile_bytes = lookup_tile_blob_from_mbtiles(request->tile_id);
+    } catch (const std::exception & ex) {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Tile lookup failed for %s: %s",
+        request->tile_id.c_str(),
+        ex.what());
+      response->found = false;
+      response->content_type = "image/png";
+      response->hash_sha256.clear();
+      response->byte_size = 0;
+      response->data.clear();
+      return;
+    }
+    if (!db_tile_bytes.has_value() || db_tile_bytes->empty()) {
       response->found = false;
       response->content_type = "image/png";
       response->hash_sha256.clear();
@@ -856,12 +1039,19 @@ private:
       return;
     }
 
+    TilePayload payload;
+    payload.data = *db_tile_bytes;
+    payload.hash_sha256 = aeris_map::tile_contract::sha256_hex(payload.data);
+    payload.byte_size = static_cast<uint32_t>(payload.data.size());
+    payload.published_at = this->now();
+    upsert_tile_cache_locked(request->tile_id, payload);
+
     response->found = true;
     response->content_type = "image/png";
-    response->hash_sha256 = it->second.hash_sha256;
-    response->byte_size = it->second.byte_size;
-    response->published_at = it->second.published_at;
-    response->data = it->second.data;
+    response->hash_sha256 = payload.hash_sha256;
+    response->byte_size = payload.byte_size;
+    response->published_at = payload.published_at;
+    response->data = payload.data;
   }
 
   // Configuration parameters
@@ -893,10 +1083,14 @@ private:
   rclcpp::Service<aeris_msgs::srv::GetMapTileBytes>::SharedPtr tile_service_;
 
   std::mutex cache_mutex_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr parameter_callback_handle_;
   std::unordered_map<std::string, TilePayload> tile_cache_;
   std::deque<std::string> cache_order_;
 };
 
+}  // namespace
+
+#ifndef AERIS_MAP_TILE_PUBLISHER_NO_MAIN
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
@@ -910,3 +1104,4 @@ int main(int argc, char * argv[])
   rclcpp::shutdown();
   return 0;
 }
+#endif
