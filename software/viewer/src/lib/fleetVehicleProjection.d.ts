@@ -6,6 +6,7 @@ export type VehicleMissionMeta = {
   assignmentLabel?: string;
   progress?: number;
   online?: boolean;
+  slamMode?: string;
 };
 
 export function applyVehicleMissionMeta(

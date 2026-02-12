@@ -111,12 +111,14 @@ export function FleetProvider({ children }: FleetProviderProps) {
   const [vehicleAssignmentLabels, setVehicleAssignmentLabels] = useState<Record<string, string>>({});
   const [vehicleProgress, setVehicleProgress] = useState<Record<string, number>>({});
   const [vehicleOnline, setVehicleOnline] = useState<Record<string, boolean>>({});
+  const [vehicleSlamModes, setVehicleSlamModes] = useState<Record<string, string>>({});
 
   const clearMissionVehicleMeta = useCallback(() => {
     setVehicleAssignments({});
     setVehicleAssignmentLabels({});
     setVehicleProgress({});
     setVehicleOnline({});
+    setVehicleSlamModes({});
   }, []);
   
   // Convert raw vehicle states to VehicleInfo
@@ -130,6 +132,7 @@ export function FleetProvider({ children }: FleetProviderProps) {
         assignmentLabel: vehicleAssignmentLabels[normalizedId],
         progress: vehicleProgress[normalizedId],
         online: vehicleOnline[normalizedId],
+        slamMode: vehicleSlamModes[normalizedId],
       });
     });
   }, [
@@ -140,6 +143,7 @@ export function FleetProvider({ children }: FleetProviderProps) {
     vehicleAssignmentLabels,
     vehicleOnline,
     vehicleProgress,
+    vehicleSlamModes,
   ]);
 
   useEffect(() => {
@@ -201,6 +205,9 @@ export function FleetProvider({ children }: FleetProviderProps) {
       }
       if (Object.keys(meta.online).length > 0) {
         setVehicleOnline(meta.online);
+      }
+      if (Object.keys(meta.slamModes).length > 0) {
+        setVehicleSlamModes(meta.slamModes);
       }
     };
 

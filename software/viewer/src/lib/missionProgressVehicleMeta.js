@@ -22,6 +22,7 @@ export function extractVehicleMissionMetaFromProgressPayload(rawData) {
       assignmentLabels: {},
       progress: {},
       online: {},
+      slamModes: {},
     };
   }
 
@@ -34,6 +35,7 @@ export function extractVehicleMissionMetaFromProgressPayload(rawData) {
       assignmentLabels: {},
       progress: {},
       online: {},
+      slamModes: {},
     };
   }
 
@@ -41,6 +43,7 @@ export function extractVehicleMissionMetaFromProgressPayload(rawData) {
   const assignmentLabels = {};
   const progress = {};
   const online = {};
+  const slamModes = {};
 
   const rawAssignments = parsed?.vehicleAssignments;
   if (rawAssignments && typeof rawAssignments === "object") {
@@ -95,10 +98,25 @@ export function extractVehicleMissionMetaFromProgressPayload(rawData) {
     }
   }
 
+  const rawSlamModes = parsed?.vehicleSlamModes;
+  if (rawSlamModes && typeof rawSlamModes === "object") {
+    for (const [vehicleId, value] of Object.entries(rawSlamModes)) {
+      if (typeof value !== "string") {
+        continue;
+      }
+      const normalizedId = normalizeVehicleId(vehicleId);
+      if (!normalizedId) {
+        continue;
+      }
+      slamModes[normalizedId] = value.trim().toLowerCase();
+    }
+  }
+
   return {
     assignments,
     assignmentLabels,
     progress,
     online,
+    slamModes,
   };
 }

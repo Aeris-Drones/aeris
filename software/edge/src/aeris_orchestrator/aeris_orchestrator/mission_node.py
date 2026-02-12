@@ -105,6 +105,8 @@ class MissionNode(Node):
         _POSITION_SOURCE_VIO,
         _POSITION_SOURCE_AUTO,
     }
+    _SUPPORTED_SLAM_MODES: Final[set[str]] = {"vio", "liosam"}
+    _SLAM_MODE_UNKNOWN: Final[str] = "unknown"
     _RETURN_TRAJECTORY_STATE_ACTIVE: Final[str] = "RETURNING"
     _RETURN_TRAJECTORY_STATE_FALLBACK: Final[str] = "FALLBACK"
     _OCCUPANCY_BLOCKED_THRESHOLD: Final[int] = 50
@@ -194,6 +196,9 @@ class MissionNode(Node):
             and self._navigation_position_source == self._POSITION_SOURCE_TELEMETRY
         ):
             self._navigation_position_source = self._POSITION_SOURCE_VIO
+        self._slam_mode = self._normalize_slam_mode(
+            str(self.declare_parameter("slam_mode", "vio").value)
+        )
         self._vio_odom_stale_sec = max(
             0.0, float(self.declare_parameter("vio_odom_stale_sec", 1.0).value)
         )
@@ -459,6 +464,7 @@ class MissionNode(Node):
             f"mavlink={self._scout_mavlink_host}:{self._scout_mavlink_udp_port}, "
             f"scout_endpoints={len(self._scout_endpoints)}, "
             f"position_source={self._navigation_position_source}, "
+            f"slam_mode={self._slam_mode}, "
             f"vio_topics={len(self._scout_odometry_topics)}"
         )
 
@@ -1139,6 +1145,12 @@ class MissionNode(Node):
             return self._POSITION_SOURCE_VIO, None
         return self._POSITION_SOURCE_TELEMETRY, None
 
+    def _normalize_slam_mode(self, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized in self._SUPPORTED_SLAM_MODES:
+            return normalized
+        return self._SLAM_MODE_UNKNOWN
+
     def _vehicle_position_source_snapshot(self) -> dict[str, str]:
         sources: dict[str, str] = {}
         for endpoint in self._scout_endpoints:
@@ -1148,6 +1160,23 @@ class MissionNode(Node):
                 source = self._navigation_position_source
             sources[vehicle_id] = source
         return dict(sorted(sources.items()))
+
+    def _vehicle_slam_mode_snapshot(self) -> dict[str, str]:
+        slam_modes: dict[str, str] = {}
+
+        for endpoint in self._scout_endpoints:
+            slam_modes[endpoint.vehicle_id] = self._slam_mode
+        for vehicle_id in self._scout_plans.keys():
+            slam_modes[vehicle_id] = self._slam_mode
+        if self._active_scout_vehicle_id:
+            slam_modes[self._active_scout_vehicle_id] = self._slam_mode
+
+        for endpoint in self._ranger_endpoints:
+            slam_modes.setdefault(endpoint.vehicle_id, self._SLAM_MODE_UNKNOWN)
+        if self._active_ranger_vehicle_id:
+            slam_modes.setdefault(self._active_ranger_vehicle_id, self._SLAM_MODE_UNKNOWN)
+
+        return dict(sorted(slam_modes.items()))
 
     def _parse_scout_endpoints(self) -> list[ScoutEndpoint]:
         endpoints: list[ScoutEndpoint] = []
@@ -3523,6 +3552,7 @@ class MissionNode(Node):
                 "vehicleOnline": vehicle_online,
                 "positionSourceMode": self._navigation_position_source,
                 "vehiclePositionSources": self._vehicle_position_source_snapshot(),
+                "vehicleSlamModes": self._vehicle_slam_mode_snapshot(),
                 "trackingPreservedNonTargetVehicles": list(
                     self._tracking_context.preserved_non_target_vehicle_ids
                 ),

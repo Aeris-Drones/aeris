@@ -27,6 +27,7 @@ def generate_launch_description() -> LaunchDescription:
     tile_service_name = LaunchConfiguration('tile_service_name')
     mbtiles_path = LaunchConfiguration('mbtiles_path')
     map_source = LaunchConfiguration('map_source')
+    slam_mode = LaunchConfiguration('slam_mode')
     rtabmap_database_path = LaunchConfiguration('rtabmap_database_path')
     openvins_log_directory = LaunchConfiguration('openvins_log_directory')
 
@@ -95,6 +96,7 @@ def generate_launch_description() -> LaunchDescription:
                 'tile_service_name': tile_service_name,
                 'mbtiles_path': mbtiles_path,
                 'map_source': map_source,
+                'slam_mode': slam_mode,
             },
         ],
     )
@@ -143,6 +145,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('tile_service_name', default_value='/map/get_tile_bytes'),
         DeclareLaunchArgument('mbtiles_path', default_value=mbtiles_default),
         DeclareLaunchArgument('map_source', default_value='occupancy'),
+        DeclareLaunchArgument('slam_mode', default_value='vio'),
         DeclareLaunchArgument('map_frame', default_value='map'),
         DeclareLaunchArgument('odom_frame', default_value='odom'),
         DeclareLaunchArgument('base_frame', default_value='base_link'),

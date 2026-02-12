@@ -32,6 +32,11 @@ test("extractVehicleMissionMetaFromProgressPayload parses valid metadata", () =>
       "scout-2": false,
       ranger1: 1,
     },
+    vehicleSlamModes: {
+      scout1: "vio",
+      "scout-2": "LioSam",
+      ranger1: "unknown",
+    },
   });
   const meta = extractVehicleMissionMetaFromProgressPayload(payload);
 
@@ -53,6 +58,11 @@ test("extractVehicleMissionMetaFromProgressPayload parses valid metadata", () =>
     scout_2: false,
     ranger_1: true,
   });
+  assert.deepEqual(meta.slamModes, {
+    scout_1: "vio",
+    scout_2: "liosam",
+    ranger_1: "unknown",
+  });
 });
 
 test("extractVehicleMissionMetaFromProgressPayload ignores malformed content", () => {
@@ -61,6 +71,7 @@ test("extractVehicleMissionMetaFromProgressPayload ignores malformed content", (
     vehicleAssignmentLabels: { scout1: ["bad"], scout2: "SEARCHING:zone-2" },
     vehicleProgress: { scout1: "10", scout2: Number.NaN, scout3: 10 },
     vehicleOnline: { scout1: 0 },
+    vehicleSlamModes: { scout1: 7, scout2: "vio" },
   });
   const meta = extractVehicleMissionMetaFromProgressPayload(payload);
 
@@ -68,6 +79,7 @@ test("extractVehicleMissionMetaFromProgressPayload ignores malformed content", (
   assert.deepEqual(meta.assignmentLabels, { scout_2: "SEARCHING:zone-2" });
   assert.deepEqual(meta.progress, { scout_3: 10 });
   assert.deepEqual(meta.online, { scout_1: false });
+  assert.deepEqual(meta.slamModes, { scout_2: "vio" });
 });
 
 test("extractVehicleMissionMetaFromProgressPayload returns empty maps for invalid JSON", () => {
@@ -77,5 +89,6 @@ test("extractVehicleMissionMetaFromProgressPayload returns empty maps for invali
     assignmentLabels: {},
     progress: {},
     online: {},
+    slamModes: {},
   });
 });

@@ -1,6 +1,5 @@
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -22,6 +21,7 @@
 #include <sqlite3.h>
 
 #include "aeris_map/tile_contract.hpp"
+#include "aeris_map/slam_backend.hpp"
 #include "aeris_msgs/msg/map_tile.hpp"
 #include "aeris_msgs/srv/get_map_tile_bytes.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
@@ -37,8 +37,7 @@ constexpr char kPointCloudTopic[] = "/rtabmap/cloud_map";
 constexpr char kGetTileService[] = "/map/get_tile_bytes";
 
 constexpr char kMapSourceOccupancy[] = "occupancy";
-constexpr char kMapSourcePointCloud[] = "point_cloud";
-constexpr char kMapSourceHybrid[] = "hybrid";
+constexpr char kDefaultSlamMode[] = "vio";
 
 constexpr int kDefaultTileSizePx = 256;
 constexpr int kDefaultZoom = 18;
@@ -225,26 +224,6 @@ std::vector<uint8_t> encode_png_rgba(const std::vector<uint8_t> & rgba, int widt
   return out;
 }
 
-std::string normalize_source_mode(std::string mode)
-{
-  std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) {
-    return static_cast<char>(std::tolower(c));
-  });
-
-  if (mode == "occupancy" || mode == "grid") {
-    return kMapSourceOccupancy;
-  }
-  if (mode == "pointcloud" || mode == "point_cloud" || mode == "cloud") {
-    return kMapSourcePointCloud;
-  }
-  if (mode == "hybrid" || mode == "both") {
-    return kMapSourceHybrid;
-  }
-
-  throw std::invalid_argument(
-          "map_source must be one of: occupancy, point_cloud, hybrid");
-}
-
 }  // namespace
 
 class MapTilePublisher : public rclcpp::Node
@@ -259,6 +238,7 @@ public:
     point_cloud_topic_ =
       this->declare_parameter<std::string>("point_cloud_topic", kPointCloudTopic);
     tile_service_name_ = this->declare_parameter<std::string>("tile_service_name", kGetTileService);
+    slam_mode_ = this->declare_parameter<std::string>("slam_mode", kDefaultSlamMode);
 
     const int zoom_param = static_cast<int>(this->declare_parameter<int64_t>("zoom", kDefaultZoom));
     zoom_ = std::clamp(zoom_param, 0, 22);
@@ -281,11 +261,27 @@ public:
     mbtiles_path_ =
       this->declare_parameter<std::string>("mbtiles_path", default_mbtiles_path());
 
-    map_source_ = normalize_source_mode(
-      this->declare_parameter<std::string>("map_source", kMapSourceOccupancy));
+    const std::string requested_map_source =
+      this->declare_parameter<std::string>("map_source", kMapSourceOccupancy);
+    const auto backend_start_result = aeris_map::slam_backend::start_backend(
+      slam_mode_,
+      requested_map_source,
+      occupancy_topic_,
+      point_cloud_topic_);
+    if (!backend_start_result.status.ready) {
+      std::ostringstream error;
+      error << "SLAM backend startup failed. mode="
+            << aeris_map::slam_backend::normalize_backend_mode(slam_mode_)
+            << " code="
+            << aeris_map::slam_backend::startup_error_code_name(backend_start_result.status.code)
+            << " message=" << backend_start_result.status.message;
+      throw std::runtime_error(error.str());
+    }
+    slam_backend_ = backend_start_result.activation;
+    map_source_ = slam_backend_.map_source;
 
     const std::vector<std::string> default_layer_ids =
-      (map_source_ == kMapSourcePointCloud)
+      (slam_backend_.use_point_cloud && !slam_backend_.use_occupancy)
       ? std::vector<std::string>{
         "point_cloud", "fetch-service:/map/get_tile_bytes", "mime:image/png"}
       : std::vector<std::string>{
@@ -302,19 +298,14 @@ public:
                  .durability_volatile();
     publisher_ = this->create_publisher<aeris_msgs::msg::MapTile>(tile_topic_, qos);
 
-    const bool use_occupancy =
-      (map_source_ == kMapSourceOccupancy) || (map_source_ == kMapSourceHybrid);
-    const bool use_point_cloud =
-      (map_source_ == kMapSourcePointCloud) || (map_source_ == kMapSourceHybrid);
-
-    if (use_occupancy) {
+    if (slam_backend_.use_occupancy) {
       occupancy_subscription_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
         occupancy_topic_,
         rclcpp::SensorDataQoS(),
         std::bind(&MapTilePublisher::handle_occupancy_grid, this, std::placeholders::_1));
     }
 
-    if (use_point_cloud) {
+    if (slam_backend_.use_point_cloud) {
       point_cloud_subscription_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
         point_cloud_topic_,
         rclcpp::SensorDataQoS(),
@@ -331,7 +322,8 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Map tile stream initialized. source=%s occupancy_topic=%s point_cloud_topic=%s publish_topic=%s service=%s zoom=%d mbtiles=%s",
+      "Map tile stream initialized. slam_mode=%s source=%s occupancy_topic=%s point_cloud_topic=%s publish_topic=%s service=%s zoom=%d mbtiles=%s",
+      slam_backend_.contract.mode.c_str(),
       map_source_.c_str(),
       occupancy_topic_.c_str(),
       point_cloud_topic_.c_str(),
@@ -348,6 +340,14 @@ public:
       "Change policy: publish_on_change_only=%s, republish_interval_sec=%.2f",
       publish_on_change_only_ ? "true" : "false",
       republish_interval_sec_);
+    RCLCPP_INFO(
+      this->get_logger(),
+      "SLAM backend contract: frame_chain=%s outputs=[%s,%s,%s] capabilities=%zu",
+      slam_backend_.contract.frame_chain.c_str(),
+      slam_backend_.contract.produced_outputs.size() > 0 ? slam_backend_.contract.produced_outputs[0].c_str() : "",
+      slam_backend_.contract.produced_outputs.size() > 1 ? slam_backend_.contract.produced_outputs[1].c_str() : "",
+      slam_backend_.contract.produced_outputs.size() > 2 ? slam_backend_.contract.produced_outputs[2].c_str() : "",
+      slam_backend_.contract.capabilities.size());
   }
 
   ~MapTilePublisher() override
@@ -740,9 +740,11 @@ private:
   std::string occupancy_topic_;
   std::string point_cloud_topic_;
   std::string tile_service_name_;
+  std::string slam_mode_;
   std::string mbtiles_path_;
   std::string map_source_;
   std::vector<std::string> layer_ids_;
+  aeris_map::slam_backend::BackendActivation slam_backend_;
 
   sqlite3 * db_{nullptr};
 

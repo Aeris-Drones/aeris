@@ -28,5 +28,9 @@ export function applyVehicleMissionMeta(vehicleInfo, meta = {}) {
     next.missionProgressPercent = meta.progress;
   }
 
+  if (typeof meta?.slamMode === "string" && meta.slamMode.trim()) {
+    next.slamMode = meta.slamMode.trim().toLowerCase();
+  }
+
   return next;
 }

@@ -44,6 +44,7 @@ ros2 topic echo /mission/progress --once
 Expected keys:
 - `positionSourceMode: "vio_odometry"`
 - `vehiclePositionSources.scout_1` starts with `vio_odometry`
+- `vehicleSlamModes.scout_1: "vio"`
 
 ## 5. Trigger VIO Return-to-Launch Scenario
 

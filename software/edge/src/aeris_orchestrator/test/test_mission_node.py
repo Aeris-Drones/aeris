@@ -1764,7 +1764,37 @@ def test_progress_payload_includes_vehicle_assignment_labels_and_progress(
     assert payload["vehicleProgress"]["scout_1"] == pytest.approx(100.0, abs=1e-3)
     assert payload["positionSourceMode"] == mission_node._navigation_position_source
     assert "scout_1" in payload["vehiclePositionSources"]
+    assert payload["vehicleSlamModes"]["scout_1"] == "vio"
+    assert payload["vehicleSlamModes"]["scout_2"] == "vio"
     assert "vehicleOnline" in payload
+
+
+def test_progress_payload_reports_unknown_slam_mode_when_mode_is_invalid(
+    mission_harness, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness
+    del observer
+
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "progress-payload-unknown-slam"
+    mission_node._slam_mode = "unknown"
+    mission_node._scout_last_seen_monotonic["scout_1"] = time.monotonic()
+
+    captured: list[str] = []
+
+    def _capture_publish(message: String) -> None:
+        captured.append(message.data)
+
+    monkeypatch.setattr(mission_node._progress_string_pub, "publish", _capture_publish)
+    monkeypatch.setattr(mission_node._progress_pub, "publish", lambda _: None)
+
+    mission_node._publish_progress_if_active()
+
+    assert captured
+    payload = json.loads(captured[-1])
+    assert payload["vehicleSlamModes"]["scout_1"] == "unknown"
+    assert payload["vehicleSlamModes"]["scout_2"] == "unknown"
+
 
 def test_vehicle_command_targets_only_requested_endpoint(
     mission_harness, monkeypatch

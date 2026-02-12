@@ -2,6 +2,7 @@ map_tile_publisher:
   ros__parameters:
     use_sim_time: true
     topic: /map/tiles
+    slam_mode: vio
     map_source: occupancy
     occupancy_topic: /map
     point_cloud_topic: /rtabmap/cloud_map

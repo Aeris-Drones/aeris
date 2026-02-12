@@ -7,12 +7,33 @@ source /opt/ros/humble/setup.bash
 source install/setup.bash
 
 ros2 launch software/sim/launch/multi_drone_sim.launch.py world:=software/sim/worlds/disaster_scene.sdf scout_model_name:=scout1
-ros2 launch aeris_map rtabmap_vio_sim.launch.py scout_model_name:=scout1
+ros2 launch aeris_map rtabmap_vio_sim.launch.py scout_model_name:=scout1 slam_mode:=vio
 ```
 
 For parallel scouts or repeated runs, set unique outputs per scout/run:
 - `openvins_log_directory:=/tmp/aeris/openvins/<scout_or_run_id>`
 - `rtabmap_database_path:=/tmp/aeris/rtabmap/<scout_or_run_id>.db`
+
+## SLAM Mode Runtime Verification
+
+Confirm mission-progress metadata reports active mode:
+
+```bash
+ros2 topic echo /mission/progress --once
+```
+
+Expected key:
+- `vehicleSlamModes.scout_1: "vio"` (and same mode for additional scouts in this phase)
+
+Validate guardrail for deferred LIO-SAM adapter:
+
+```bash
+ros2 run aeris_map map_tile_publisher --ros-args -p slam_mode:=liosam
+```
+
+Expected behavior:
+- startup fails with a `not implemented` message
+- process does not silently switch back to `vio`
 
 ## Required Smoke Checks
 

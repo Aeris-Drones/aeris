@@ -73,6 +73,10 @@ export function VehicleCard({
   const statusConfig = getVehicleStatusConfig(vehicle.status);
   const typeColor = getVehicleTypeColor(vehicle.type);
   const commandError = commandErrors[vehicle.id];
+  const slamModeLabel = (vehicle.slamMode ?? 'unknown').toUpperCase();
+  const missionProgressPercent = vehicle.missionProgressPercent;
+  const hasMissionProgress =
+    typeof missionProgressPercent === 'number' && Number.isFinite(missionProgressPercent);
   
   const handleSelect = () => {
     selectVehicle(isSelected ? null : vehicle.id);
@@ -121,11 +125,14 @@ export function VehicleCard({
                 {vehicle.assignment}
               </span>
             )}
-            {Number.isFinite(vehicle.missionProgressPercent) && (
+            {hasMissionProgress && (
               <span className="font-mono text-foreground">
-                {vehicle.missionProgressPercent.toFixed(0)}%
+                {missionProgressPercent.toFixed(0)}%
               </span>
             )}
+            <span className="text-xs text-muted-foreground">
+              SLAM: {slamModeLabel}
+            </span>
             <span className={getBatteryColor(vehicle.batteryPercent)}>
               {vehicle.batteryPercent.toFixed(0)}%
             </span>
@@ -213,11 +220,14 @@ export function VehicleCard({
                 {vehicle.assignment}
               </span>
             )}
-            {Number.isFinite(vehicle.missionProgressPercent) && (
+            {hasMissionProgress && (
               <span className="text-xs font-mono text-foreground">
-                {vehicle.missionProgressPercent.toFixed(0)}%
+                {missionProgressPercent.toFixed(0)}%
               </span>
             )}
+            <span className="text-xs text-muted-foreground">
+              SLAM: {slamModeLabel}
+            </span>
           </div>
         </div>
         
