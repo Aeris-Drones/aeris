@@ -29,6 +29,14 @@ map_tile_publisher:
     tile_service_name: /map/get_tile_bytes
 
     # -------------------------------------------------------------------------
+    # SLAM Backend Selection
+    # -------------------------------------------------------------------------
+    # Mode options:
+    #   - vio:     RTAB-Map + OpenVINS backend (default)
+    #   - liosam:  LIO-SAM backend contract stub (fails fast until implemented)
+    slam_mode: vio
+
+    # -------------------------------------------------------------------------
     # Map Source Selection
     # -------------------------------------------------------------------------
     # Source options:

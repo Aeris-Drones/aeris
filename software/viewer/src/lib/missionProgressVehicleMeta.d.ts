@@ -30,4 +30,5 @@ export function extractVehicleMissionMetaFromProgressPayload(
   assignmentLabels: Record<string, string>;
   progress: Record<string, number>;
   online: Record<string, boolean>;
+  slamModes: Record<string, string>;
 };

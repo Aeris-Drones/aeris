@@ -94,9 +94,50 @@ ros2 param set /rtabmap use_sim_time true
 - **Purpose**: SLAM and loop closure parameters
 - **Key parameters**: VIO integration, loop closure detection, map optimization
 
+### Map Tile Streaming Configuration
+- **File**: `software/edge/src/aeris_map/config/map_tile_stream.yaml`
+- **Purpose**: Map tile generation and streaming parameters for GCS consumption
+- **Key parameters**: `slam_mode`, `map_source`, tile cache and MBTiles storage settings
+
 ### Launch File
 - **File**: `software/edge/src/aeris_map/launch/rtabmap_vio_sim.launch.py`
 - **Purpose**: Coordinated launch of OpenVINS + RTAB-Map with simulation overrides
+
+## SLAM Mode Control and Verification
+
+- Runtime selector:
+  - `slam_mode:=vio` enables the RTAB-Map + OpenVINS adapter (default)
+  - `slam_mode:=liosam` selects the LIO-SAM adapter contract stub and intentionally fails fast as `not implemented`
+- Launch example:
+
+```bash
+ros2 launch aeris_map rtabmap_vio_sim.launch.py slam_mode:=vio
+```
+
+- Verify selected mode in mission progress payload:
+
+```bash
+ros2 topic echo /mission/progress --once
+```
+
+Expected metadata key:
+- `vehicleSlamModes.<vehicle_id>: "vio"` for scout vehicles in this phase
+
+- Validate deterministic fallback guardrail:
+
+```bash
+ros2 run aeris_map map_tile_publisher --ros-args -p slam_mode:=liosam
+```
+
+Expected behavior:
+- node exits with explicit `not-implemented` startup failure
+- no silent fallback to `vio`
+
+## Phase 2 Migration Constraints (LIO-SAM)
+
+- Keep map-service external outputs unchanged: `/map`, `/rtabmap/cloud_map`, `/map/tiles`, `/map/get_tile_bytes`.
+- Preserve frame contract: `map -> odom -> base_link`.
+- Require explicit LiDAR + IMU topic wiring before enabling runtime support; do not auto-fallback to `vio`.
 
 ## Architecture Guardrails
 

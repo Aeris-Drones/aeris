@@ -48,6 +48,7 @@ export interface VehicleInfo extends VehicleState {
   isSelected: boolean;
   assignment?: string;
   missionProgressPercent?: number;
+  slamMode?: string;
 }
 
 /**

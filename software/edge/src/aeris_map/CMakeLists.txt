@@ -22,14 +22,23 @@ target_compile_features(tile_contract PUBLIC cxx_std_17)
 ament_target_dependencies(tile_contract aeris_msgs)
 target_link_libraries(tile_contract OpenSSL::Crypto)
 
+add_library(slam_backend src/slam_backend.cpp)
+target_include_directories(slam_backend PRIVATE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+target_compile_features(slam_backend PUBLIC cxx_std_17)
+
 add_executable(map_tile_publisher src/map_tile_publisher.cpp)
 target_include_directories(map_tile_publisher PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 ament_target_dependencies(map_tile_publisher rclcpp aeris_msgs nav_msgs sensor_msgs)
-target_link_libraries(map_tile_publisher tile_contract PNG::PNG SQLite::SQLite3)
+target_link_libraries(map_tile_publisher tile_contract slam_backend PNG::PNG SQLite::SQLite3)
 
-install(TARGETS map_tile_publisher
+install(TARGETS
+  map_tile_publisher
+  tile_contract
+  slam_backend
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -49,6 +58,14 @@ if(BUILD_TESTING)
     )
     target_link_libraries(test_tile_contract tile_contract)
     ament_target_dependencies(test_tile_contract aeris_msgs)
+  endif()
+
+  ament_add_gtest(test_slam_backend test/test_slam_backend.cpp)
+  if(TARGET test_slam_backend)
+    target_include_directories(test_slam_backend PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(test_slam_backend slam_backend)
   endif()
 endif()
 

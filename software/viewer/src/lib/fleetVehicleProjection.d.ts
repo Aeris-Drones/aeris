@@ -18,6 +18,7 @@ export type VehicleMissionMeta = {
   progress?: number;
   /** Whether the vehicle is currently communicating with the mission controller */
   online?: boolean;
+  slamMode?: string;
 };
 
 /**

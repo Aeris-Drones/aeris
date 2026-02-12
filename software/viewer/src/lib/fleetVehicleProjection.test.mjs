@@ -74,3 +74,11 @@ test("applyVehicleMissionMeta ignores non-finite progress", () => {
 
   assert.equal(projected.missionProgressPercent, undefined);
 });
+
+test("applyVehicleMissionMeta projects normalized slam mode", () => {
+  const projected = applyVehicleMissionMeta(baseVehicle(), {
+    slamMode: "LioSam",
+  });
+
+  assert.equal(projected.slamMode, "liosam");
+});
