@@ -26,6 +26,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 def load_config(path: Path) -> list[dict[str, Any]]:
     """Load and validate the vehicle configuration file.
@@ -39,7 +41,14 @@ def load_config(path: Path) -> list[dict[str, Any]]:
     Raises:
         ValueError: If the configuration is missing required fields.
     """
-    data = json.loads(path.read_text())
+    text = path.read_text()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Config at {path} is not valid JSON/YAML: {exc}") from exc
     if "vehicles" not in data or not isinstance(data["vehicles"], list):
         raise ValueError("Config must contain a 'vehicles' list")
     return data["vehicles"]

@@ -11,10 +11,11 @@ Prerequisites:
     - Python 3.8+ with pytest
 """
 
-import json
 import math
 import os
 from pathlib import Path
+
+import yaml
 
 
 # Path to the multi-drone configuration file
@@ -27,7 +28,8 @@ def load_config():
     Returns:
         list: List of vehicle configuration dictionaries.
     """
-    return json.loads(CONFIG_PATH.read_text())['vehicles']
+    data = yaml.safe_load(CONFIG_PATH.read_text())
+    return data['vehicles']
 
 
 def test_config_file_exists():
