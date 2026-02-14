@@ -838,6 +838,32 @@ def test_detection_rejects_low_confidence_stale_and_cooldown(mission_harness_det
     assert mission_node._state == "SEARCHING"
 
 
+def test_thermal_normalization_uses_xyxy_bbox_center_projection() -> None:
+    mission_node = MissionNode.__new__(MissionNode)
+    mission_node._thermal_pixels_to_meters = 0.1
+    mission_node._mission_id = "bbox-contract"
+    mission_node._active_scout_position = lambda: {"x": 10.0, "z": -5.0}
+    mission_node._time_message_to_seconds = (
+        lambda stamp: float(getattr(stamp, "sec", 0))
+        + (float(getattr(stamp, "nanosec", 0)) / 1e9)
+    )
+    mission_node._now_seconds = lambda: 999.0
+
+    message = ThermalHotspot()
+    message.bbox_px = [100, 200, 140, 260]
+    message.confidence = 0.92
+    message.stamp.sec = 123
+    message.stamp.nanosec = 0
+    message.frame_id = "thermal_front"
+
+    event = mission_node._normalize_thermal_hotspot(message)
+
+    assert event.local_target["x"] == pytest.approx(10.0 + ((120.0 - 320.0) * 0.1))
+    assert event.local_target["z"] == pytest.approx(-5.0 + ((230.0 - 240.0) * 0.1))
+    assert event.confidence == pytest.approx(0.92)
+    assert event.timestamp_sec == pytest.approx(123.0)
+
+
 def test_detection_selects_nearest_online_scout_and_records_dispatch_latency(
     mission_harness_detection,
 ) -> None:

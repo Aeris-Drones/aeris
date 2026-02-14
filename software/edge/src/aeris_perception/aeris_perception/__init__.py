@@ -1,12 +1,8 @@
-"""AERIS perception package providing synthetic sensor data publishers.
+"""AERIS perception package providing simulation-ready perception nodes.
 
-This package contains ROS 2 nodes that generate synthetic sensor data for
-testing and validation of perception pipelines without requiring physical
-hardware. Supported sensor types include:
-
-- Thermal: ThermalHotspotNode generates synthetic thermal camera detections
-- Acoustic: AcousticBearingNode generates synthetic microphone array bearings
-- Gas: GasIsoplethNode generates synthetic gas plume contours
+This package contains ROS 2 nodes for thermal, acoustic, and gas perception.
+Thermal detections are derived from image processing, while acoustic and gas
+nodes provide simulation-friendly data feeds.
 
 Example:
     To run the thermal hotspot node::
@@ -15,7 +11,7 @@ Example:
 
     To run with custom parameters::
 
-        $ ros2 run aeris_perception thermal_hotspot --ros-args -p rate_hz:=10.0
+        $ ros2 run aeris_perception thermal_hotspot --ros-args -p target_publish_rate_hz:=10.0
 """
 
 __version__ = "0.1.0"

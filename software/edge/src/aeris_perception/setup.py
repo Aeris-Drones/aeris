@@ -1,8 +1,4 @@
-"""Setup configuration for the aeris_perception package.
-
-This package provides synthetic perception publishers for thermal, acoustic,
-and gas sensor simulation in ROS 2 environments.
-"""
+"""Setup configuration for the aeris_perception package."""
 
 from setuptools import setup
 
@@ -20,7 +16,7 @@ setup(
     zip_safe=True,
     maintainer="Aeris Developers",
     maintainer_email="dev@aeris.local",
-    description="Synthetic perception publishers for thermal, acoustic, and gas cues.",
+    description="Perception nodes for thermal, acoustic, and gas hazard cues.",
     license="proprietary",
     tests_require=["pytest"],
     entry_points={

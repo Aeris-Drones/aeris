@@ -1,159 +1,249 @@
-"""Synthetic thermal hotspot generator for testing detection pipelines.
+"""Thermal hotspot detector node backed by real image processing."""
 
-Simulates thermal camera detections by publishing randomized bounding
-boxes with temperature and confidence values. Enables validation of
-hotspot tracking and alerting without thermal hardware.
-"""
+from __future__ import annotations
 
-import random
-from typing import Any, List
+import time
+from collections import deque
+from typing import Any
 
+import numpy as np
 import rclpy
-from rcl_interfaces.msg import Parameter, SetParametersResult
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
+from rclpy.parameter import Parameter
+from sensor_msgs.msg import Image
 
 from aeris_msgs.msg import ThermalHotspot
 
+from .thermal_detection import (
+    ThermalDetectionConfig,
+    ThermalHotspotDetector,
+)
+
+try:
+    from cv_bridge import CvBridge
+except ImportError:  # pragma: no cover - cv_bridge is expected in ROS runtime
+    CvBridge = None
+
+
+def _decode_image_without_cv_bridge(message: Image) -> np.ndarray | None:
+    width = int(message.width)
+    height = int(message.height)
+    if width <= 0 or height <= 0 or not message.data:
+        return None
+
+    encoding = message.encoding.strip().lower()
+    expected = width * height
+    data = bytes(message.data)
+
+    if encoding in {"mono8", "8uc1"}:
+        array = np.frombuffer(data, dtype=np.uint8, count=expected)
+    elif encoding in {"mono16", "16uc1"}:
+        array = np.frombuffer(data, dtype=np.uint16, count=expected)
+    elif encoding in {"32fc1", "32fc"}:
+        array = np.frombuffer(data, dtype=np.float32, count=expected)
+    else:
+        return None
+
+    if array.size != expected:
+        return None
+    return array.reshape((height, width))
+
 
 class ThermalHotspotNode(Node):
-    """Generates synthetic thermal detections with randomized geometry.
-
-    Publishes bounding boxes with randomized positions, sizes, and temperatures
-    to simulate thermal camera output. Configurable rate allows stress-testing
-    of downstream consumers under varying detection frequencies.
-
-    The simulated bounding boxes are constrained to a 640x480 pixel frame
-    to represent a typical thermal camera resolution.
-
-    Attributes:
-        _rate_hz: Publication rate in Hz.
-        _publisher: ROS publisher for ThermalHotspot messages.
-        _timer: ROS timer triggering periodic publications.
-
-    ROS Parameters:
-        rate_hz (float): Publication frequency in Hz. Must be positive.
-            Default: 5.0
-
-    ROS Topics:
-        Published:
-            thermal/hotspots (aeris_msgs/msg/ThermalHotspot): Thermal
-                detections with bounding boxes, temperature, and confidence.
-    """
+    """Subscribe to thermal images and publish derived hotspot detections."""
 
     def __init__(self) -> None:
-        """Initialize the thermal hotspot node.
-
-        Declares parameters, creates the publisher, and starts the timer.
-        """
         super().__init__("thermal_hotspot")
-        self._rate_hz: float = self.declare_parameter("rate_hz", 5.0).value
-        self._publisher = self.create_publisher(
-            ThermalHotspot, "thermal/hotspots", 10
+        self._bridge = CvBridge() if CvBridge is not None else None
+        if self._bridge is None:
+            self.get_logger().warning(
+                "cv_bridge unavailable; using fallback image decoding for limited encodings."
+            )
+
+        thermal_image_topic = str(
+            self.declare_parameter(
+                "thermal_image_topic", "/scout1/thermal/image_raw"
+            ).value
         )
-        self._timer = self.create_timer(self._period_sec, self._publish_sample)
+        hotspot_topic = str(
+            self.declare_parameter("hotspot_topic", "thermal/hotspots").value
+        )
+        self._target_publish_rate_hz = float(
+            self.declare_parameter("target_publish_rate_hz", 10.0).value
+        )
+        self._temperature_scale = float(
+            self.declare_parameter("temperature_scale", 1.0).value
+        )
+        self._temperature_offset_c = float(
+            self.declare_parameter("temperature_offset_c", 0.0).value
+        )
+        self._frame_id_override = str(
+            self.declare_parameter("frame_id_override", "").value
+        )
+
+        config = ThermalDetectionConfig(
+            threshold_min_c=float(
+                self.declare_parameter("threshold_min_c", 30.0).value
+            ),
+            threshold_max_c=float(
+                self.declare_parameter("threshold_max_c", 120.0).value
+            ),
+            min_hotspot_area_px=int(
+                self.declare_parameter("min_hotspot_area_px", 25).value
+            ),
+            min_temp_delta_c=float(
+                self.declare_parameter("min_temp_delta_c", 4.0).value
+            ),
+            temporal_iou_gate=float(
+                self.declare_parameter("temporal_iou_gate", 0.2).value
+            ),
+            temporal_history_size=int(
+                self.declare_parameter("temporal_history_size", 4).value
+            ),
+            max_hotspots_per_frame=int(
+                self.declare_parameter("max_hotspots_per_frame", 5).value
+            ),
+        )
+        self._detector = ThermalHotspotDetector(config)
+
+        self._publisher = self.create_publisher(ThermalHotspot, hotspot_topic, 10)
+        self._subscription = self.create_subscription(
+            Image, thermal_image_topic, self._handle_thermal_image, 10
+        )
+        self._last_publish_monotonic = 0.0
+        self._process_times = deque(maxlen=60)
+        self._last_rate_log_monotonic = time.monotonic()
         self.add_on_set_parameters_callback(self._handle_param_update)
 
-    @property
-    def _period_sec(self) -> float:
-        """Calculate timer period from current rate.
+    def _handle_param_update(self, params: list[Parameter]) -> SetParametersResult:
+        config = self._detector.config
+        update = {
+            "threshold_min_c": config.threshold_min_c,
+            "threshold_max_c": config.threshold_max_c,
+            "min_hotspot_area_px": config.min_hotspot_area_px,
+            "min_temp_delta_c": config.min_temp_delta_c,
+            "min_aspect_ratio": config.min_aspect_ratio,
+            "max_aspect_ratio": config.max_aspect_ratio,
+            "temporal_iou_gate": config.temporal_iou_gate,
+            "temporal_history_size": config.temporal_history_size,
+            "max_hotspots_per_frame": config.max_hotspots_per_frame,
+            "local_background_margin_px": config.local_background_margin_px,
+        }
+        for parameter in params:
+            try:
+                if parameter.name in update:
+                    value = parameter.value
+                    if isinstance(update[parameter.name], int):
+                        update[parameter.name] = int(value)
+                    else:
+                        update[parameter.name] = float(value)
+                    continue
+                if parameter.name == "target_publish_rate_hz":
+                    self._target_publish_rate_hz = float(parameter.value)
+                    continue
+                if parameter.name == "temperature_scale":
+                    self._temperature_scale = float(parameter.value)
+                    continue
+                if parameter.name == "temperature_offset_c":
+                    self._temperature_offset_c = float(parameter.value)
+                    continue
+                if parameter.name == "frame_id_override":
+                    self._frame_id_override = str(parameter.value)
+            except (TypeError, ValueError):
+                return SetParametersResult(
+                    successful=False,
+                    reason=f"invalid value for parameter '{parameter.name}'",
+                )
 
-        Returns:
-            Timer period in seconds, clamped to prevent excessive rates.
-        """
-        rate = max(self._rate_hz, 0.1)
-        return 1.0 / rate
-
-    def _handle_param_update(self, params: List[Parameter]) -> SetParametersResult:
-        """Handle runtime parameter updates.
-
-        Args:
-            params: List of Parameter objects being set.
-
-        Returns:
-            SetParametersResult indicating success or failure.
-
-        Note:
-            When rate_hz is updated, the timer is cancelled and recreated
-            with the new period.
-        """
-        updated = False
-        for param in params:
-            if param.name == "rate_hz":
-                try:
-                    value = float(param.value)
-                except (TypeError, ValueError):
-                    return SetParametersResult(successful=False)
-                if value <= 0.0:
-                    self.get_logger().warning("rate_hz must be > 0.0")
-                    return SetParametersResult(successful=False)
-                self._rate_hz = value
-                updated = True
-        if updated:
-            # Recreate timer with new period
-            self._timer.cancel()
-            self._timer = self.create_timer(
-                self._period_sec, self._publish_sample
+        if update["threshold_min_c"] >= update["threshold_max_c"]:
+            return SetParametersResult(
+                successful=False,
+                reason="threshold_min_c must be < threshold_max_c",
             )
-            self.get_logger().info(
-                f"thermal rate set to {self._rate_hz:.2f} Hz"
+        if update["min_hotspot_area_px"] <= 0:
+            return SetParametersResult(
+                successful=False, reason="min_hotspot_area_px must be > 0"
             )
+        if update["min_temp_delta_c"] <= 0.0:
+            return SetParametersResult(
+                successful=False, reason="min_temp_delta_c must be > 0"
+            )
+
+        self._detector.update_config(ThermalDetectionConfig(**update))
         return SetParametersResult(successful=True)
 
-    def _random_bbox(self) -> List[int]:
-        """Generate a random bounding box within frame constraints.
+    def _image_to_temperature_celsius(self, message: Image) -> np.ndarray | None:
+        image_array: np.ndarray | None
+        if self._bridge is not None:
+            try:
+                image_array = np.asarray(
+                    self._bridge.imgmsg_to_cv2(message, desired_encoding="passthrough")
+                )
+            except Exception as error:  # pragma: no cover - ROS/cv_bridge runtime path
+                self.get_logger().warning(
+                    f"failed to decode thermal image with cv_bridge: {error}"
+                )
+                return None
+        else:
+            image_array = _decode_image_without_cv_bridge(message)
+            if image_array is None:
+                self.get_logger().warning(
+                    f"unsupported thermal image encoding '{message.encoding}' without cv_bridge"
+                )
+                return None
 
-        Creates a randomized bounding box [x_min, y_min, x_max, y_max]
-        constrained to a 640x480 pixel frame. The box dimensions vary
-        between 40-160 pixels in each direction.
+        return (image_array.astype(np.float32) * self._temperature_scale) + float(
+            self._temperature_offset_c
+        )
 
-        Returns:
-            List of 4 integers [x_min, y_min, x_max, y_max] representing
-            the bounding box in pixel coordinates.
+    def _extract_stamp(self, message: Image):
+        if message.header.stamp.sec > 0 or message.header.stamp.nanosec > 0:
+            return message.header.stamp
+        return self.get_clock().now().to_msg()
 
-        Algorithm:
-            1. Randomly select top-left corner (x_min, y_min)
-            2. Randomly select width and height (40-160 pixels)
-            3. Clamp bottom-right corner to frame bounds (639, 479)
-        """
-        # Random top-left corner in upper-left quadrant to allow room for size
-        x_min = random.randint(0, 400)
-        y_min = random.randint(0, 200)
-        # Random dimensions
-        width = random.randint(40, 160)
-        height = random.randint(40, 160)
-        # Calculate bottom-right with frame boundary clamping
-        x_max = min(x_min + width, 639)  # Frame width - 1
-        y_max = min(y_min + height, 479)  # Frame height - 1
-        return [x_min, y_min, x_max, y_max]
+    def _handle_thermal_image(self, message: Image) -> None:
+        now = time.monotonic()
+        if self._target_publish_rate_hz > 0.0:
+            min_interval = 1.0 / self._target_publish_rate_hz
+            if now - self._last_publish_monotonic < min_interval:
+                return
 
-    def _publish_sample(self) -> None:
-        """Generate and publish a synthetic thermal hotspot sample.
+        frame_celsius = self._image_to_temperature_celsius(message)
+        if frame_celsius is None:
+            return
 
-        Creates a ThermalHotspot message with:
-        - Current timestamp
-        - Randomized bounding box within frame bounds
-        - Temperature between 30-45°C (typical detection range)
-        - Confidence between 0.6-0.95 (moderate to high)
-        - Fixed frame_id representing front thermal camera
-        """
-        msg = ThermalHotspot()
-        msg.stamp = self.get_clock().now().to_msg()
-        msg.bbox_px = self._random_bbox()
-        # Temperature range represents typical hotspot detection
-        # (above ambient, below saturation)
-        msg.temp_c = random.uniform(30.0, 45.0)
-        # Confidence varies between moderate and high detection certainty
-        msg.confidence = random.uniform(0.6, 0.95)
-        msg.frame_id = "thermal_front"
-        self._publisher.publish(msg)
+        detections = self._detector.detect(frame_celsius)
+        if not detections:
+            return
+
+        stamp = self._extract_stamp(message)
+        frame_id = self._frame_id_override or message.header.frame_id or "thermal_front"
+        for detection in detections:
+            output = ThermalHotspot()
+            output.stamp = stamp
+            output.bbox_px = [
+                int(detection.bbox_xyxy[0]),
+                int(detection.bbox_xyxy[1]),
+                int(detection.bbox_xyxy[2]),
+                int(detection.bbox_xyxy[3]),
+            ]
+            output.temp_c = float(detection.temp_c)
+            output.confidence = float(detection.confidence)
+            output.frame_id = frame_id
+            self._publisher.publish(output)
+
+        self._last_publish_monotonic = now
+        self._process_times.append(now)
+        if now - self._last_rate_log_monotonic >= 5.0 and len(self._process_times) > 2:
+            elapsed = self._process_times[-1] - self._process_times[0]
+            if elapsed > 0.0:
+                fps = (len(self._process_times) - 1) / elapsed
+                self.get_logger().info(f"thermal detection publish rate {fps:.2f} fps")
+            self._last_rate_log_monotonic = now
 
 
 def main(args: Any = None) -> None:
-    """Entry point for the thermal hotspot node.
-
-    Args:
-        args: Command line arguments (passed to rclpy.init).
-    """
     rclpy.init(args=args)
     node = ThermalHotspotNode()
     try:

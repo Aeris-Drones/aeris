@@ -3,9 +3,9 @@
 # run_basic_sim.sh - Basic Gazebo simulation runner for Aeris
 #
 # DESCRIPTION:
-#   Launches a Gazebo simulation world with ROS-Gazebo bridge for stereo camera
-#   and IMU data. Supports both Ignition (Fortress) and Gazebo (Harmonic/Ionic)
-#   CLI tools with automatic detection.
+#   Launches a Gazebo simulation world with ROS-Gazebo bridge for stereo camera,
+#   thermal camera, and IMU data. Supports both Ignition (Fortress) and Gazebo
+#   (Harmonic/Ionic) CLI tools with automatic detection.
 #
 # USAGE:
 #   ./run_basic_sim.sh [options]
@@ -89,6 +89,7 @@ RIGHT_IMAGE_TOPIC_GZ=${RIGHT_IMAGE_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo
 LEFT_INFO_TOPIC_GZ=${LEFT_INFO_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo_left_link/sensor/stereo_left_camera/camera_info"}
 RIGHT_INFO_TOPIC_GZ=${RIGHT_INFO_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo_right_link/sensor/stereo_right_camera/camera_info"}
 IMU_TOPIC_GZ=${IMU_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/imu_link/sensor/imu_sensor/imu"}
+THERMAL_IMAGE_TOPIC_GZ=${THERMAL_IMAGE_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/thermal_link/sensor/thermal_camera/image"}
 
 # =============================================================================
 # ROS Topic Configuration
@@ -100,6 +101,7 @@ RIGHT_IMAGE_TOPIC_ROS=${RIGHT_IMAGE_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/righ
 LEFT_INFO_TOPIC_ROS=${LEFT_INFO_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/left/camera_info"}
 RIGHT_INFO_TOPIC_ROS=${RIGHT_INFO_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/right/camera_info"}
 IMU_TOPIC_ROS=${IMU_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/imu/data"}
+THERMAL_IMAGE_TOPIC_ROS=${THERMAL_IMAGE_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/thermal/image_raw"}
 
 # =============================================================================
 # Bridge Configuration
@@ -110,11 +112,12 @@ if [[ -n "${BRIDGE_TOPICS:-}" ]]; then
   # Use custom bridge topics if provided
   IFS=' ' read -r -a BRIDGE_TOPIC_ARGS <<< "${BRIDGE_TOPICS}"
 else
-  # Default bridge configuration for stereo vision and IMU
+  # Default bridge configuration for stereo vision, thermal, and IMU
   BRIDGE_TOPIC_ARGS=(
     "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
     "${LEFT_IMAGE_TOPIC_GZ}@sensor_msgs/msg/Image[gz.msgs.Image"
     "${RIGHT_IMAGE_TOPIC_GZ}@sensor_msgs/msg/Image[gz.msgs.Image"
+    "${THERMAL_IMAGE_TOPIC_GZ}@sensor_msgs/msg/Image[gz.msgs.Image"
     "${LEFT_INFO_TOPIC_GZ}@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"
     "${RIGHT_INFO_TOPIC_GZ}@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"
     "${IMU_TOPIC_GZ}@sensor_msgs/msg/Imu[gz.msgs.IMU"
@@ -127,13 +130,14 @@ if [[ -z "${BRIDGE_TOPICS:-}" || "${APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS:-0}" 
     "--ros-args"
     "-r" "${LEFT_IMAGE_TOPIC_GZ}:=${LEFT_IMAGE_TOPIC_ROS}"
     "-r" "${RIGHT_IMAGE_TOPIC_GZ}:=${RIGHT_IMAGE_TOPIC_ROS}"
+    "-r" "${THERMAL_IMAGE_TOPIC_GZ}:=${THERMAL_IMAGE_TOPIC_ROS}"
     "-r" "${LEFT_INFO_TOPIC_GZ}:=${LEFT_INFO_TOPIC_ROS}"
     "-r" "${RIGHT_INFO_TOPIC_GZ}:=${RIGHT_INFO_TOPIC_ROS}"
     "-r" "${IMU_TOPIC_GZ}:=${IMU_TOPIC_ROS}"
   )
 else
   BRIDGE_REMAP_ARGS=()
-  echo "[run_basic_sim] INFO: custom BRIDGE_TOPICS detected; default stereo/IMU remaps skipped." >&2
+  echo "[run_basic_sim] INFO: custom BRIDGE_TOPICS detected; default stereo/thermal/IMU remaps skipped." >&2
   echo "[run_basic_sim] INFO: set APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS=1 or provide matching remap vars to enable remaps." >&2
 fi
 
