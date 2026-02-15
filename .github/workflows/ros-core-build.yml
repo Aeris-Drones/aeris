@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-22.04
     container:
       image: osrf/ros:humble-desktop
+    env:
+      AMENT_TRACE_SETUP_FILES: ""
 
     steps:
       - name: Checkout
