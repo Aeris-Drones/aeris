@@ -17,6 +17,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import yaml
+
 
 # Path constants for recording system artifacts
 PROFILE = Path('software/sim/config/recording_profile.yaml')
@@ -34,7 +36,7 @@ def test_recording_profile_exists_and_topics_present():
     Then: The bag name prefix is 'aeris_mission' and required topics are present
     """
     assert PROFILE.is_file()
-    data = json.loads(PROFILE.read_text())
+    data = yaml.safe_load(PROFILE.read_text())
     assert data['bag_name_prefix'] == 'aeris_mission'
     topics = data['rosbag']['topics']
     assert '/clock' in topics

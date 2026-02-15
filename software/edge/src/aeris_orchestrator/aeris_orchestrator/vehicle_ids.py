@@ -39,5 +39,5 @@ def normalize_vehicle_id(value: str) -> str:
     if not normalized:
         return ""
     normalized = re.sub(r"([a-z]+)(\d+)", r"\1_\2", normalized)
-    normalized = re.sub(r"_+", "_").strip("_")
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
     return normalized

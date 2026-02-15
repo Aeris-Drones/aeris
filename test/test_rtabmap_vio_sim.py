@@ -43,6 +43,7 @@ TRAJECTORY_JSON = Path('software/sim/config/loop_closure_path.json')
 TOPIC_CHECK_SCRIPT = Path('software/sim/tools/validate_slam_topics.sh')
 LOOP_CHECK_SCRIPT = Path('software/sim/tools/validate_loop_closure.sh')
 RUN_BASIC_SIM_SCRIPT = Path('software/sim/tools/run_basic_sim.sh')
+THERMAL_RATE_SCRIPT = Path('software/sim/tools/validate_thermal_detection_rate.sh')
 MULTI_DRONE_SITL_STORY_DOC = Path('docs/specs/stories/multi_drone_sitl.md')
 
 
@@ -126,9 +127,11 @@ def test_slam_validation_scripts_present_and_executable():
     assert TOPIC_CHECK_SCRIPT.is_file()
     assert LOOP_CHECK_SCRIPT.is_file()
     assert RUN_BASIC_SIM_SCRIPT.is_file()
+    assert THERMAL_RATE_SCRIPT.is_file()
     assert os.access(TOPIC_CHECK_SCRIPT, os.X_OK)
     assert os.access(LOOP_CHECK_SCRIPT, os.X_OK)
     assert os.access(RUN_BASIC_SIM_SCRIPT, os.X_OK)
+    assert os.access(THERMAL_RATE_SCRIPT, os.X_OK)
 
 
 def test_validate_slam_topics_script_enforces_thresholds():
@@ -171,7 +174,24 @@ def test_run_basic_sim_script_supports_custom_bridge_topics_and_correct_repo_roo
     assert 'REPO_ROOT=$(cd -- "${SCRIPT_DIR}/../../.." && pwd)' in text
     assert "IFS=' ' read -r -a BRIDGE_TOPIC_ARGS <<< \"${BRIDGE_TOPICS}\"" in text
     assert 'APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS' in text
+    assert 'VEHICLES_CONFIG' in text
+    assert 'auto-generated bridge topics' in text
     assert '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock' in text
+
+
+def test_validate_thermal_detection_rate_script_checks_hotspot_throughput():
+    """Validate thermal throughput smoke script enforces hotspot rate target.
+
+    Given: The thermal throughput validation script exists
+    When: The script content is searched for topic-hz sampling and threshold checks
+    Then: Thermal hotspot topic and minimum threshold assertions are present
+    """
+    text = THERMAL_RATE_SCRIPT.read_text()
+    assert 'THERMAL_TOPIC' in text
+    assert '/thermal/hotspots' in text
+    assert 'MIN_HOTSPOT_HZ' in text
+    assert 'ros2 topic hz' in text
+    assert 'assert_min_rate' in text
 
 
 def test_multi_drone_story_doc_uses_execute_flag_for_sitl():

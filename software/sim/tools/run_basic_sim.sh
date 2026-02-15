@@ -3,9 +3,9 @@
 # run_basic_sim.sh - Basic Gazebo simulation runner for Aeris
 #
 # DESCRIPTION:
-#   Launches a Gazebo simulation world with ROS-Gazebo bridge for stereo camera
-#   and IMU data. Supports both Ignition (Fortress) and Gazebo (Harmonic/Ionic)
-#   CLI tools with automatic detection.
+#   Launches a Gazebo simulation world with ROS-Gazebo bridge for stereo camera,
+#   thermal camera, and IMU data. Supports both Ignition (Fortress) and Gazebo
+#   (Harmonic/Ionic) CLI tools with automatic detection.
 #
 # USAGE:
 #   ./run_basic_sim.sh [options]
@@ -16,6 +16,7 @@
 #   SCOUT_MODEL_NAME        - Name of the scout model (default: scout1)
 #   GPS_DENIED_MODE         - Enable GPS-denied simulation mode (default: false)
 #   POSITION_SOURCE_MODE    - Position source for GPS-denied mode (default: telemetry_geodetic)
+#   VEHICLES_CONFIG         - Optional multi-vehicle JSON/YAML config for auto bridge topic generation
 #   BRIDGE_TOPICS           - Custom bridge topic mappings (space-separated)
 #   APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS - Apply remaps with custom topics (default: 0)
 #   RECORDING_PROFILE       - Enable recording with specified profile
@@ -68,6 +69,7 @@ WORLD_NAME=${WORLD_NAME%.*}
 SCOUT_MODEL_NAME=${SCOUT_MODEL_NAME:-scout1}
 GPS_DENIED_MODE=${GPS_DENIED_MODE:-false}
 POSITION_SOURCE_MODE=${POSITION_SOURCE_MODE:-telemetry_geodetic}
+VEHICLES_CONFIG=${VEHICLES_CONFIG:-}
 
 # Path resolution - determine repository root and resource paths
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -89,6 +91,7 @@ RIGHT_IMAGE_TOPIC_GZ=${RIGHT_IMAGE_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo
 LEFT_INFO_TOPIC_GZ=${LEFT_INFO_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo_left_link/sensor/stereo_left_camera/camera_info"}
 RIGHT_INFO_TOPIC_GZ=${RIGHT_INFO_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/stereo_right_link/sensor/stereo_right_camera/camera_info"}
 IMU_TOPIC_GZ=${IMU_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/imu_link/sensor/imu_sensor/imu"}
+THERMAL_IMAGE_TOPIC_GZ=${THERMAL_IMAGE_TOPIC_GZ:-"${GZ_SCOUT_TOPIC_ROOT}/link/thermal_link/sensor/thermal_camera/image"}
 
 # =============================================================================
 # ROS Topic Configuration
@@ -100,21 +103,155 @@ RIGHT_IMAGE_TOPIC_ROS=${RIGHT_IMAGE_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/righ
 LEFT_INFO_TOPIC_ROS=${LEFT_INFO_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/left/camera_info"}
 RIGHT_INFO_TOPIC_ROS=${RIGHT_INFO_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/stereo/right/camera_info"}
 IMU_TOPIC_ROS=${IMU_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/imu/data"}
+THERMAL_IMAGE_TOPIC_ROS=${THERMAL_IMAGE_TOPIC_ROS:-"/${SCOUT_MODEL_NAME}/thermal/image_raw"}
 
 # =============================================================================
 # Bridge Configuration
 # =============================================================================
 
+# Auto-generated bridge and remap arguments from multi-vehicle config
+AUTO_BRIDGE_TOPIC_ARGS=()
+AUTO_BRIDGE_REMAP_ARGS=()
+if [[ -n "${VEHICLES_CONFIG}" ]]; then
+  VEHICLES_CONFIG_PATH="${VEHICLES_CONFIG}"
+  if [[ ! -f "${VEHICLES_CONFIG_PATH}" && -f "${REPO_ROOT}/${VEHICLES_CONFIG}" ]]; then
+    VEHICLES_CONFIG_PATH="${REPO_ROOT}/${VEHICLES_CONFIG}"
+  fi
+
+  if [[ -f "${VEHICLES_CONFIG_PATH}" ]]; then
+    while IFS= read -r line; do
+      case "${line}" in
+        TOPIC\ *)
+          AUTO_BRIDGE_TOPIC_ARGS+=("${line#TOPIC }")
+          ;;
+        REMAP\ *)
+          AUTO_BRIDGE_REMAP_ARGS+=("-r" "${line#REMAP }")
+          ;;
+      esac
+    done < <(python3 - "${VEHICLES_CONFIG_PATH}" "${WORLD_NAME}" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+config_path = Path(sys.argv[1])
+world_name = str(sys.argv[2]).strip()
+if not world_name:
+    raise SystemExit(0)
+
+text = config_path.read_text()
+data = None
+try:
+    data = json.loads(text)
+except json.JSONDecodeError:
+    try:
+        import yaml  # type: ignore
+    except ImportError as exc:
+        raise SystemExit(f"PyYAML is required to parse {config_path}: {exc}") from exc
+    data = yaml.safe_load(text)
+
+if not isinstance(data, dict):
+    raise SystemExit(0)
+vehicles = data.get("vehicles")
+if not isinstance(vehicles, list):
+    raise SystemExit(0)
+
+topic_specs = (
+    (
+        "left_image_topic",
+        "sensor_msgs/msg/Image",
+        "gz.msgs.Image",
+        "link/stereo_left_link/sensor/stereo_left_camera/image",
+    ),
+    (
+        "right_image_topic",
+        "sensor_msgs/msg/Image",
+        "gz.msgs.Image",
+        "link/stereo_right_link/sensor/stereo_right_camera/image",
+    ),
+    (
+        "thermal_image_topic",
+        "sensor_msgs/msg/Image",
+        "gz.msgs.Image",
+        "link/thermal_link/sensor/thermal_camera/image",
+    ),
+    (
+        "left_camera_info_topic",
+        "sensor_msgs/msg/CameraInfo",
+        "gz.msgs.CameraInfo",
+        "link/stereo_left_link/sensor/stereo_left_camera/camera_info",
+    ),
+    (
+        "right_camera_info_topic",
+        "sensor_msgs/msg/CameraInfo",
+        "gz.msgs.CameraInfo",
+        "link/stereo_right_link/sensor/stereo_right_camera/camera_info",
+    ),
+    (
+        "imu_topic",
+        "sensor_msgs/msg/Imu",
+        "gz.msgs.IMU",
+        "link/imu_link/sensor/imu_sensor/imu",
+    ),
+)
+
+clock_topic = "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
+seen_topics = {clock_topic}
+seen_remaps = set()
+print(f"TOPIC {clock_topic}")
+
+for vehicle in vehicles:
+    if not isinstance(vehicle, dict):
+        continue
+    vehicle_name = str(vehicle.get("name", "")).strip()
+    sensor_bridge = vehicle.get("sensor_bridge")
+    if not vehicle_name or not isinstance(sensor_bridge, dict):
+        continue
+    topic_root = f"/world/{world_name}/model/{vehicle_name}"
+
+    for key, ros_type, gz_type, topic_suffix in topic_specs:
+        ros_topic = sensor_bridge.get(key)
+        if not isinstance(ros_topic, str):
+            continue
+        ros_topic = ros_topic.strip()
+        if not ros_topic:
+            continue
+
+        gz_topic = f"{topic_root}/{topic_suffix}"
+        topic_arg = f"{gz_topic}@{ros_type}[{gz_type}"
+        remap_arg = f"{gz_topic}:={ros_topic}"
+
+        if topic_arg not in seen_topics:
+            print(f"TOPIC {topic_arg}")
+            seen_topics.add(topic_arg)
+        if remap_arg not in seen_remaps:
+            print(f"REMAP {remap_arg}")
+            seen_remaps.add(remap_arg)
+PY
+    )
+
+    if [[ ${#AUTO_BRIDGE_TOPIC_ARGS[@]} -gt 0 ]]; then
+      echo "[run_basic_sim] INFO: auto-generated bridge topics from ${VEHICLES_CONFIG_PATH}" >&2
+    fi
+  else
+    echo "[run_basic_sim] WARNING: VEHICLES_CONFIG not found: ${VEHICLES_CONFIG}" >&2
+  fi
+fi
+
 # Build bridge topic arguments - maps Gazebo topics to ROS message types
 if [[ -n "${BRIDGE_TOPICS:-}" ]]; then
   # Use custom bridge topics if provided
   IFS=' ' read -r -a BRIDGE_TOPIC_ARGS <<< "${BRIDGE_TOPICS}"
+elif [[ ${#AUTO_BRIDGE_TOPIC_ARGS[@]} -gt 0 ]]; then
+  BRIDGE_TOPIC_ARGS=("${AUTO_BRIDGE_TOPIC_ARGS[@]}")
 else
-  # Default bridge configuration for stereo vision and IMU
+  # Default bridge configuration for stereo vision, thermal, and IMU
   BRIDGE_TOPIC_ARGS=(
     "/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock"
     "${LEFT_IMAGE_TOPIC_GZ}@sensor_msgs/msg/Image[gz.msgs.Image"
     "${RIGHT_IMAGE_TOPIC_GZ}@sensor_msgs/msg/Image[gz.msgs.Image"
+    "${THERMAL_IMAGE_TOPIC_GZ}@sensor_msgs/msg/Image[gz.msgs.Image"
     "${LEFT_INFO_TOPIC_GZ}@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"
     "${RIGHT_INFO_TOPIC_GZ}@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"
     "${IMU_TOPIC_GZ}@sensor_msgs/msg/Imu[gz.msgs.IMU"
@@ -122,19 +259,34 @@ else
 fi
 
 # Configure topic remapping from Gazebo to ROS topic names
-if [[ -z "${BRIDGE_TOPICS:-}" || "${APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS:-0}" == "1" ]]; then
+if [[ -n "${BRIDGE_TOPICS:-}" ]]; then
+  if [[ "${APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS:-0}" == "1" ]]; then
+    BRIDGE_REMAP_ARGS=(
+      "--ros-args"
+      "-r" "${LEFT_IMAGE_TOPIC_GZ}:=${LEFT_IMAGE_TOPIC_ROS}"
+      "-r" "${RIGHT_IMAGE_TOPIC_GZ}:=${RIGHT_IMAGE_TOPIC_ROS}"
+      "-r" "${THERMAL_IMAGE_TOPIC_GZ}:=${THERMAL_IMAGE_TOPIC_ROS}"
+      "-r" "${LEFT_INFO_TOPIC_GZ}:=${LEFT_INFO_TOPIC_ROS}"
+      "-r" "${RIGHT_INFO_TOPIC_GZ}:=${RIGHT_INFO_TOPIC_ROS}"
+      "-r" "${IMU_TOPIC_GZ}:=${IMU_TOPIC_ROS}"
+    )
+  else
+    BRIDGE_REMAP_ARGS=()
+    echo "[run_basic_sim] INFO: custom BRIDGE_TOPICS detected; default stereo/thermal/IMU remaps skipped." >&2
+    echo "[run_basic_sim] INFO: set APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS=1 or provide matching remap vars to enable remaps." >&2
+  fi
+elif [[ ${#AUTO_BRIDGE_REMAP_ARGS[@]} -gt 0 ]]; then
+  BRIDGE_REMAP_ARGS=("--ros-args" "${AUTO_BRIDGE_REMAP_ARGS[@]}")
+else
   BRIDGE_REMAP_ARGS=(
     "--ros-args"
     "-r" "${LEFT_IMAGE_TOPIC_GZ}:=${LEFT_IMAGE_TOPIC_ROS}"
     "-r" "${RIGHT_IMAGE_TOPIC_GZ}:=${RIGHT_IMAGE_TOPIC_ROS}"
+    "-r" "${THERMAL_IMAGE_TOPIC_GZ}:=${THERMAL_IMAGE_TOPIC_ROS}"
     "-r" "${LEFT_INFO_TOPIC_GZ}:=${LEFT_INFO_TOPIC_ROS}"
     "-r" "${RIGHT_INFO_TOPIC_GZ}:=${RIGHT_INFO_TOPIC_ROS}"
     "-r" "${IMU_TOPIC_GZ}:=${IMU_TOPIC_ROS}"
   )
-else
-  BRIDGE_REMAP_ARGS=()
-  echo "[run_basic_sim] INFO: custom BRIDGE_TOPICS detected; default stereo/IMU remaps skipped." >&2
-  echo "[run_basic_sim] INFO: set APPLY_BRIDGE_REMAPS_WITH_CUSTOM_TOPICS=1 or provide matching remap vars to enable remaps." >&2
 fi
 
 # =============================================================================

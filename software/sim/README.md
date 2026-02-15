@@ -74,6 +74,7 @@ Inside the `osrf/ros:humble-desktop` container:
 ```bash
 sudo apt update
 sudo apt install ros-humble-ros-gz ros-humble-ros-gz-bridge
+pip install -r software/sim/tools/requirements.txt
 ```
 
 ## Usage Examples

@@ -18,6 +18,7 @@
       "sensor_bridge": {
         "left_image_topic": "/scout1/stereo/left/image_raw",
         "right_image_topic": "/scout1/stereo/right/image_raw",
+        "thermal_image_topic": "/scout1/thermal/image_raw",
         "left_camera_info_topic": "/scout1/stereo/left/camera_info",
         "right_camera_info_topic": "/scout1/stereo/right/camera_info",
         "imu_topic": "/scout1/imu/data",
@@ -44,6 +45,7 @@
       "sensor_bridge": {
         "left_image_topic": "/scout2/stereo/left/image_raw",
         "right_image_topic": "/scout2/stereo/right/image_raw",
+        "thermal_image_topic": "/scout2/thermal/image_raw",
         "left_camera_info_topic": "/scout2/stereo/left/camera_info",
         "right_camera_info_topic": "/scout2/stereo/right/camera_info",
         "imu_topic": "/scout2/imu/data",
