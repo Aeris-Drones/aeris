@@ -9,7 +9,7 @@ ROS Topics:
     Subscribed:
         /vehicle/telemetry (aeris_msgs/Telemetry): Vehicle position updates
     Published:
-        /perception/acoustic (aeris_msgs/AcousticBearing): Bearing detections
+        acoustic/bearing (aeris_msgs/AcousticBearing): Bearing detections
 
 Usage:
     python publish_acoustic.py
@@ -37,7 +37,7 @@ except ImportError:
 HOST = 'localhost'
 PORT = 9090
 TELEM_TOPIC = '/vehicle/telemetry'
-ACOUSTIC_TOPIC = '/perception/acoustic'
+ACOUSTIC_TOPIC = 'acoustic/bearing'
 ACOUSTIC_MSG_TYPE = 'aeris_msgs/AcousticBearing'
 
 # Sound source location: 100m North-East of base coordinate

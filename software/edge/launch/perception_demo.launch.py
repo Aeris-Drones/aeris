@@ -30,7 +30,28 @@ def generate_launch_description() -> LaunchDescription:
             executable="acoustic_bearing",
             name="acoustic_bearing",
             output="screen",
-            parameters=[{"rate_hz": 1.0}],
+            parameters=[
+                {
+                    "audio_topic": "acoustic/audio",
+                    "publish_topic": "acoustic/bearing",
+                    "rate_hz": 1.0,
+                    "window_size": 2048,
+                    "source_separation_deg": 25.0,
+                }
+            ],
+        ),
+        Node(
+            package="aeris_perception",
+            executable="acoustic_audio_sim",
+            name="acoustic_audio_sim",
+            output="screen",
+            parameters=[
+                {
+                    "output_topic": "acoustic/audio",
+                    "publish_rate_hz": 5.0,
+                    "window_size": 2048,
+                }
+            ],
         ),
         Node(
             package="aeris_perception",
@@ -68,9 +89,10 @@ def generate_launch_description() -> LaunchDescription:
         ),
         LogInfo(
             msg=(
-                "Perception demo running — thermal/acoustic/gas publishers plus mesh "
-                "impairments. Use 'ros2 topic hz' to verify rates and 'ros2 param set "
-                "/store_forward_tiles link_up false|true' to toggle buffering."
+                "Perception demo running with thermal/acoustic/gas pipeline and mesh "
+                "impairments. Verify acoustic output cadence with `ros2 topic hz "
+                "acoustic/bearing` and toggle buffering with `ros2 param set "
+                "/store_forward_tiles link_up false|true`."
             )
         ),
     ]
