@@ -102,6 +102,13 @@ export function useThermalHotspots(
     return lookup;
   }, [vehicles]);
 
+  const vehicleEntriesByLongestKey = useMemo(
+    () => Array.from(vehicleByKey.entries())
+      .filter(([normalizedVehicleId]) => normalizedVehicleId.length > 0)
+      .sort(([left], [right]) => right.length - left.length),
+    [vehicleByKey]
+  );
+
   const defaultVehicle = useMemo(() => {
     const explicit = vehicleByKey.get(normalizeVehicleKey(merged.fallbackVehicleId));
     if (explicit) {
@@ -129,7 +136,7 @@ export function useThermalHotspots(
       }
 
       const normalizedFrame = normalizeVehicleKey(frameId);
-      for (const [normalizedVehicleId, vehicle] of vehicleByKey.entries()) {
+      for (const [normalizedVehicleId, vehicle] of vehicleEntriesByLongestKey) {
         if (normalizedFrame.includes(normalizedVehicleId)) {
           return vehicle;
         }
@@ -218,6 +225,7 @@ export function useThermalHotspots(
     merged.fallbackVehicleId,
     ros,
     vehicleByKey,
+    vehicleEntriesByLongestKey,
   ]);
 
   return { detections, isConnected };
