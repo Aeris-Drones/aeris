@@ -131,12 +131,12 @@ class AcousticAudioSimNode(Node):
             MultiArrayDimension(
                 label="channels",
                 size=int(channel_count),
-                stride=int(channel_count * sample_count),
+                stride=int(sample_count),
             ),
             MultiArrayDimension(
                 label="samples",
                 size=int(sample_count),
-                stride=int(sample_count),
+                stride=1,
             ),
         ]
         message.data = frame.reshape(-1).astype(np.float32).tolist()
@@ -163,6 +163,31 @@ class AcousticAudioSimNode(Node):
                     self._sample_rate_hz = max(1000.0, float(parameter.value))
                 elif parameter.name == "speed_of_sound_mps":
                     self._speed_of_sound_mps = max(1.0, float(parameter.value))
+                elif parameter.name == "array_geometry_m":
+                    self._mic_positions_m = self._parse_array_geometry(parameter.value)
+                elif parameter.name == "source_bearings_deg":
+                    self._source_bearings_deg = self._parse_float_sequence(
+                        parameter.value,
+                        self._source_bearings_deg,
+                    )
+                elif parameter.name == "source_frequencies_hz":
+                    self._source_frequencies_hz = self._parse_float_sequence(
+                        parameter.value,
+                        self._source_frequencies_hz,
+                    )
+                elif parameter.name == "source_amplitudes":
+                    self._source_amplitudes = self._parse_float_sequence(
+                        parameter.value,
+                        self._source_amplitudes,
+                    )
+                elif parameter.name == "output_topic":
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            "output_topic requires node restart "
+                            "to rebind publishers"
+                        ),
+                    )
         except (TypeError, ValueError):
             return SetParametersResult(
                 successful=False,

@@ -114,3 +114,36 @@ def test_multi_source_returns_separated_candidates() -> None:
     second = candidates[1].bearing_deg
     separation = abs(((first - second + 180.0) % 360.0) - 180.0)
     assert separation >= 35.0
+
+
+def test_successive_estimates_converge_toward_true_direction() -> None:
+    sample_rate_hz = 16000.0
+    mic_positions = _array_geometry()
+    target_bearing_deg = 358.0
+    observed_bearing_sequence_deg = [340.0, 350.0, 358.0]
+    residuals: list[float] = []
+
+    for observed_bearing in observed_bearing_sequence_deg:
+        frame = synthesize_planar_wave(
+            mic_positions_m=mic_positions,
+            sample_rate_hz=sample_rate_hz,
+            source_bearings_deg=[observed_bearing],
+            frequencies_hz=[500.0],
+            amplitudes=[1.0],
+            window_size_samples=4096,
+            speed_of_sound_mps=343.0,
+        )
+        candidates = estimate_acoustic_candidates(
+            frame=frame,
+            sample_rate_hz=sample_rate_hz,
+            mic_positions_m=mic_positions,
+            speed_of_sound_mps=343.0,
+        )
+        assert candidates
+        residuals.append(
+            _circular_delta_deg(candidates[0].bearing_deg, target_bearing_deg)
+        )
+
+    assert residuals[-1] <= 12.0
+    assert residuals[-1] < residuals[0]
+    assert residuals[1] <= residuals[0]

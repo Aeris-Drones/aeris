@@ -72,10 +72,12 @@ class AcousticBearingNode(Node):
         )
         self._timer = self.create_timer(self._period_sec, self._publish_next_estimate)
 
+        self._frame_buffer: np.ndarray | None = None
         self._latest_frame: np.ndarray | None = None
         self._latest_frame_monotonic = -np.inf
         self._candidate_cursor = 0
         self._last_stale_warning_monotonic = -np.inf
+        self._last_malformed_warning_monotonic = -np.inf
         self.add_on_set_parameters_callback(self._handle_param_update)
 
     @property
@@ -109,6 +111,15 @@ class AcousticBearingNode(Node):
         samples = np.asarray(message.data, dtype=np.float32)
         if samples.size == 0:
             return None
+        try:
+            offset = int(message.layout.data_offset)
+        except (TypeError, ValueError):
+            return None
+        if offset < 0 or offset > samples.size:
+            return None
+        payload = samples[offset:]
+        if payload.size == 0:
+            return None
 
         channel_count = int(self._mic_positions_m.shape[0])
         if channel_count <= 1:
@@ -119,10 +130,10 @@ class AcousticBearingNode(Node):
             first_size = int(message.layout.dim[0].size)
             second_size = int(message.layout.dim[1].size)
             expected = first_size * second_size
-            if expected <= 0 or expected > samples.size:
+            if expected <= 0 or expected > payload.size:
                 return None
 
-            trimmed = samples[:expected]
+            trimmed = payload[:expected]
             matrix = trimmed.reshape(first_size, second_size)
             if first_size == channel_count:
                 frame = matrix
@@ -131,27 +142,43 @@ class AcousticBearingNode(Node):
             else:
                 return None
         else:
-            if samples.size % channel_count != 0:
+            if payload.size % channel_count != 0:
                 return None
-            frame = samples.reshape(channel_count, -1)
+            frame = payload.reshape(channel_count, -1)
 
-        if frame.shape[1] < self._window_size_samples:
+        if frame.shape[1] <= 0:
             return None
+        if not np.all(np.isfinite(frame)):
+            return None
+        return frame.astype(np.float32)
 
-        clipped = frame[:, -self._window_size_samples :]
-        if not np.all(np.isfinite(clipped)):
-            return None
-        return clipped.astype(np.float32)
+    def _append_audio_frame(self, frame: np.ndarray) -> None:
+        if self._frame_buffer is None or self._frame_buffer.shape[0] != frame.shape[0]:
+            self._frame_buffer = frame
+        else:
+            self._frame_buffer = np.concatenate((self._frame_buffer, frame), axis=1)
+
+        max_buffer_samples = max(self._window_size_samples * 4, self._window_size_samples)
+        if self._frame_buffer.shape[1] > max_buffer_samples:
+            self._frame_buffer = self._frame_buffer[:, -max_buffer_samples:]
+
+        if self._frame_buffer.shape[1] >= self._window_size_samples:
+            self._latest_frame = self._frame_buffer[:, -self._window_size_samples :]
+        else:
+            self._latest_frame = None
 
     def _handle_audio_frame(self, message: Float32MultiArray) -> None:
         frame = self._decode_audio_frame(message)
         if frame is None:
-            self.get_logger().warning(
-                "dropping malformed acoustic frame: invalid shape/channel metadata"
-            )
+            now_monotonic = time.monotonic()
+            if now_monotonic - self._last_malformed_warning_monotonic >= 5.0:
+                self.get_logger().warning(
+                    "dropping malformed acoustic frame: invalid shape/channel metadata"
+                )
+                self._last_malformed_warning_monotonic = now_monotonic
             return
 
-        self._latest_frame = frame
+        self._append_audio_frame(frame)
         self._latest_frame_monotonic = time.monotonic()
 
     def _publish_next_estimate(self) -> None:
@@ -192,6 +219,18 @@ class AcousticBearingNode(Node):
         self._publisher.publish(message)
 
     def _handle_param_update(self, params: list[Parameter]) -> SetParametersResult:
+        updated_rate_hz = self._rate_hz
+        updated_sample_rate_hz = self._sample_rate_hz
+        updated_window_size_samples = self._window_size_samples
+        updated_speed_of_sound_mps = self._speed_of_sound_mps
+        updated_source_separation_deg = self._source_separation_deg
+        updated_max_sources_per_cycle = self._max_sources_per_cycle
+        updated_frame_stale_sec = self._frame_stale_sec
+        updated_mic_array_id = self._mic_array_id
+        updated_vehicle_id = self._vehicle_id
+        updated_classification = self._classification
+        updated_mic_positions_m = self._mic_positions_m
+        geometry_updated = False
         try:
             for parameter in params:
                 if parameter.name == "rate_hz":
@@ -201,30 +240,24 @@ class AcousticBearingNode(Node):
                             successful=False,
                             reason="rate_hz must be > 0",
                         )
-                    self._rate_hz = updated_rate_hz
-                    self._timer.cancel()
-                    self._timer = self.create_timer(
-                        self._period_sec,
-                        self._publish_next_estimate,
-                    )
                 elif parameter.name == "sample_rate_hz":
-                    self._sample_rate_hz = max(1000.0, float(parameter.value))
+                    updated_sample_rate_hz = max(1000.0, float(parameter.value))
                 elif parameter.name == "window_size":
-                    self._window_size_samples = max(16, int(parameter.value))
+                    updated_window_size_samples = max(16, int(parameter.value))
                 elif parameter.name == "speed_of_sound_mps":
-                    self._speed_of_sound_mps = max(1.0, float(parameter.value))
+                    updated_speed_of_sound_mps = max(1.0, float(parameter.value))
                 elif parameter.name == "source_separation_deg":
-                    self._source_separation_deg = max(1.0, float(parameter.value))
+                    updated_source_separation_deg = max(1.0, float(parameter.value))
                 elif parameter.name == "max_sources_per_cycle":
-                    self._max_sources_per_cycle = max(1, int(parameter.value))
+                    updated_max_sources_per_cycle = max(1, int(parameter.value))
                 elif parameter.name == "frame_stale_sec":
-                    self._frame_stale_sec = max(0.1, float(parameter.value))
+                    updated_frame_stale_sec = max(0.1, float(parameter.value))
                 elif parameter.name == "mic_array":
-                    self._mic_array_id = str(parameter.value)
+                    updated_mic_array_id = str(parameter.value)
                 elif parameter.name == "vehicle_id":
-                    self._vehicle_id = str(parameter.value)
+                    updated_vehicle_id = str(parameter.value)
                 elif parameter.name == "classification":
-                    self._classification = str(parameter.value)
+                    updated_classification = str(parameter.value)
                 elif parameter.name in {"audio_topic", "publish_topic"}:
                     return SetParametersResult(
                         successful=False,
@@ -234,11 +267,55 @@ class AcousticBearingNode(Node):
                         ),
                     )
                 elif parameter.name == "array_geometry_m":
-                    self._mic_positions_m = self._parse_array_geometry(parameter.value)
+                    updated_mic_positions_m = self._parse_array_geometry(parameter.value)
+                    geometry_updated = True
         except (TypeError, ValueError):
             return SetParametersResult(
                 successful=False,
                 reason="invalid acoustic parameter value",
+            )
+
+        rate_hz_changed = updated_rate_hz != self._rate_hz
+        window_size_changed = updated_window_size_samples != self._window_size_samples
+
+        self._rate_hz = updated_rate_hz
+        self._sample_rate_hz = updated_sample_rate_hz
+        self._window_size_samples = updated_window_size_samples
+        self._speed_of_sound_mps = updated_speed_of_sound_mps
+        self._source_separation_deg = updated_source_separation_deg
+        self._max_sources_per_cycle = updated_max_sources_per_cycle
+        self._frame_stale_sec = updated_frame_stale_sec
+        self._mic_array_id = updated_mic_array_id
+        self._vehicle_id = updated_vehicle_id
+        self._classification = updated_classification
+        self._mic_positions_m = updated_mic_positions_m
+
+        if geometry_updated:
+            self._frame_buffer = None
+            self._latest_frame = None
+        elif window_size_changed and self._frame_buffer is not None:
+            max_buffer_samples = max(
+                self._window_size_samples * 4,
+                self._window_size_samples,
+            )
+            if self._frame_buffer.shape[1] > max_buffer_samples:
+                self._frame_buffer = self._frame_buffer[
+                    :,
+                    -max_buffer_samples:,
+                ]
+            if self._frame_buffer.shape[1] >= self._window_size_samples:
+                self._latest_frame = self._frame_buffer[
+                    :,
+                    -self._window_size_samples:,
+                ]
+            else:
+                self._latest_frame = None
+
+        if rate_hz_changed:
+            self._timer.cancel()
+            self._timer = self.create_timer(
+                self._period_sec,
+                self._publish_next_estimate,
             )
 
         return SetParametersResult(successful=True)
