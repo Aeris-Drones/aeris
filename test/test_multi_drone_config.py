@@ -90,3 +90,14 @@ def test_supporting_assets_present():
     """
     assert os.path.isfile('software/sim/tools/run_multi_drone_sitl.py')
     assert os.path.isfile('software/sim/launch/multi_drone_sim.launch.py')
+
+
+def test_multi_drone_launch_passes_vehicle_config_to_basic_sim_bridge_generation():
+    """Validate launch wiring forwards vehicle config to run_basic_sim.sh.
+
+    Given: The multi-drone launch file exists
+    When: The launch file text is searched for run_basic_sim.sh environment wiring
+    Then: VEHICLES_CONFIG is passed so bridge topics can be generated per vehicle
+    """
+    launch_text = Path('software/sim/launch/multi_drone_sim.launch.py').read_text()
+    assert 'VEHICLES_CONFIG={config}' in launch_text

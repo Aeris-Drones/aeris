@@ -49,6 +49,10 @@ def load_config(path: Path) -> list[dict[str, Any]]:
             data = yaml.safe_load(text)
         except yaml.YAMLError as exc:
             raise ValueError(f"Config at {path} is not valid JSON/YAML: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Config at {path} must be a mapping containing a 'vehicles' list, got {type(data).__name__}"
+        )
     if "vehicles" not in data or not isinstance(data["vehicles"], list):
         raise ValueError("Config must contain a 'vehicles' list")
     return data["vehicles"]

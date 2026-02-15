@@ -1,5 +1,6 @@
 import numpy as np
 
+import aeris_perception.thermal_detection as thermal_detection
 from aeris_perception.thermal_detection import (
     ThermalDetectionConfig,
     ThermalHotspotDetector,
@@ -64,8 +65,8 @@ def test_temporal_gate_suppresses_transient_hotspot_like_noise() -> None:
     stable[18:32, 22:42] = 41.0
     assert len(detector.detect(stable)) == 1
 
-    transient = _base_frame(ambient_c=25.0)
-    transient[55:70, 70:86] = 29.0
+    transient = _base_frame(ambient_c=27.0)
+    transient[55:70, 70:86] = 30.8
     detections = detector.detect(transient)
     assert detections == []
 
@@ -85,3 +86,23 @@ def test_detector_output_is_deterministic_for_same_input() -> None:
     result_b = ThermalHotspotDetector(config).detect(frame)
 
     assert result_a == result_b
+
+
+def test_fallback_component_extraction_uses_eight_connected_neighbors(monkeypatch) -> None:
+    monkeypatch.setattr(thermal_detection, "cv2", None)
+    detector = ThermalHotspotDetector(
+        ThermalDetectionConfig(
+            threshold_min_c=30.0,
+            threshold_max_c=120.0,
+            min_hotspot_area_px=2,
+            min_temp_delta_c=2.0,
+        )
+    )
+    frame = _base_frame(height=20, width=20, ambient_c=24.0)
+    frame[5, 5] = 42.0
+    frame[6, 6] = 42.0
+
+    detections = detector.detect(frame)
+
+    assert len(detections) == 1
+    assert detections[0].bbox_xyxy == (5, 5, 6, 6)

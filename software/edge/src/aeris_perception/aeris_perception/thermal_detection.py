@@ -95,7 +95,16 @@ def _extract_components_without_cv2(mask: np.ndarray) -> list[_Component]:
     height, width = mask.shape
     visited = np.zeros_like(mask, dtype=bool)
     components: list[_Component] = []
-    neighbors = ((1, 0), (-1, 0), (0, 1), (0, -1))
+    neighbors = (
+        (-1, -1),
+        (0, -1),
+        (1, -1),
+        (-1, 0),
+        (1, 0),
+        (-1, 1),
+        (0, 1),
+        (1, 1),
+    )
 
     for y_start in range(height):
         for x_start in range(width):

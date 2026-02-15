@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, forwardRef, useImperativeHandle } from 'react';
+import React, { useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { Canvas, ThreeEvent } from '@react-three/fiber';
 import { CameraControls, Grid } from '@react-three/drei';
@@ -9,45 +9,9 @@ import { DetectionMarker3D, DetectionMarker3DProps } from './DetectionMarker3D';
 import { FlightTrail3D } from './FlightTrail3D';
 import { ZoneOverlay3D, ZoneDrawingPreview } from './ZoneOverlay3D';
 import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
+import type { Detection } from '@/components/sheets/DetectionCard';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
-
-/**
- * Mock detection data for development/demo purposes.
- * Positions use Three.js coordinate system: [x, y, z] where y is up.
- *
- * TODO: Replace with live detection feed from perception pipeline.
- */
-const mockDetections: Omit<DetectionMarker3DProps, 'isSelected' | 'onClick'>[] = [
-  {
-    id: 'det-1',
-    position: [50, 0, -50],
-    sensorType: 'thermal',
-    confidence: 0.92,
-    status: 'new',
-  },
-  {
-    id: 'det-2',
-    position: [-80, 0, 120],
-    sensorType: 'acoustic',
-    confidence: 0.78,
-    status: 'reviewing',
-  },
-  {
-    id: 'det-3',
-    position: [200, 0, 50],
-    sensorType: 'gas',
-    confidence: 0.65,
-    status: 'confirmed',
-  },
-  {
-    id: 'det-4',
-    position: [-150, 0, -80],
-    sensorType: 'thermal',
-    confidence: 0.88,
-    status: 'new',
-  },
-];
 
 /**
  * Imperative handle interface exposed by MapScene3D.
@@ -66,6 +30,8 @@ export interface MapScene3DHandle {
  * Props for the MapScene3D component.
  */
 interface MapScene3DProps {
+  /** Sensor detections to render in the scene */
+  detections?: Detection[];
   /** Currently selected drone ID for highlighting */
   selectedDroneId?: string | null;
   /** Currently selected detection ID for highlighting */
@@ -110,6 +76,7 @@ interface MapScene3DProps {
  */
 export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
   ({
+    detections = [],
     selectedDroneId,
     selectedDetectionId,
     onDroneSelect,
@@ -143,6 +110,25 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
         trailPoints,
       };
     });
+
+    const mapDetections: Omit<DetectionMarker3DProps, 'isSelected' | 'onClick'>[] = useMemo(
+      () =>
+        detections
+          .filter((detection) => {
+            if (detection.sensorType === 'thermal') return visibility.thermal;
+            if (detection.sensorType === 'acoustic') return visibility.acoustic;
+            if (detection.sensorType === 'gas') return visibility.gas;
+            return true;
+          })
+          .map((detection) => ({
+            id: detection.id,
+            position: detection.position,
+            sensorType: detection.sensorType,
+            confidence: detection.confidence,
+            status: detection.status,
+          })),
+      [detections, visibility.acoustic, visibility.gas, visibility.thermal]
+    );
 
     useImperativeHandle(ref, () => ({
       setCameraView: (view: 'wide' | 'tracking' | 'overhead') => {
@@ -234,7 +220,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
           ))}
 
           {/* Detection markers */}
-          {mockDetections.map((detection) => (
+          {mapDetections.map((detection) => (
             <DetectionMarker3D
               key={detection.id}
               {...detection}

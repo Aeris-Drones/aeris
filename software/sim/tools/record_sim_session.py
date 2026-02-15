@@ -50,7 +50,12 @@ def load_profile(path: Path) -> dict[str, Any]:
             data = yaml.safe_load(text)
         except yaml.YAMLError as exc:
             raise ValueError(f"Profile at {path} is not valid JSON/YAML: {exc}") from exc
-    if "rosbag" not in data or "topics" not in data["rosbag"]:
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Profile at {path} must be a mapping (JSON/YAML object), got {type(data).__name__}"
+        )
+    rosbag_section = data.get("rosbag")
+    if not isinstance(rosbag_section, dict) or "topics" not in rosbag_section:
         raise ValueError("Profile missing rosbag/topics section")
     return data
 

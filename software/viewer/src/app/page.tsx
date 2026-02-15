@@ -23,6 +23,7 @@ import { AlertToaster, showAlert, dismissAllAlerts, type Alert } from '@/compone
 import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
+import { useThermalHotspots } from '@/hooks/useThermalHotspots';
 
 /**
  * Mock detections for UI demonstration when ROS telemetry is unavailable.
@@ -118,9 +119,26 @@ function V2PageContent() {
   } = useMissionControl();
   const { vehicles: telemetryVehicles } = useVehicleTelemetry();
 
-  const [detections, setDetections] = useState<Detection[]>(mockDetections);
+  const [detectionStatusOverrides, setDetectionStatusOverrides] = useState<Record<string, Detection['status']>>({});
   const [pipVehicleId, setPipVehicleId] = useState<string | null>(null);
   const mapRef = useRef<MapScene3DHandle>(null);
+  const {
+    detections: liveThermalDetections,
+    isConnected: thermalFeedConnected,
+  } = useThermalHotspots(telemetryVehicles);
+
+  const baseDetections = useMemo<Detection[]>(
+    () => (thermalFeedConnected ? liveThermalDetections : mockDetections),
+    [liveThermalDetections, thermalFeedConnected]
+  );
+  const detections = useMemo<Detection[]>(
+    () =>
+      baseDetections.map((detection) => ({
+        ...detection,
+        status: detectionStatusOverrides[detection.id] ?? detection.status,
+      })),
+    [baseDetections, detectionStatusOverrides]
+  );
 
   /**
    * Transforms ROS telemetry into FleetCard-compatible vehicle summaries.
@@ -240,15 +258,17 @@ function V2PageContent() {
   }, [detections]);
 
   const handleConfirmDetection = useCallback((id: string) => {
-    setDetections(prev => prev.map(d =>
-      d.id === id ? { ...d, status: 'confirmed' as const } : d
-    ));
+    setDetectionStatusOverrides((previous) => ({
+      ...previous,
+      [id]: 'confirmed',
+    }));
   }, []);
 
   const handleDismissDetection = useCallback((id: string) => {
-    setDetections(prev => prev.map(d =>
-      d.id === id ? { ...d, status: 'dismissed' as const } : d
-    ));
+    setDetectionStatusOverrides((previous) => ({
+      ...previous,
+      [id]: 'dismissed',
+    }));
   }, []);
 
   const handleLocateDetection = useCallback((id: string) => {
@@ -353,6 +373,7 @@ function V2PageContent() {
       map={
         <MapScene3D
           ref={mapRef}
+          detections={detections}
           selectedDroneId={selectedDroneId}
           selectedDetectionId={selectedDetectionId}
           onDroneSelect={handleDroneSelect}

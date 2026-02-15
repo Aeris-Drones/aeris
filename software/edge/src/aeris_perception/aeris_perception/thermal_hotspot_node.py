@@ -21,9 +21,10 @@ from .thermal_detection import (
 )
 
 try:
-    from cv_bridge import CvBridge
+    from cv_bridge import CvBridge, CvBridgeError
 except ImportError:  # pragma: no cover - cv_bridge is expected in ROS runtime
     CvBridge = None
+    CvBridgeError = RuntimeError
 
 
 def _decode_image_without_cv_bridge(message: Image) -> np.ndarray | None:
@@ -33,21 +34,48 @@ def _decode_image_without_cv_bridge(message: Image) -> np.ndarray | None:
         return None
 
     encoding = message.encoding.strip().lower()
-    expected = width * height
-    data = bytes(message.data)
-
+    bytes_per_pixel = 0
     if encoding in {"mono8", "8uc1"}:
-        array = np.frombuffer(data, dtype=np.uint8, count=expected)
+        dtype = np.dtype(np.uint8)
+        bytes_per_pixel = 1
     elif encoding in {"mono16", "16uc1"}:
-        array = np.frombuffer(data, dtype=np.uint16, count=expected)
+        dtype = np.dtype(np.uint16)
+        bytes_per_pixel = 2
     elif encoding in {"32fc1", "32fc"}:
-        array = np.frombuffer(data, dtype=np.float32, count=expected)
+        dtype = np.dtype(np.float32)
+        bytes_per_pixel = 4
     else:
         return None
 
-    if array.size != expected:
+    if bytes_per_pixel > 1:
+        byte_order = ">" if int(getattr(message, "is_bigendian", 0)) else "<"
+        dtype = dtype.newbyteorder(byte_order)
+
+    row_bytes = width * bytes_per_pixel
+    step = int(getattr(message, "step", 0)) or row_bytes
+    if step < row_bytes:
         return None
-    return array.reshape((height, width))
+
+    data = bytes(message.data)
+    expected_total = step * height
+    if len(data) < expected_total:
+        return None
+
+    expected = width * height
+    if step == row_bytes:
+        array = np.frombuffer(data, dtype=dtype, count=expected)
+        if array.size != expected:
+            return None
+        return array.reshape((height, width))
+
+    frame = np.empty((height, width), dtype=dtype)
+    for row in range(height):
+        row_start = row * step
+        row_end = row_start + row_bytes
+        frame[row, :] = np.frombuffer(
+            data[row_start:row_end], dtype=dtype, count=width
+        )
+    return frame
 
 
 class ThermalHotspotNode(Node):
@@ -69,9 +97,22 @@ class ThermalHotspotNode(Node):
         hotspot_topic = str(
             self.declare_parameter("hotspot_topic", "thermal/hotspots").value
         )
-        self._target_publish_rate_hz = float(
-            self.declare_parameter("target_publish_rate_hz", 10.0).value
+        default_target_rate_hz = 10.0
+        configured_target_rate_hz = float(
+            self.declare_parameter(
+                "target_publish_rate_hz", default_target_rate_hz
+            ).value
         )
+        legacy_rate_hz = float(
+            self.declare_parameter("rate_hz", configured_target_rate_hz).value
+        )
+        if (
+            configured_target_rate_hz == default_target_rate_hz
+            and legacy_rate_hz != configured_target_rate_hz
+        ):
+            self._target_publish_rate_hz = legacy_rate_hz
+        else:
+            self._target_publish_rate_hz = configured_target_rate_hz
         self._temperature_scale = float(
             self.declare_parameter("temperature_scale", 1.0).value
         )
@@ -139,7 +180,7 @@ class ThermalHotspotNode(Node):
                     else:
                         update[parameter.name] = float(value)
                     continue
-                if parameter.name == "target_publish_rate_hz":
+                if parameter.name in {"target_publish_rate_hz", "rate_hz"}:
                     self._target_publish_rate_hz = float(parameter.value)
                     continue
                 if parameter.name == "temperature_scale":
@@ -180,7 +221,10 @@ class ThermalHotspotNode(Node):
                 image_array = np.asarray(
                     self._bridge.imgmsg_to_cv2(message, desired_encoding="passthrough")
                 )
-            except Exception as error:  # pragma: no cover - ROS/cv_bridge runtime path
+            except (
+                CvBridgeError,
+                ValueError,
+            ) as error:  # pragma: no cover - ROS/cv_bridge runtime path
                 self.get_logger().warning(
                     f"failed to decode thermal image with cv_bridge: {error}"
                 )
@@ -208,6 +252,7 @@ class ThermalHotspotNode(Node):
             min_interval = 1.0 / self._target_publish_rate_hz
             if now - self._last_publish_monotonic < min_interval:
                 return
+        self._last_publish_monotonic = now
 
         frame_celsius = self._image_to_temperature_celsius(message)
         if frame_celsius is None:
@@ -233,7 +278,6 @@ class ThermalHotspotNode(Node):
             output.frame_id = frame_id
             self._publisher.publish(output)
 
-        self._last_publish_monotonic = now
         self._process_times.append(now)
         if now - self._last_rate_log_monotonic >= 5.0 and len(self._process_times) > 2:
             elapsed = self._process_times[-1] - self._process_times[0]

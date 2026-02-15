@@ -101,6 +101,7 @@ def launch_setup(context):
                 f'WORLD_PATH={world} SCOUT_MODEL_NAME={scout_model_name} '
                 f'GPS_DENIED_MODE={gps_denied_mode} '
                 f'POSITION_SOURCE_MODE={position_source_mode} '
+                f'VEHICLES_CONFIG={config} '
                 f'./software/sim/tools/run_basic_sim.sh',
             ],
             output='screen',
