@@ -807,6 +807,22 @@ def test_detection_acceptance_transitions_to_tracking_and_resumes_searching(
     assert mission_node._last_tracking_completion_reason == "resolution signal"
 
 
+
+
+def test_acoustic_detection_acceptance_transitions_to_tracking(
+    mission_harness_detection,
+) -> None:
+    mission_node, observer = mission_harness_detection
+    _start_searching_mission(mission_node, observer)
+
+    _publish_acoustic(observer, confidence=0.95, bearing_deg=55.0)
+    assert _wait_until(lambda: mission_node._state == "TRACKING")
+
+    signal = String()
+    signal.data = "resolved"
+    observer.tracking_resolution_publisher.publish(signal)
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
+
 def test_detection_rejects_low_confidence_stale_and_cooldown(mission_harness_detection) -> None:
     mission_node, observer = mission_harness_detection
     _start_searching_mission(mission_node, observer)

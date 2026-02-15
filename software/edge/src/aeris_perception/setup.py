@@ -23,6 +23,7 @@ setup(
         "console_scripts": [
             "thermal_hotspot = aeris_perception.thermal_hotspot_node:main",
             "acoustic_bearing = aeris_perception.acoustic_bearing_node:main",
+            "acoustic_audio_sim = aeris_perception.acoustic_audio_sim_node:main",
             "gas_isopleth = aeris_perception.gas_isopleth_node:main",
         ],
     },
