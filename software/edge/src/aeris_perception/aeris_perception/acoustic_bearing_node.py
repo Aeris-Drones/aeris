@@ -327,7 +327,7 @@ def main(args: Any = None) -> None:
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        node.get_logger().info("acoustic bearing node interrupted; shutting down")
     finally:
         node.destroy_node()
         rclpy.shutdown()
