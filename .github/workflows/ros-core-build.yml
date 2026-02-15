@@ -1,0 +1,63 @@
+name: ROS Core Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ros-core-build:
+    name: ros-core-build
+    runs-on: ubuntu-22.04
+    container:
+      image: osrf/ros:humble-desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential \
+            python3-colcon-common-extensions \
+            python3-rosdep
+
+      - name: Resolve ROS dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /opt/ros/humble/setup.bash
+          if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
+            rosdep init
+          fi
+          rosdep update
+          rosdep install --from-paths software/edge/src --ignore-src -r -y
+
+      - name: Build ROS core packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /opt/ros/humble/setup.bash
+          colcon build \
+            --packages-select aeris_msgs aeris_map aeris_perception aeris_mesh_agent aeris_orchestrator \
+            --symlink-install
+
+      - name: Upload colcon logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ros-core-build-logs
+          path: log/
+          if-no-files-found: ignore
