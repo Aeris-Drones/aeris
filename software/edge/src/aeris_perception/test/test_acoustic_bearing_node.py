@@ -302,8 +302,8 @@ def test_pipeline_publish_rate_is_near_one_hz() -> None:
         for node in (observer, bearing_node, sim_node):
             try:
                 executor.remove_node(node)
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"Ignoring exception while removing node from executor: {exc}")
         executor.shutdown()
         observer.destroy_node()
         bearing_node.destroy_node()
