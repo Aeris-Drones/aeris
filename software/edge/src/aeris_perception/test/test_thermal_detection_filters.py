@@ -1,10 +1,6 @@
 import numpy as np
 
 import aeris_perception.thermal_detection as thermal_detection
-from aeris_perception.thermal_detection import (
-    ThermalDetectionConfig,
-    ThermalHotspotDetector,
-)
 
 
 def _base_frame(height: int = 80, width: int = 100, ambient_c: float = 24.0) -> np.ndarray:
@@ -12,8 +8,8 @@ def _base_frame(height: int = 80, width: int = 100, ambient_c: float = 24.0) -> 
 
 
 def test_extracts_hotspot_with_image_derived_bbox_temp_and_confidence() -> None:
-    detector = ThermalHotspotDetector(
-        ThermalDetectionConfig(
+    detector = thermal_detection.ThermalHotspotDetector(
+        thermal_detection.ThermalDetectionConfig(
             threshold_min_c=30.0,
             threshold_max_c=120.0,
             min_hotspot_area_px=20,
@@ -33,8 +29,8 @@ def test_extracts_hotspot_with_image_derived_bbox_temp_and_confidence() -> None:
 
 
 def test_rejects_small_or_low_delta_components() -> None:
-    detector = ThermalHotspotDetector(
-        ThermalDetectionConfig(
+    detector = thermal_detection.ThermalHotspotDetector(
+        thermal_detection.ThermalDetectionConfig(
             threshold_min_c=29.0,
             threshold_max_c=120.0,
             min_hotspot_area_px=25,
@@ -51,8 +47,8 @@ def test_rejects_small_or_low_delta_components() -> None:
 
 
 def test_temporal_gate_suppresses_transient_hotspot_like_noise() -> None:
-    detector = ThermalHotspotDetector(
-        ThermalDetectionConfig(
+    detector = thermal_detection.ThermalHotspotDetector(
+        thermal_detection.ThermalDetectionConfig(
             threshold_min_c=30.0,
             threshold_max_c=120.0,
             min_hotspot_area_px=20,
@@ -72,7 +68,7 @@ def test_temporal_gate_suppresses_transient_hotspot_like_noise() -> None:
 
 
 def test_detector_output_is_deterministic_for_same_input() -> None:
-    config = ThermalDetectionConfig(
+    config = thermal_detection.ThermalDetectionConfig(
         threshold_min_c=30.0,
         threshold_max_c=120.0,
         min_hotspot_area_px=12,
@@ -82,16 +78,16 @@ def test_detector_output_is_deterministic_for_same_input() -> None:
     frame[8:18, 10:26] = 43.0
     frame[48:62, 60:81] = 45.0
 
-    result_a = ThermalHotspotDetector(config).detect(frame)
-    result_b = ThermalHotspotDetector(config).detect(frame)
+    result_a = thermal_detection.ThermalHotspotDetector(config).detect(frame)
+    result_b = thermal_detection.ThermalHotspotDetector(config).detect(frame)
 
     assert result_a == result_b
 
 
 def test_fallback_component_extraction_uses_eight_connected_neighbors(monkeypatch) -> None:
     monkeypatch.setattr(thermal_detection, "cv2", None)
-    detector = ThermalHotspotDetector(
-        ThermalDetectionConfig(
+    detector = thermal_detection.ThermalHotspotDetector(
+        thermal_detection.ThermalDetectionConfig(
             threshold_min_c=30.0,
             threshold_max_c=120.0,
             min_hotspot_area_px=2,
