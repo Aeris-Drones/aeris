@@ -40,7 +40,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          set +u
           source /opt/ros/humble/setup.bash
+          set -u
           if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
             rosdep init
           fi
@@ -51,7 +53,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          set +u
           source /opt/ros/humble/setup.bash
+          set -u
           colcon build \
             --packages-select aeris_msgs aeris_map aeris_perception aeris_mesh_agent aeris_orchestrator \
             --symlink-install
