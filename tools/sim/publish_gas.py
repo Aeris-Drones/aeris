@@ -8,7 +8,7 @@ time to simulate wind effects.
 
 ROS Topics:
     Published:
-        /perception/gas (aeris_msgs/GasIsopleth): Gas concentration polygons
+        /gas/isopleth (aeris_msgs/GasIsopleth): Gas concentration polygons
 
 Usage:
     python publish_gas.py
@@ -38,7 +38,7 @@ except ImportError:
 # ROS bridge connection settings
 HOST = 'localhost'
 PORT = 9090
-TOPIC = '/perception/gas'
+TOPIC = '/gas/isopleth'
 MSG_TYPE = 'aeris_msgs/GasIsopleth'
 
 # Base coordinate for simulation
