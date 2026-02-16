@@ -26,6 +26,8 @@ class GasIsoplethNode(Node):
         super().__init__("gas_isopleth", parameter_overrides=parameter_overrides)
 
         self._rate_hz = float(self.declare_parameter("rate_hz", 0.5).value)
+        if self._rate_hz <= 0.0:
+            raise ValueError("rate_hz must be > 0")
         self._species = str(self.declare_parameter("species", "VOC").value)
         self._units = str(self.declare_parameter("units", "ppm").value)
 
@@ -39,15 +41,34 @@ class GasIsoplethNode(Node):
             self.declare_parameter("output_topic", "gas/isopleth").value
         )
 
-        self._smoothing_window = int(self.declare_parameter("smoothing_window", 30).value)
-        self._plume_resolution = int(self.declare_parameter("plume_resolution", 24).value)
-        self._sample_stale_sec = float(self.declare_parameter("sample_stale_sec", 4.0).value)
-        self._wind_stale_sec = float(self.declare_parameter("wind_stale_sec", 2.0).value)
-        self._hold_last_sec = float(self.declare_parameter("hold_last_sec", 5.0).value)
-        self._min_wind_speed_mps = float(
-            self.declare_parameter("min_wind_speed_mps", 0.1).value
+        self._smoothing_window = max(
+            3, int(self.declare_parameter("smoothing_window", 30).value)
         )
-        self._max_extent_m = float(self.declare_parameter("max_extent_m", 250.0).value)
+        self._plume_resolution = max(
+            8, int(self.declare_parameter("plume_resolution", 24).value)
+        )
+        self._sample_stale_sec = max(
+            0.1, float(self.declare_parameter("sample_stale_sec", 4.0).value)
+        )
+        self._wind_stale_sec = max(
+            0.1, float(self.declare_parameter("wind_stale_sec", 2.0).value)
+        )
+        self._hold_last_sec = max(
+            0.0, float(self.declare_parameter("hold_last_sec", 5.0).value)
+        )
+        self._min_wind_speed_mps = max(
+            0.0,
+            float(self.declare_parameter("min_wind_speed_mps", 0.1).value),
+        )
+        self._max_extent_m = max(
+            1.0, float(self.declare_parameter("max_extent_m", 250.0).value)
+        )
+        self._expected_frame_id = str(
+            self.declare_parameter("expected_frame_id", "").value
+        ).strip()
+        self._max_future_skew_sec = max(
+            0.0, float(self.declare_parameter("max_future_skew_sec", 0.25).value)
+        )
 
         self._model = self._create_model()
 
@@ -81,6 +102,7 @@ class GasIsoplethNode(Node):
             hold_last_sec=self._hold_last_sec,
             min_wind_speed_mps=self._min_wind_speed_mps,
             max_extent_m=self._max_extent_m,
+            future_tolerance_sec=self._max_future_skew_sec,
         )
 
     def _handle_param_update(self, params: list[Parameter]) -> SetParametersResult:
@@ -95,6 +117,8 @@ class GasIsoplethNode(Node):
         hold_last_sec = self._hold_last_sec
         min_wind_speed_mps = self._min_wind_speed_mps
         max_extent_m = self._max_extent_m
+        expected_frame_id = self._expected_frame_id
+        max_future_skew_sec = self._max_future_skew_sec
 
         requires_timer_reset = False
         requires_model_reset = False
@@ -182,6 +206,17 @@ class GasIsoplethNode(Node):
                         reason="max_extent_m must be numeric",
                     )
                 requires_model_reset = True
+            elif parameter.name == "expected_frame_id":
+                expected_frame_id = str(parameter.value).strip()
+            elif parameter.name == "max_future_skew_sec":
+                try:
+                    max_future_skew_sec = max(0.0, float(parameter.value))
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False,
+                        reason="max_future_skew_sec must be numeric",
+                    )
+                requires_model_reset = True
             elif parameter.name in {
                 "gas_input_topic",
                 "wind_input_topic",
@@ -206,6 +241,8 @@ class GasIsoplethNode(Node):
         self._hold_last_sec = hold_last_sec
         self._min_wind_speed_mps = min_wind_speed_mps
         self._max_extent_m = max_extent_m
+        self._expected_frame_id = expected_frame_id
+        self._max_future_skew_sec = max_future_skew_sec
 
         if requires_model_reset:
             self._model = self._create_model()
@@ -233,9 +270,11 @@ class GasIsoplethNode(Node):
         self._publisher.publish(msg)
 
     def _handle_gas_sample(self, message: PointStamped) -> None:
-        stamp_sec = self._stamp_to_seconds(message.header.stamp)
-        if stamp_sec <= 0.0:
-            stamp_sec = self._now_seconds()
+        if not self._frame_is_valid(frame_id=message.header.frame_id, source="gas"):
+            return
+        stamp_sec = self._resolve_stamp_seconds(message.header.stamp, source="gas")
+        if stamp_sec is None:
+            return
 
         concentration = float(message.point.z)
         self._model.add_sample(
@@ -246,9 +285,11 @@ class GasIsoplethNode(Node):
         )
 
     def _handle_wind_sample(self, message: Vector3Stamped) -> None:
-        stamp_sec = self._stamp_to_seconds(message.header.stamp)
-        if stamp_sec <= 0.0:
-            stamp_sec = self._now_seconds()
+        if not self._frame_is_valid(frame_id=message.header.frame_id, source="wind"):
+            return
+        stamp_sec = self._resolve_stamp_seconds(message.header.stamp, source="wind")
+        if stamp_sec is None:
+            return
 
         self._model.set_wind(
             vx=float(message.vector.x),
@@ -261,6 +302,31 @@ class GasIsoplethNode(Node):
         return Polygon(
             points=[Point32(x=float(x), y=float(y), z=0.0) for x, y in points]
         )
+
+    def _frame_is_valid(self, *, frame_id: str, source: str) -> bool:
+        if not self._expected_frame_id:
+            return True
+        incoming = str(frame_id).strip()
+        if incoming == self._expected_frame_id:
+            return True
+        self.get_logger().warning(
+            f"Ignoring {source} sample with frame_id '{incoming or '<empty>'}'; "
+            f"expected '{self._expected_frame_id}'"
+        )
+        return False
+
+    def _resolve_stamp_seconds(self, stamp, *, source: str) -> float | None:
+        stamp_sec = self._stamp_to_seconds(stamp)
+        if stamp_sec <= 0.0:
+            return self._now_seconds()
+        now_sec = self._now_seconds()
+        if stamp_sec > now_sec + self._max_future_skew_sec:
+            self.get_logger().warning(
+                f"Ignoring {source} sample with future timestamp "
+                f"{stamp_sec:.3f}s (now={now_sec:.3f}s)"
+            )
+            return None
+        return stamp_sec
 
     def _now_seconds(self) -> float:
         return self.get_clock().now().nanoseconds / 1e9

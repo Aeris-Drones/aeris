@@ -67,6 +67,7 @@ def generate_launch_description() -> LaunchDescription:
                     "source_x": 0.0,
                     "source_y": 0.0,
                     "base_concentration": 3.0,
+                    "frame_id": "map",
                 }
             ],
         ),
@@ -83,6 +84,7 @@ def generate_launch_description() -> LaunchDescription:
                     "output_topic": "gas/isopleth",
                     "smoothing_window": 30,
                     "plume_resolution": 24,
+                    "expected_frame_id": "map",
                 }
             ],
         ),

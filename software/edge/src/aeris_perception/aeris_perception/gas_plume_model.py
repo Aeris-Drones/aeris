@@ -25,6 +25,20 @@ class GasPlumeModel:
     """Deterministic gas plume estimator using concentration + wind samples."""
 
     _POLYGON_SCALES = (1.0, 0.72, 0.45)
+    _MAX_LENGTH_RATIO = 0.6
+    _LENGTH_BASE_M = 2.5
+    _LENGTH_FLOOR_M = 2.0
+    _MAJOR_SIGMA_SCALE = 2.6
+    _WIND_SPEED_SCALE = 1.8
+    _CENTER_SHIFT_RATIO = 0.15
+    _WIDTH_TO_LENGTH_RATIO = 0.85
+    _WIDTH_BASE_M = 1.0
+    _WIDTH_FLOOR_M = 0.8
+    _MIN_EFFECTIVE_HALF_WIDTH_M = 0.9
+    _MINOR_SIGMA_SCALE = 2.0
+    _CONCENTRATION_WIDTH_SCALE = 0.35
+    _DOWNWIND_STRETCH = 0.40
+    _UPWIND_STRETCH = 0.15
 
     def __init__(
         self,
@@ -37,6 +51,7 @@ class GasPlumeModel:
         direction_smoothing_alpha: float = 0.35,
         min_wind_speed_mps: float = 0.1,
         max_extent_m: float = 250.0,
+        future_tolerance_sec: float = 0.25,
     ) -> None:
         self._smoothing_window = max(3, int(smoothing_window))
         self._plume_resolution = max(8, int(plume_resolution))
@@ -46,6 +61,7 @@ class GasPlumeModel:
         self._direction_alpha = min(1.0, max(0.0, float(direction_smoothing_alpha)))
         self._min_wind_speed_mps = max(0.0, float(min_wind_speed_mps))
         self._max_extent_m = max(1.0, float(max_extent_m))
+        self._future_tolerance_sec = max(0.0, float(future_tolerance_sec))
 
         self._samples: Deque[tuple[float, float, float, float]] = deque(
             maxlen=self._smoothing_window
@@ -136,17 +152,30 @@ class GasPlumeModel:
         wind_speed = self._fresh_wind_speed(now_sec=now_sec)
         max_concentration = max(sample[2] for sample in fresh)
         half_length = min(
-            self._max_extent_m * 0.6,
-            max(2.0, 2.5 + (sigma_major * 2.6) + (wind_speed * 1.8)),
+            self._max_extent_m * self._MAX_LENGTH_RATIO,
+            max(
+                self._LENGTH_FLOOR_M,
+                self._LENGTH_BASE_M
+                + (sigma_major * self._MAJOR_SIGMA_SCALE)
+                + (wind_speed * self._WIND_SPEED_SCALE),
+            ),
         )
         half_width = min(
-            max(0.9, half_length * 0.85),
-            max(0.8, 1.0 + (sigma_minor * 2.0) + (math.sqrt(max_concentration) * 0.35)),
+            max(self._MIN_EFFECTIVE_HALF_WIDTH_M, half_length * self._WIDTH_TO_LENGTH_RATIO),
+            max(
+                self._WIDTH_FLOOR_M,
+                self._WIDTH_BASE_M
+                + (sigma_minor * self._MINOR_SIGMA_SCALE)
+                + (
+                    math.sqrt(max_concentration)
+                    * self._CONCENTRATION_WIDTH_SCALE
+                ),
+            ),
         )
 
         plume_center = (
-            centroid_x + (smoothed[0] * (0.15 * half_length)),
-            centroid_y + (smoothed[1] * (0.15 * half_length)),
+            centroid_x + (smoothed[0] * (self._CENTER_SHIFT_RATIO * half_length)),
+            centroid_y + (smoothed[1] * (self._CENTER_SHIFT_RATIO * half_length)),
         )
 
         polygons: list[list[tuple[float, float]]] = []
@@ -174,7 +203,10 @@ class GasPlumeModel:
     def _fresh_samples(self, *, now_sec: float) -> list[tuple[float, float, float]]:
         fresh: list[tuple[float, float, float]] = []
         for x, y, concentration, ts in self._samples:
-            if now_sec - ts > self._sample_stale_sec:
+            age_sec = now_sec - ts
+            if age_sec < -self._future_tolerance_sec:
+                continue
+            if age_sec > self._sample_stale_sec:
                 continue
             if concentration <= 0.0:
                 continue
@@ -185,7 +217,10 @@ class GasPlumeModel:
         if self._wind is None:
             return 0.0
         vx, vy, ts = self._wind
-        if now_sec - ts > self._wind_stale_sec:
+        wind_age = now_sec - ts
+        if wind_age < -self._future_tolerance_sec:
+            return 0.0
+        if wind_age > self._wind_stale_sec:
             return 0.0
         speed = math.hypot(vx, vy)
         if not math.isfinite(speed):
@@ -202,7 +237,11 @@ class GasPlumeModel:
             vx, vy, ts = self._wind
             wind_age = now_sec - ts
             wind_speed = math.hypot(vx, vy)
-            if wind_age <= self._wind_stale_sec and wind_speed >= self._min_wind_speed_mps:
+            if (
+                wind_age >= -self._future_tolerance_sec
+                and wind_age <= self._wind_stale_sec
+                and wind_speed >= self._min_wind_speed_mps
+            ):
                 return self._normalize((vx, vy))
 
         if self._norm(fallback_axis) > 1e-6:
@@ -255,9 +294,9 @@ class GasPlumeModel:
             lateral = math.sin(theta)
 
             if forward >= 0.0:
-                long_scale = 1.0 + (0.40 * forward)
+                long_scale = 1.0 + (self._DOWNWIND_STRETCH * forward)
             else:
-                long_scale = 1.0 + (0.15 * forward)
+                long_scale = 1.0 + (self._UPWIND_STRETCH * forward)
 
             long_component = half_length * forward * long_scale
             lateral_component = half_width * lateral
@@ -265,8 +304,8 @@ class GasPlumeModel:
             offset_x = (direction[0] * long_component) + (cross[0] * lateral_component)
             offset_y = (direction[1] * long_component) + (cross[1] * lateral_component)
 
-            point_x = center[0] + self._clip(offset_x)
-            point_y = center[1] + self._clip(offset_y)
+            point_x = self._clip(center[0] + offset_x)
+            point_y = self._clip(center[1] + offset_y)
             points.append((point_x, point_y))
         return points
 
@@ -283,8 +322,8 @@ class GasPlumeModel:
             offset_y = direction[1] * (half_length * scale)
             points.append(
                 (
-                    center[0] + self._clip(offset_x),
-                    center[1] + self._clip(offset_y),
+                    self._clip(center[0] + offset_x),
+                    self._clip(center[1] + offset_y),
                 )
             )
         return points

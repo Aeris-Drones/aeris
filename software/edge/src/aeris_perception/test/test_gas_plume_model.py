@@ -99,3 +99,25 @@ def test_model_handles_stale_wind_with_direction_fallback_and_hold_limit() -> No
 
     expired = model.estimate(now_sec=t0 + 2.5)
     assert expired is None
+
+
+def test_model_rejects_samples_and_wind_far_in_the_future() -> None:
+    model = GasPlumeModel(
+        smoothing_window=10,
+        plume_resolution=16,
+        sample_stale_sec=3.0,
+        wind_stale_sec=2.0,
+        future_tolerance_sec=0.2,
+    )
+    t0 = 25.0
+
+    # Far-future timestamps should not be treated as valid fresh inputs.
+    model.add_sample(x=0.0, y=0.0, concentration=2.0, timestamp_sec=t0 + 5.0)
+    model.set_wind(vx=2.0, vy=0.0, timestamp_sec=t0 + 5.0)
+    assert model.estimate(now_sec=t0 + 0.1) is None
+
+    # In-window timestamps should produce a normal estimate.
+    model.add_sample(x=0.5, y=0.2, concentration=2.3, timestamp_sec=t0 + 0.1)
+    model.set_wind(vx=2.0, vy=0.0, timestamp_sec=t0 + 0.1)
+    estimate = model.estimate(now_sec=t0 + 0.2)
+    assert estimate is not None

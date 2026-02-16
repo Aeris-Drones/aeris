@@ -40,6 +40,7 @@ class GasInputSimNode(Node):
         self._wind_speed_mps = max(
             0.0, float(self.declare_parameter("wind_speed_mps", 2.0).value)
         )
+        self._frame_id = str(self.declare_parameter("frame_id", "map").value).strip()
 
         self._gas_publisher = self.create_publisher(
             PointStamped, self._gas_output_topic, 10
@@ -71,6 +72,7 @@ class GasInputSimNode(Node):
 
         message = Vector3Stamped()
         message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = self._frame_id
         message.vector.x = float(vx)
         message.vector.y = float(vy)
         message.vector.z = 0.0
@@ -106,6 +108,7 @@ class GasInputSimNode(Node):
 
         message = PointStamped()
         message.header.stamp = now
+        message.header.frame_id = self._frame_id
         message.point.x = float(probe_x)
         message.point.y = float(probe_y)
         message.point.z = float(max(0.0, concentration))

@@ -1,3 +1,4 @@
+from contextlib import suppress
 import math
 import time
 
@@ -115,10 +116,8 @@ def test_node_publishes_isopleths_with_contract_and_cadence() -> None:
         assert 0.45 <= observed_rate_hz <= 1.1
     finally:
         for active in (stimulus, observer, node):
-            try:
+            with suppress(RuntimeError):
                 executor.remove_node(active)
-            except Exception:
-                pass
         executor.shutdown()
         stimulus.destroy_node()
         observer.destroy_node()
@@ -148,3 +147,105 @@ def test_contract_remains_compatible_with_orchestrator_normalization() -> None:
     center_mean_y = sum(point.y for point in message.centerline) / len(message.centerline)
     assert center_mean_x == pytest.approx(6.25)
     assert center_mean_y == pytest.approx(2.1)
+
+
+def test_node_rejects_frame_mismatch_and_future_timestamps(monkeypatch) -> None:
+    rclpy.init()
+    node = GasIsoplethNode(
+        parameter_overrides=[
+            Parameter("expected_frame_id", value="map"),
+            Parameter("max_future_skew_sec", value=0.1),
+        ]
+    )
+    observed_samples: list[dict[str, float]] = []
+    observed_winds: list[dict[str, float]] = []
+    monkeypatch.setattr(
+        node._model,
+        "add_sample",
+        lambda **kwargs: observed_samples.append(
+            {
+                "x": float(kwargs["x"]),
+                "y": float(kwargs["y"]),
+                "concentration": float(kwargs["concentration"]),
+                "timestamp_sec": float(kwargs["timestamp_sec"]),
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        node._model,
+        "set_wind",
+        lambda **kwargs: observed_winds.append(
+            {
+                "vx": float(kwargs["vx"]),
+                "vy": float(kwargs["vy"]),
+                "timestamp_sec": float(kwargs["timestamp_sec"]),
+            }
+        ),
+    )
+
+    now_sec = node._now_seconds()
+    now_whole = int(now_sec)
+    now_fraction = now_sec - now_whole
+    now_nanosec = int(max(0.0, now_fraction) * 1e9)
+    future_sec = now_whole + 3
+
+    try:
+        bad_frame_sample = PointStamped()
+        bad_frame_sample.header.stamp.sec = now_whole
+        bad_frame_sample.header.stamp.nanosec = now_nanosec
+        bad_frame_sample.header.frame_id = "odom"
+        bad_frame_sample.point.x = 1.0
+        bad_frame_sample.point.y = 2.0
+        bad_frame_sample.point.z = 3.0
+        node._handle_gas_sample(bad_frame_sample)
+        assert observed_samples == []
+
+        future_sample = PointStamped()
+        future_sample.header.stamp.sec = future_sec
+        future_sample.header.stamp.nanosec = 0
+        future_sample.header.frame_id = "map"
+        future_sample.point.x = 1.0
+        future_sample.point.y = 2.0
+        future_sample.point.z = 3.0
+        node._handle_gas_sample(future_sample)
+        assert observed_samples == []
+
+        good_sample = PointStamped()
+        good_sample.header.stamp.sec = now_whole
+        good_sample.header.stamp.nanosec = now_nanosec
+        good_sample.header.frame_id = "map"
+        good_sample.point.x = 4.0
+        good_sample.point.y = 5.0
+        good_sample.point.z = 6.0
+        node._handle_gas_sample(good_sample)
+        assert len(observed_samples) == 1
+
+        bad_frame_wind = Vector3Stamped()
+        bad_frame_wind.header.stamp.sec = now_whole
+        bad_frame_wind.header.stamp.nanosec = now_nanosec
+        bad_frame_wind.header.frame_id = "odom"
+        bad_frame_wind.vector.x = 1.0
+        bad_frame_wind.vector.y = 0.5
+        node._handle_wind_sample(bad_frame_wind)
+        assert observed_winds == []
+
+        future_wind = Vector3Stamped()
+        future_wind.header.stamp.sec = future_sec
+        future_wind.header.stamp.nanosec = 0
+        future_wind.header.frame_id = "map"
+        future_wind.vector.x = 1.0
+        future_wind.vector.y = 0.5
+        node._handle_wind_sample(future_wind)
+        assert observed_winds == []
+
+        good_wind = Vector3Stamped()
+        good_wind.header.stamp.sec = now_whole
+        good_wind.header.stamp.nanosec = now_nanosec
+        good_wind.header.frame_id = "map"
+        good_wind.vector.x = 1.0
+        good_wind.vector.y = 0.5
+        node._handle_wind_sample(good_wind)
+        assert len(observed_winds) == 1
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
