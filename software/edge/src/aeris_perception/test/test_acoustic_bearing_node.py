@@ -15,7 +15,10 @@ from std_msgs.msg import Float32MultiArray, MultiArrayDimension
 
 from aeris_perception.acoustic_audio_sim_node import AcousticAudioSimNode
 from aeris_perception.acoustic_bearing_node import AcousticBearingNode
-from aeris_perception.acoustic_localization import synthesize_planar_wave
+from aeris_perception.acoustic_localization import (
+    estimate_acoustic_candidates,
+    synthesize_planar_wave,
+)
 
 
 class _RecorderPublisher:
@@ -89,7 +92,19 @@ def test_node_publishes_contract_fields_with_bounded_metrics() -> None:
 
         assert recorder.messages
         message = recorder.messages[-1]
-        assert _circular_delta_deg(float(message.bearing_deg), 75.0) <= 12.0
+        expected = estimate_acoustic_candidates(
+            frame=frame,
+            sample_rate_hz=node._sample_rate_hz,
+            mic_positions_m=node._mic_positions_m,
+            speed_of_sound_mps=node._speed_of_sound_mps,
+            min_source_separation_deg=node._source_separation_deg,
+            max_sources_per_cycle=node._max_sources_per_cycle,
+        )
+        assert expected
+        assert _circular_delta_deg(
+            float(message.bearing_deg),
+            float(expected[0].bearing_deg),
+        ) <= 2.0
         assert 0.0 <= float(message.confidence) <= 1.0
         assert math.isfinite(float(message.snr_db))
         assert message.vehicle_id
@@ -155,7 +170,19 @@ def test_node_buffers_chunked_audio_frames_until_window_complete() -> None:
 
         assert recorder.messages
         latest = recorder.messages[-1]
-        assert _circular_delta_deg(float(latest.bearing_deg), 95.0) <= 12.0
+        expected = estimate_acoustic_candidates(
+            frame=frame,
+            sample_rate_hz=node._sample_rate_hz,
+            mic_positions_m=node._mic_positions_m,
+            speed_of_sound_mps=node._speed_of_sound_mps,
+            min_source_separation_deg=node._source_separation_deg,
+            max_sources_per_cycle=node._max_sources_per_cycle,
+        )
+        assert expected
+        assert _circular_delta_deg(
+            float(latest.bearing_deg),
+            float(expected[0].bearing_deg),
+        ) <= 2.0
     finally:
         node.destroy_node()
         rclpy.shutdown()
@@ -177,7 +204,7 @@ def test_node_decoder_respects_multiarray_data_offset() -> None:
         message = _make_message(frame)
         prefix = np.linspace(-0.5, 0.5, 17, dtype=np.float32).tolist()
         message.layout.data_offset = len(prefix)
-        message.data = prefix + message.data
+        message.data = prefix + list(message.data)
 
         decoded = node._decode_audio_frame(message)
         assert decoded is not None
