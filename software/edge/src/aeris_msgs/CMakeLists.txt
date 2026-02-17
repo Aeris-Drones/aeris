@@ -20,6 +20,7 @@ set(interface_files
   "msg/ThermalHotspot.msg"
   "msg/AcousticBearing.msg"
   "msg/GasIsopleth.msg"
+  "msg/FusedDetection.msg"
   "msg/CameraWaypoint.msg"
   "msg/MissionState.msg"
   "msg/MissionProgress.msg"

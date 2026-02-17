@@ -26,6 +26,7 @@ setup(
             "acoustic_audio_sim = aeris_perception.acoustic_audio_sim_node:main",
             "gas_isopleth = aeris_perception.gas_isopleth_node:main",
             "gas_input_sim = aeris_perception.gas_input_sim_node:main",
+            "fusion = aeris_perception.fusion_node:main",
         ],
     },
 )

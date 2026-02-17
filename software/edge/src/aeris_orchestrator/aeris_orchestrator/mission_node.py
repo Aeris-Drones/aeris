@@ -9,6 +9,7 @@ from typing import Callable, Final
 import rclpy
 from aeris_msgs.msg import (
     AcousticBearing,
+    FusedDetection,
     GasIsopleth,
     MissionProgress,
     MissionState,
@@ -261,6 +262,9 @@ class MissionNode(Node):
             self.declare_parameter("acoustic_confidence_min", 0.65).value
         )
         self._gas_trigger_min = float(self.declare_parameter("gas_trigger_min", 0.5).value)
+        self._fused_confidence_min = float(
+            self.declare_parameter("fused_confidence_min", 0.40).value
+        )
         self._replan_cooldown_sec = float(
             self.declare_parameter("replan_cooldown_sec", 5.0).value
         )
@@ -293,6 +297,17 @@ class MissionNode(Node):
         )
         self._detection_retrigger_from_tracking = bool(
             self.declare_parameter("detection_retrigger_from_tracking", True).value
+        )
+        self._use_fused_detections = bool(
+            self.declare_parameter("use_fused_detections", True).value
+        )
+        self._raw_detection_fallback_sec = float(
+            self.declare_parameter("raw_detection_fallback_sec", 5.0).value
+        )
+        self._legacy_fused_hazard_topic = str(
+            self.declare_parameter(
+                "legacy_fused_hazard_topic", "/detections/fused_legacy"
+            ).value
         )
         self._acoustic_projection_range_m = float(
             self.declare_parameter("acoustic_projection_range_m", 35.0).value
@@ -357,6 +372,7 @@ class MissionNode(Node):
         self._last_detection_rejection_reason = ""
         self._last_tracking_completion_reason = ""
         self._last_detection_accept_monotonic = -math.inf
+        self._last_fused_detection_accept_monotonic = -math.inf
         self._last_tracking_dispatch_latency_ms = 0.0
         self._vehicle_command_states: dict[str, str] = {}
         self._reset_vehicle_command_states()
@@ -408,9 +424,16 @@ class MissionNode(Node):
             queue_depth,
             callback_group=self._serialized_callback_group,
         )
+        self._fused_detection_subscription = self.create_subscription(
+            FusedDetection,
+            "/detections/fused",
+            self._handle_fused_detection,
+            queue_depth,
+            callback_group=self._serialized_callback_group,
+        )
         self._fused_hazard_subscription = self.create_subscription(
             String,
-            "/detections/fused",
+            self._legacy_fused_hazard_topic,
             self._handle_fused_hazards,
             queue_depth,
             callback_group=self._serialized_callback_group,
@@ -537,6 +560,7 @@ class MissionNode(Node):
         self._tracking_seen_this_mission = False
         self._last_tracking_dispatch_latency_ms = 0.0
         self._last_detection_accept_monotonic = -math.inf
+        self._last_fused_detection_accept_monotonic = -math.inf
         self._last_detection_rejection_reason = ""
         self._last_tracking_completion_reason = ""
         self._last_detection_event = None
@@ -830,6 +854,34 @@ class MissionNode(Node):
         except json.JSONDecodeError:
             return
         self._fused_hazard_polygons = self._extract_hazard_polygons(payload)
+        self._fused_hazard_received_monotonic = time.monotonic()
+
+    def _update_fused_hazard_polygons_from_message(
+        self, message: FusedDetection
+    ) -> None:
+        polygons: list[list[dict[str, float]]] = []
+        if message.local_geometry and len(message.local_geometry) >= 3:
+            candidate = []
+            for point in message.local_geometry:
+                x_value = float(point.x)
+                z_value = float(point.y)
+                if not (math.isfinite(x_value) and math.isfinite(z_value)):
+                    continue
+                candidate.append({"x": x_value, "z": z_value})
+            if len(candidate) >= 3:
+                polygons.append(candidate)
+
+        if not polygons:
+            raw_data = message.hazard_payload_json.strip()
+            if raw_data:
+                try:
+                    payload = json.loads(raw_data)
+                except json.JSONDecodeError:
+                    payload = None
+                if payload is not None:
+                    polygons = self._extract_hazard_polygons(payload)
+
+        self._fused_hazard_polygons = polygons
         self._fused_hazard_received_monotonic = time.monotonic()
 
     def _map_freshness_age_sec(self) -> float:
@@ -1422,15 +1474,41 @@ class MissionNode(Node):
         else:
             self._set_scout_assignment(vehicle_id, "IDLE", label="IDLE")
 
+    def _handle_fused_detection(self, message: FusedDetection) -> None:
+        if not self._use_fused_detections:
+            return
+        self._update_fused_hazard_polygons_from_message(message)
+        event = self._normalize_fused_detection(message)
+        accepted = self._process_detection_event(event)
+        if accepted:
+            self._last_fused_detection_accept_monotonic = time.monotonic()
+
+    def _raw_detection_path_is_suppressed(self) -> bool:
+        if not self._use_fused_detections:
+            return False
+        if not math.isfinite(self._last_fused_detection_accept_monotonic):
+            return False
+        fallback_window = max(self._raw_detection_fallback_sec, 0.0)
+        if fallback_window <= 0.0:
+            return False
+        age_sec = time.monotonic() - self._last_fused_detection_accept_monotonic
+        return age_sec <= fallback_window
+
     def _handle_thermal_hotspot(self, message: ThermalHotspot) -> None:
+        if self._raw_detection_path_is_suppressed():
+            return
         event = self._normalize_thermal_hotspot(message)
         self._process_detection_event(event)
 
     def _handle_acoustic_bearing(self, message: AcousticBearing) -> None:
+        if self._raw_detection_path_is_suppressed():
+            return
         event = self._normalize_acoustic_bearing(message)
         self._process_detection_event(event)
 
     def _handle_gas_isopleth(self, message: GasIsopleth) -> None:
+        if self._raw_detection_path_is_suppressed():
+            return
         event = self._normalize_gas_isopleth(message)
         self._process_detection_event(event)
 
@@ -1565,6 +1643,38 @@ class MissionNode(Node):
             timestamp_sec=timestamp_sec,
             local_target=target,
             mission_id=self._mission_id,
+        )
+
+    def _normalize_fused_detection(self, message: FusedDetection) -> DetectionEvent:
+        timestamp_sec = self._time_message_to_seconds(message.stamp)
+        if timestamp_sec <= 0.0:
+            timestamp_sec = self._now_seconds()
+
+        target_x = float(message.local_target.x)
+        target_z = float(message.local_target.y)
+        if not (math.isfinite(target_x) and math.isfinite(target_z)):
+            fallback_target = self._active_scout_position()
+            target_x = float(fallback_target["x"])
+            target_z = float(fallback_target["z"])
+
+        confidence = float(message.confidence)
+        if confidence <= 0.0:
+            level = message.confidence_level.strip().upper()
+            if level == "HIGH":
+                confidence = 1.0
+            elif level == "MEDIUM":
+                confidence = max(self._fused_confidence_min, self._acoustic_confidence_min)
+            elif level == "LOW":
+                confidence = self._fused_confidence_min
+        confidence = max(0.0, min(1.0, confidence))
+
+        mission_id = str(message.mission_id).strip() or self._mission_id
+        return DetectionEvent(
+            sensor_type="fused",
+            confidence=confidence,
+            timestamp_sec=timestamp_sec,
+            local_target={"x": target_x, "z": target_z},
+            mission_id=mission_id,
         )
 
     def _online_scout_endpoints(self) -> list[ScoutEndpoint]:
@@ -1763,6 +1873,8 @@ class MissionNode(Node):
             return self._acoustic_confidence_min
         if sensor_type == "gas":
             return self._gas_trigger_min
+        if sensor_type == "fused":
+            return self._fused_confidence_min
         return 1.0
 
     def _validate_detection_event(

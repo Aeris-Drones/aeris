@@ -22,6 +22,7 @@ import pytest
 rclpy = pytest.importorskip("rclpy")
 from aeris_msgs.msg import (
     AcousticBearing,
+    FusedDetection,
     GasIsopleth,
     MissionProgress,
     MissionState,
@@ -89,6 +90,9 @@ class MissionObserver(Node):
         )
         self.gas_publisher = self.create_publisher(
             GasIsopleth, "gas/isopleth", 10
+        )
+        self.fused_publisher = self.create_publisher(
+            FusedDetection, "/detections/fused", 10
         )
         self.tracking_resolution_publisher = self.create_publisher(
             String, "/mission/tracking_resolution", 10
@@ -790,6 +794,35 @@ def _publish_gas(
     observer.gas_publisher.publish(message)
 
 
+def _publish_fused(
+    observer: MissionObserver,
+    *,
+    confidence: float = 0.9,
+    confidence_level: str = "HIGH",
+    x: float = 10.0,
+    z: float = 5.0,
+    stamp_offset_sec: float = 0.0,
+) -> None:
+    message = FusedDetection()
+    now = observer.get_clock().now().nanoseconds / 1e9 + stamp_offset_sec
+    seconds = max(0.0, now)
+    sec = int(seconds)
+    nanosec = int((seconds - sec) * 1e9)
+    message.stamp.sec = sec
+    message.stamp.nanosec = nanosec
+    message.confidence = float(confidence)
+    message.confidence_level = confidence_level
+    message.local_target = Point32(x=float(x), y=float(z), z=0.0)
+    message.source_modalities = ["thermal", "acoustic"]
+    message.local_geometry = [
+        Point32(x=float(x - 1.0), y=float(z - 1.0), z=0.0),
+        Point32(x=float(x + 1.0), y=float(z - 1.0), z=0.0),
+        Point32(x=float(x + 1.0), y=float(z + 1.0), z=0.0),
+        Point32(x=float(x - 1.0), y=float(z + 1.0), z=0.0),
+    ]
+    observer.fused_publisher.publish(message)
+
+
 def test_detection_acceptance_transitions_to_tracking_and_resumes_searching(
     mission_harness_detection,
 ) -> None:
@@ -805,6 +838,40 @@ def test_detection_acceptance_transitions_to_tracking_and_resumes_searching(
     observer.tracking_resolution_publisher.publish(signal)
     assert _wait_until(lambda: mission_node._state == "SEARCHING")
     assert mission_node._last_tracking_completion_reason == "resolution signal"
+
+
+def test_fused_detection_acceptance_transitions_to_tracking_and_resumes_searching(
+    mission_harness_detection,
+) -> None:
+    mission_node, observer = mission_harness_detection
+    _start_searching_mission(mission_node, observer)
+
+    _publish_fused(observer, confidence=0.95, confidence_level="HIGH", x=15.0, z=10.0)
+    assert _wait_until(lambda: "TRACKING" in observer.states)
+    assert mission_node._state == "TRACKING"
+    assert mission_node._last_fused_detection_accept_monotonic > 0.0
+
+    signal = String()
+    signal.data = "resolved"
+    observer.tracking_resolution_publisher.publish(signal)
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
+    assert mission_node._last_tracking_completion_reason == "resolution signal"
+
+
+def test_raw_detection_path_remains_available_when_no_fused_detection(
+    mission_harness_detection,
+) -> None:
+    mission_node, observer = mission_harness_detection
+    _start_searching_mission(mission_node, observer)
+    mission_node._last_fused_detection_accept_monotonic = -math.inf
+
+    _publish_thermal(observer, confidence=0.95)
+    assert _wait_until(lambda: mission_node._state == "TRACKING")
+
+    signal = String()
+    signal.data = "resolved"
+    observer.tracking_resolution_publisher.publish(signal)
+    assert _wait_until(lambda: mission_node._state == "SEARCHING")
 
 
 
