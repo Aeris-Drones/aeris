@@ -121,7 +121,7 @@ def main(args: Any = None) -> None:
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        node.get_logger().info("Keyboard interrupt received; shutting down gas_input_sim.")
     finally:
         node.destroy_node()
         rclpy.shutdown()
