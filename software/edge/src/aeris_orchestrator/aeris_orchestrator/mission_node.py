@@ -862,6 +862,12 @@ class MissionNode(Node):
     def _update_fused_hazard_polygons_from_message(
         self, message: FusedDetection
     ) -> None:
+        if not self._mission_id:
+            return
+        incoming_mission_id = str(message.mission_id).strip()
+        if incoming_mission_id and incoming_mission_id != self._mission_id:
+            return
+
         polygons: list[list[dict[str, float]]] = []
         if message.local_geometry and len(message.local_geometry) >= 3:
             candidate = []
@@ -1480,8 +1486,12 @@ class MissionNode(Node):
     def _handle_fused_detection(self, message: FusedDetection) -> None:
         if not self._use_fused_detections:
             return
-        self._update_fused_hazard_polygons_from_message(message)
+        if not self._mission_id:
+            return
         event = self._normalize_fused_detection(message)
+        if event.mission_id and event.mission_id != self._mission_id:
+            return
+        self._update_fused_hazard_polygons_from_message(message)
         accepted = self._process_detection_event(event)
         if accepted:
             self._last_fused_detection_accept_monotonic = time.monotonic()

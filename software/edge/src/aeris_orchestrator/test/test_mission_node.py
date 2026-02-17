@@ -1047,6 +1047,52 @@ def test_fused_normalization_falls_back_when_local_target_is_non_finite() -> Non
     assert event.confidence == pytest.approx(0.65)
 
 
+def test_fused_hazard_update_skips_when_mission_is_mismatched() -> None:
+    mission_node = MissionNode.__new__(MissionNode)
+    mission_node._mission_id = "active-mission"
+    mission_node._fused_hazard_polygons = [[{"x": 1.0, "z": 1.0}, {"x": 2.0, "z": 1.0}, {"x": 1.5, "z": 2.0}]]
+    mission_node._fused_hazard_received_monotonic = 123.0
+
+    message = FusedDetection()
+    message.mission_id = "other-mission"
+    message.local_geometry = [
+        Point32(x=10.0, y=10.0, z=0.0),
+        Point32(x=11.0, y=10.0, z=0.0),
+        Point32(x=10.5, y=11.0, z=0.0),
+    ]
+    message.hazard_payload_json = ""
+
+    mission_node._update_fused_hazard_polygons_from_message(message)
+
+    assert mission_node._fused_hazard_polygons == [
+        [{"x": 1.0, "z": 1.0}, {"x": 2.0, "z": 1.0}, {"x": 1.5, "z": 2.0}]
+    ]
+    assert mission_node._fused_hazard_received_monotonic == pytest.approx(123.0)
+
+
+def test_fused_hazard_update_accepts_matching_mission() -> None:
+    mission_node = MissionNode.__new__(MissionNode)
+    mission_node._mission_id = "active-mission"
+    mission_node._fused_hazard_polygons = []
+    mission_node._fused_hazard_received_monotonic = -math.inf
+
+    message = FusedDetection()
+    message.mission_id = "active-mission"
+    message.local_geometry = [
+        Point32(x=10.0, y=10.0, z=0.0),
+        Point32(x=11.0, y=10.0, z=0.0),
+        Point32(x=10.5, y=11.0, z=0.0),
+    ]
+    message.hazard_payload_json = ""
+
+    mission_node._update_fused_hazard_polygons_from_message(message)
+
+    assert mission_node._fused_hazard_polygons == [
+        [{"x": 10.0, "z": 10.0}, {"x": 11.0, "z": 10.0}, {"x": 10.5, "z": 11.0}]
+    ]
+    assert mission_node._fused_hazard_received_monotonic > 0.0
+
+
 def test_detection_selects_nearest_online_scout_and_records_dispatch_latency(
     mission_harness_detection,
 ) -> None:
