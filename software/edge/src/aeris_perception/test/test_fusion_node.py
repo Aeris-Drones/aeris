@@ -52,7 +52,11 @@ def _now_stamp(node: Node):
 def test_fusion_node_publishes_upgrades_for_correlated_modalities() -> None:
     rclpy.init()
     executor = SingleThreadedExecutor()
-    node = FusionNode()
+    node = FusionNode(
+        parameter_overrides=[
+            Parameter("acoustic_projection_range_m", value=2.0),
+        ]
+    )
     observer = _FusionObserver()
     stimulus = _FusionStimulus()
 

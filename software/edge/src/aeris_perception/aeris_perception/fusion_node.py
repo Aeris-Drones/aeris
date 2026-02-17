@@ -100,9 +100,7 @@ class FusionNode(Node):
             weak_confidence_min=float(
                 self.declare_parameter("weak_confidence_min", 0.40).value
             ),
-            max_future_skew_sec=float(
-                self.declare_parameter("max_future_skew_sec", 0.25).value
-            ),
+            max_future_skew_sec=float(self._max_future_skew_sec),
         )
 
     def _handle_param_update(self, params: list[Parameter]) -> SetParametersResult:

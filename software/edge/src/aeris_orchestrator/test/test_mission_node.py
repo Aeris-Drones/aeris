@@ -849,7 +849,7 @@ def test_fused_detection_acceptance_transitions_to_tracking_and_resumes_searchin
     _publish_fused(observer, confidence=0.95, confidence_level="HIGH", x=15.0, z=10.0)
     assert _wait_until(lambda: "TRACKING" in observer.states)
     assert mission_node._state == "TRACKING"
-    assert mission_node._last_fused_detection_accept_monotonic > 0.0
+    assert _wait_until(lambda: mission_node._last_fused_detection_accept_monotonic > 0.0)
 
     signal = String()
     signal.data = "resolved"
