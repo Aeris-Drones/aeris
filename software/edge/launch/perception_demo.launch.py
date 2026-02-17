@@ -55,10 +55,38 @@ def generate_launch_description() -> LaunchDescription:
         ),
         Node(
             package="aeris_perception",
+            executable="gas_input_sim",
+            name="gas_input_sim",
+            output="screen",
+            parameters=[
+                {
+                    "gas_output_topic": "sim/gas/sample",
+                    "wind_output_topic": "sim/wind/vector",
+                    "sample_rate_hz": 4.0,
+                    "wind_rate_hz": 2.0,
+                    "source_x": 0.0,
+                    "source_y": 0.0,
+                    "base_concentration": 3.0,
+                    "frame_id": "map",
+                }
+            ],
+        ),
+        Node(
+            package="aeris_perception",
             executable="gas_isopleth",
             name="gas_isopleth",
             output="screen",
-            parameters=[{"rate_hz": 0.5}],
+            parameters=[
+                {
+                    "rate_hz": 0.8,
+                    "gas_input_topic": "sim/gas/sample",
+                    "wind_input_topic": "sim/wind/vector",
+                    "output_topic": "gas/isopleth",
+                    "smoothing_window": 30,
+                    "plume_resolution": 24,
+                    "expected_frame_id": "map",
+                }
+            ],
         ),
         Node(
             package="aeris_mesh_agent",
@@ -91,7 +119,8 @@ def generate_launch_description() -> LaunchDescription:
             msg=(
                 "Perception demo running with thermal/acoustic/gas pipeline and mesh "
                 "impairments. Verify acoustic output cadence with `ros2 topic hz "
-                "acoustic/bearing` and toggle buffering with `ros2 param set "
+                "acoustic/bearing`, gas cadence with `ros2 topic hz gas/isopleth`, "
+                "and toggle buffering with `ros2 param set "
                 "/store_forward_tiles link_up false|true`."
             )
         ),

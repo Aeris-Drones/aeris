@@ -880,6 +880,51 @@ def test_thermal_normalization_uses_xyxy_bbox_center_projection() -> None:
     assert event.timestamp_sec == pytest.approx(123.0)
 
 
+def test_gas_normalization_handles_richer_polygon_payloads() -> None:
+    mission_node = MissionNode.__new__(MissionNode)
+    mission_node._mission_id = "gas-contract"
+    mission_node._active_scout_position = lambda: {"x": -2.0, "z": -3.0}
+    mission_node._time_message_to_seconds = (
+        lambda stamp: float(getattr(stamp, "sec", 0))
+        + (float(getattr(stamp, "nanosec", 0)) / 1e9)
+    )
+    mission_node._now_seconds = lambda: 333.0
+
+    message = GasIsopleth()
+    message.stamp.sec = 321
+    message.stamp.nanosec = 0
+    message.centerline = [
+        Point32(x=4.0, y=8.0, z=0.0),
+        Point32(x=7.0, y=8.2, z=0.0),
+        Point32(x=9.0, y=8.5, z=0.0),
+    ]
+    message.polygons = [
+        Polygon(
+            points=[
+                Point32(x=3.0, y=7.0, z=0.0),
+                Point32(x=10.0, y=7.0, z=0.0),
+                Point32(x=10.0, y=9.0, z=0.0),
+                Point32(x=3.0, y=9.0, z=0.0),
+            ]
+        ),
+        Polygon(
+            points=[
+                Point32(x=4.5, y=7.5, z=0.0),
+                Point32(x=8.5, y=7.5, z=0.0),
+                Point32(x=8.5, y=8.8, z=0.0),
+                Point32(x=4.5, y=8.8, z=0.0),
+            ]
+        ),
+    ]
+
+    event = mission_node._normalize_gas_isopleth(message)
+
+    assert event.confidence == pytest.approx(1.0)
+    assert event.timestamp_sec == pytest.approx(321.0)
+    assert event.local_target["x"] == pytest.approx((4.0 + 7.0 + 9.0) / 3.0)
+    assert event.local_target["z"] == pytest.approx((8.0 + 8.2 + 8.5) / 3.0)
+
+
 def test_detection_selects_nearest_online_scout_and_records_dispatch_latency(
     mission_harness_detection,
 ) -> None:

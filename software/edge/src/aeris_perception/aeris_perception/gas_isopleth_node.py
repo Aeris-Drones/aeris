@@ -1,199 +1,344 @@
-"""Synthetic gas plume simulator for testing map visualization pipelines.
+"""Reading-driven gas plume node with wind-aware isopleth publishing."""
 
-Generates time-varying isopleth polygons that mimic drifting gas plumes,
-allowing validation of gas concentration overlays without requiring
-actual chemical sensors.
-"""
+from __future__ import annotations
 
-import math
-from typing import Any, List
+from typing import Any
 
 import rclpy
-from rcl_interfaces.msg import Parameter, SetParametersResult
+from geometry_msgs.msg import Point32, PointStamped, Polygon, Vector3Stamped
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 
 from aeris_msgs.msg import GasIsopleth
-from geometry_msgs.msg import Point32, Polygon
+
+from .gas_plume_model import GasPlumeModel
 
 
 class GasIsoplethNode(Node):
-    """Generates synthetic gas plume contours with realistic drift and diffusion.
+    """Publish gas isopleths from gas concentration and wind input streams."""
 
-    Produces time-varying rectangular polygons that simulate plume boundaries
-    moving with wind drift. Used to validate gas visualization overlays
-    and downstream alerting logic without hardware dependencies.
+    def __init__(
+        self,
+        *,
+        parameter_overrides: list[Parameter] | None = None,
+    ) -> None:
+        super().__init__("gas_isopleth", parameter_overrides=parameter_overrides)
 
-    The simulation uses sinusoidal functions to model:
-    - Plume drift: Horizontal displacement due to wind
-    - Plume expansion/contraction: Vertical size variation due to turbulence
+        self._rate_hz = float(self.declare_parameter("rate_hz", 0.5).value)
+        if self._rate_hz <= 0.0:
+            raise ValueError("rate_hz must be > 0")
+        self._species = str(self.declare_parameter("species", "VOC").value)
+        self._units = str(self.declare_parameter("units", "ppm").value)
 
-    Attributes:
-        _rate_hz: Publication rate in Hz.
-        _species: Chemical species being simulated (e.g., "VOC", "CO2").
-        _units: Concentration units (e.g., "ppm", "ppb").
-        _counter: Frame counter for time-varying calculations.
-        _publisher: ROS publisher for GasIsopleth messages.
-        _timer: ROS timer triggering periodic publications.
+        self._gas_input_topic = str(
+            self.declare_parameter("gas_input_topic", "sim/gas/sample").value
+        )
+        self._wind_input_topic = str(
+            self.declare_parameter("wind_input_topic", "sim/wind/vector").value
+        )
+        self._output_topic = str(
+            self.declare_parameter("output_topic", "gas/isopleth").value
+        )
 
-    ROS Parameters:
-        rate_hz (float): Publication frequency in Hz. Must be positive.
-            Default: 0.5
-        species (str): Chemical species identifier.
-            Default: "VOC"
-        units (str): Concentration units.
-            Default: "ppm"
+        self._smoothing_window = max(
+            3, int(self.declare_parameter("smoothing_window", 30).value)
+        )
+        self._plume_resolution = max(
+            8, int(self.declare_parameter("plume_resolution", 24).value)
+        )
+        self._sample_stale_sec = max(
+            0.1, float(self.declare_parameter("sample_stale_sec", 4.0).value)
+        )
+        self._wind_stale_sec = max(
+            0.1, float(self.declare_parameter("wind_stale_sec", 2.0).value)
+        )
+        self._hold_last_sec = max(
+            0.0, float(self.declare_parameter("hold_last_sec", 5.0).value)
+        )
+        self._min_wind_speed_mps = max(
+            0.0,
+            float(self.declare_parameter("min_wind_speed_mps", 0.1).value),
+        )
+        self._max_extent_m = max(
+            1.0, float(self.declare_parameter("max_extent_m", 250.0).value)
+        )
+        self._expected_frame_id = str(
+            self.declare_parameter("expected_frame_id", "").value
+        ).strip()
+        self._max_future_skew_sec = max(
+            0.0, float(self.declare_parameter("max_future_skew_sec", 0.25).value)
+        )
 
-    ROS Topics:
-        Published:
-            gas/isopleth (aeris_msgs/msg/GasIsopleth): Gas plume contours
-                with species, units, polygons, and centerline.
-    """
+        self._model = self._create_model()
 
-    def __init__(self) -> None:
-        """Initialize the gas isopleth node.
-
-        Declares parameters, initializes the frame counter, creates the
-        publisher, and starts the timer.
-        """
-        super().__init__("gas_isopleth")
-        self._rate_hz: float = self.declare_parameter("rate_hz", 0.5).value
-        self._species: str = self.declare_parameter("species", "VOC").value
-        self._units: str = self.declare_parameter("units", "ppm").value
-        self._counter: int = 0
-        self._publisher = self.create_publisher(
-            GasIsopleth, "gas/isopleth", 10
+        self._publisher = self.create_publisher(GasIsopleth, self._output_topic, 10)
+        self._gas_subscription = self.create_subscription(
+            PointStamped,
+            self._gas_input_topic,
+            self._handle_gas_sample,
+            10,
+        )
+        self._wind_subscription = self.create_subscription(
+            Vector3Stamped,
+            self._wind_input_topic,
+            self._handle_wind_sample,
+            10,
         )
         self._timer = self.create_timer(self._period_sec, self._publish_sample)
+
         self.add_on_set_parameters_callback(self._handle_param_update)
 
     @property
     def _period_sec(self) -> float:
-        """Calculate timer period from current rate.
+        return 1.0 / max(self._rate_hz, 0.1)
 
-        Returns:
-            Timer period in seconds, clamped to prevent excessive rates.
-        """
-        rate = max(self._rate_hz, 0.1)
-        return 1.0 / rate
+    def _create_model(self) -> GasPlumeModel:
+        return GasPlumeModel(
+            smoothing_window=self._smoothing_window,
+            plume_resolution=self._plume_resolution,
+            sample_stale_sec=self._sample_stale_sec,
+            wind_stale_sec=self._wind_stale_sec,
+            hold_last_sec=self._hold_last_sec,
+            min_wind_speed_mps=self._min_wind_speed_mps,
+            max_extent_m=self._max_extent_m,
+            future_tolerance_sec=self._max_future_skew_sec,
+        )
 
-    def _handle_param_update(self, params: List[Parameter]) -> SetParametersResult:
-        """Handle runtime parameter updates.
+    def _handle_param_update(self, params: list[Parameter]) -> SetParametersResult:
+        rate_hz = self._rate_hz
+        species = self._species
+        units = self._units
 
-        Args:
-            params: List of Parameter objects being set.
+        smoothing_window = self._smoothing_window
+        plume_resolution = self._plume_resolution
+        sample_stale_sec = self._sample_stale_sec
+        wind_stale_sec = self._wind_stale_sec
+        hold_last_sec = self._hold_last_sec
+        min_wind_speed_mps = self._min_wind_speed_mps
+        max_extent_m = self._max_extent_m
+        expected_frame_id = self._expected_frame_id
+        max_future_skew_sec = self._max_future_skew_sec
 
-        Returns:
-            SetParametersResult indicating success or failure.
+        requires_timer_reset = False
+        requires_model_reset = False
 
-        Note:
-            When rate_hz is updated, the timer is cancelled and recreated
-            with the new period. Species and units update immediately.
-        """
-        updated = False
-        for param in params:
-            if param.name == "rate_hz":
+        for parameter in params:
+            if parameter.name == "rate_hz":
                 try:
-                    value = float(param.value)
+                    rate_candidate = float(parameter.value)
                 except (TypeError, ValueError):
-                    return SetParametersResult(successful=False)
-                if value <= 0.0:
-                    return SetParametersResult(successful=False)
-                self._rate_hz = value
-                updated = True
-            elif param.name == "species":
-                self._species = str(param.value)
-            elif param.name == "units":
-                self._units = str(param.value)
-        if updated:
-            # Recreate timer with new period
+                    return SetParametersResult(
+                        successful=False,
+                        reason="rate_hz must be numeric",
+                    )
+                if rate_candidate <= 0.0:
+                    return SetParametersResult(
+                        successful=False,
+                        reason="rate_hz must be > 0",
+                    )
+                rate_hz = rate_candidate
+                requires_timer_reset = True
+            elif parameter.name == "species":
+                species = str(parameter.value).strip() or "VOC"
+            elif parameter.name == "units":
+                units = str(parameter.value).strip() or "ppm"
+            elif parameter.name == "smoothing_window":
+                try:
+                    smoothing_window = max(3, int(parameter.value))
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False,
+                        reason="smoothing_window must be an integer",
+                    )
+                requires_model_reset = True
+            elif parameter.name == "plume_resolution":
+                try:
+                    plume_resolution = max(8, int(parameter.value))
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False,
+                        reason="plume_resolution must be an integer",
+                    )
+                requires_model_reset = True
+            elif parameter.name == "sample_stale_sec":
+                try:
+                    sample_stale_sec = max(0.1, float(parameter.value))
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False,
+                        reason="sample_stale_sec must be numeric",
+                    )
+                requires_model_reset = True
+            elif parameter.name == "wind_stale_sec":
+                try:
+                    wind_stale_sec = max(0.1, float(parameter.value))
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False,
+                        reason="wind_stale_sec must be numeric",
+                    )
+                requires_model_reset = True
+            elif parameter.name == "hold_last_sec":
+                try:
+                    hold_last_sec = max(0.0, float(parameter.value))
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False,
+                        reason="hold_last_sec must be numeric",
+                    )
+                requires_model_reset = True
+            elif parameter.name == "min_wind_speed_mps":
+                try:
+                    min_wind_speed_mps = max(0.0, float(parameter.value))
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False,
+                        reason="min_wind_speed_mps must be numeric",
+                    )
+                requires_model_reset = True
+            elif parameter.name == "max_extent_m":
+                try:
+                    max_extent_m = max(1.0, float(parameter.value))
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False,
+                        reason="max_extent_m must be numeric",
+                    )
+                requires_model_reset = True
+            elif parameter.name == "expected_frame_id":
+                expected_frame_id = str(parameter.value).strip()
+            elif parameter.name == "max_future_skew_sec":
+                try:
+                    max_future_skew_sec = max(0.0, float(parameter.value))
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False,
+                        reason="max_future_skew_sec must be numeric",
+                    )
+                requires_model_reset = True
+            elif parameter.name in {
+                "gas_input_topic",
+                "wind_input_topic",
+                "output_topic",
+            }:
+                if str(parameter.value) != self.get_parameter(parameter.name).value:
+                    return SetParametersResult(
+                        successful=False,
+                        reason=(
+                            f"{parameter.name} updates require node restart "
+                            "to rebuild ROS publishers/subscriptions"
+                        ),
+                    )
+
+        self._rate_hz = rate_hz
+        self._species = species
+        self._units = units
+        self._smoothing_window = smoothing_window
+        self._plume_resolution = plume_resolution
+        self._sample_stale_sec = sample_stale_sec
+        self._wind_stale_sec = wind_stale_sec
+        self._hold_last_sec = hold_last_sec
+        self._min_wind_speed_mps = min_wind_speed_mps
+        self._max_extent_m = max_extent_m
+        self._expected_frame_id = expected_frame_id
+        self._max_future_skew_sec = max_future_skew_sec
+
+        if requires_model_reset:
+            self._model = self._create_model()
+
+        if requires_timer_reset:
             self._timer.cancel()
-            self._timer = self.create_timer(
-                self._period_sec, self._publish_sample
-            )
-            self.get_logger().info(
-                f"gas isopleth rate set to {self._rate_hz:.2f} Hz"
-            )
+            self._timer = self.create_timer(self._period_sec, self._publish_sample)
+
         return SetParametersResult(successful=True)
 
-    def _rectangle(self) -> Polygon:
-        """Generate a time-varying rectangular plume polygon.
-
-        Creates a rectangle representing the gas plume boundary with:
-        - Horizontal drift: Sinusoidal variation simulating wind direction changes
-        - Vertical expansion: Sinusoidal variation simulating turbulence effects
-
-        Returns:
-            Polygon with 4 vertices representing the plume boundary.
-
-        Algorithm:
-            drift = sin(counter * 0.1) * 1.5  # Oscillates between -1.5 and +1.5
-            height = 1.0 + 0.5 * sin(counter * 0.07)  # Varies between 0.5 and 1.5
-        """
-        self._counter += 1
-        # Calculate horizontal drift using sinusoidal function
-        # Period: 2*PI/0.1 ≈ 62 frames for full oscillation
-        drift = math.sin(self._counter * 0.1) * 1.5
-        width = 2.0
-        # Calculate height variation with different frequency
-        # Period: 2*PI/0.07 ≈ 90 frames for full oscillation
-        height = 1.0 + 0.5 * math.sin(self._counter * 0.07)
-        # Compute rectangle bounds centered on drift
-        x_min = drift - width / 2.0
-        x_max = drift + width / 2.0
-        y_min = -height / 2.0
-        y_max = height / 2.0
-        points = [
-            Point32(x=x_min, y=y_min, z=0.0),
-            Point32(x=x_max, y=y_min, z=0.0),
-            Point32(x=x_max, y=y_max, z=0.0),
-            Point32(x=x_min, y=y_max, z=0.0),
-        ]
-        return Polygon(points=points)
-
-    def _centerline(self) -> List[Point32]:
-        """Generate the plume centerline path.
-
-        Creates a polyline representing the center of the gas plume,
-        following the same drift pattern as the boundary polygon.
-
-        Returns:
-            List of Point32 vertices defining the centerline path.
-
-        Algorithm:
-            The centerline follows the drift calculation and creates
-            a curved path with 3 points to represent plume curvature.
-        """
-        drift = math.sin(self._counter * 0.1) * 1.5
-        return [
-            Point32(x=drift, y=-1.0, z=0.0),
-            Point32(x=drift + 0.2, y=0.0, z=0.0),  # Slight curve at center
-            Point32(x=drift, y=1.0, z=0.0),
-        ]
-
     def _publish_sample(self) -> None:
-        """Generate and publish a synthetic gas isopleth sample.
+        now_sec = self._now_seconds()
+        estimate = self._model.estimate(now_sec=now_sec)
+        if estimate is None:
+            return
 
-        Creates a GasIsopleth message with:
-        - Current timestamp
-        - Configured species and units
-        - Time-varying plume boundary polygon
-        - Plume centerline path
-        """
         msg = GasIsopleth()
         msg.stamp = self.get_clock().now().to_msg()
         msg.species = self._species
         msg.units = self._units
-        msg.polygons = [self._rectangle()]
-        msg.centerline = self._centerline()
+        msg.polygons = [self._to_polygon(polygon) for polygon in estimate.polygons]
+        msg.centerline = [
+            Point32(x=float(x), y=float(y), z=0.0) for x, y in estimate.centerline
+        ]
         self._publisher.publish(msg)
+
+    def _handle_gas_sample(self, message: PointStamped) -> None:
+        if not self._frame_is_valid(frame_id=message.header.frame_id, source="gas"):
+            return
+        stamp_sec = self._resolve_stamp_seconds(message.header.stamp, source="gas")
+        if stamp_sec is None:
+            return
+
+        concentration = float(message.point.z)
+        self._model.add_sample(
+            x=float(message.point.x),
+            y=float(message.point.y),
+            concentration=concentration,
+            timestamp_sec=stamp_sec,
+        )
+
+    def _handle_wind_sample(self, message: Vector3Stamped) -> None:
+        if not self._frame_is_valid(frame_id=message.header.frame_id, source="wind"):
+            return
+        stamp_sec = self._resolve_stamp_seconds(message.header.stamp, source="wind")
+        if stamp_sec is None:
+            return
+
+        self._model.set_wind(
+            vx=float(message.vector.x),
+            vy=float(message.vector.y),
+            timestamp_sec=stamp_sec,
+        )
+
+    @staticmethod
+    def _to_polygon(points: list[tuple[float, float]]) -> Polygon:
+        return Polygon(
+            points=[Point32(x=float(x), y=float(y), z=0.0) for x, y in points]
+        )
+
+    def _frame_is_valid(self, *, frame_id: str, source: str) -> bool:
+        if not self._expected_frame_id:
+            return True
+        incoming = str(frame_id).strip()
+        if incoming == self._expected_frame_id:
+            return True
+        self.get_logger().warning(
+            f"Ignoring {source} sample with frame_id '{incoming or '<empty>'}'; "
+            f"expected '{self._expected_frame_id}'"
+        )
+        return False
+
+    def _resolve_stamp_seconds(self, stamp, *, source: str) -> float | None:
+        stamp_sec = self._stamp_to_seconds(stamp)
+        if stamp_sec <= 0.0:
+            return self._now_seconds()
+        now_sec = self._now_seconds()
+        if stamp_sec > now_sec + self._max_future_skew_sec:
+            self.get_logger().warning(
+                f"Ignoring {source} sample with future timestamp "
+                f"{stamp_sec:.3f}s (now={now_sec:.3f}s)"
+            )
+            return None
+        return stamp_sec
+
+    def _now_seconds(self) -> float:
+        return self.get_clock().now().nanoseconds / 1e9
+
+    @staticmethod
+    def _stamp_to_seconds(stamp) -> float:
+        sec = float(getattr(stamp, "sec", 0.0))
+        nanosec = float(getattr(stamp, "nanosec", 0.0))
+        return sec + (nanosec / 1e9)
 
 
 def main(args: Any = None) -> None:
-    """Entry point for the gas isopleth node.
-
-    Args:
-        args: Command line arguments (passed to rclpy.init).
-    """
     rclpy.init(args=args)
     node = GasIsoplethNode()
     try:

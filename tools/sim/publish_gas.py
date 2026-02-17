@@ -3,12 +3,13 @@
 
 This module simulates gas plume detection with realistic features including
 concentric concentration zones, wind drift, and organic edge noise. It generates
-nested polygons representing low/medium/high gas concentrations that move over
-time to simulate wind effects.
+nested polygons representing low/medium/high gas concentrations in local XY
+meters, matching the runtime `GasIsopleth` contract used by orchestrator and
+perception nodes.
 
 ROS Topics:
     Published:
-        /perception/gas (aeris_msgs/GasIsopleth): Gas concentration polygons
+        /gas/isopleth (aeris_msgs/GasIsopleth): Gas concentration polygons
 
 Usage:
     python publish_gas.py
@@ -38,59 +39,27 @@ except ImportError:
 # ROS bridge connection settings
 HOST = 'localhost'
 PORT = 9090
-TOPIC = '/perception/gas'
+TOPIC = '/gas/isopleth'
 MSG_TYPE = 'aeris_msgs/GasIsopleth'
 
-# Base coordinate for simulation
-BASE_LAT = 37.7749
-BASE_LON = -122.4194
-
-# Leak origin: 50m East, 50m North of base
-OFFSET_E_M = 50.0
-OFFSET_N_M = 50.0
-
-# Approximate conversion factor for latitude degrees to meters
-METERS_PER_DEG_LAT = 111_111.0
+# Leak origin in local XY meters.
+LEAK_X_M = 50.0
+LEAK_Y_M = 50.0
 
 
-def offset_lat_lon(lat, lon, north_m, east_m):
-    """Convert meter offsets to lat/lon offsets.
-
-    Args:
-        lat: Base latitude in degrees.
-        lon: Base longitude in degrees.
-        north_m: North offset in meters (positive = north).
-        east_m: East offset in meters (positive = east).
-
-    Returns:
-        tuple: (new_lat, new_lon) after applying offsets.
-
-    Note:
-        Uses equirectangular approximation suitable for small distances
-        (< 1km) at moderate latitudes.
-    """
-    d_lat = north_m / METERS_PER_DEG_LAT
-    d_lon = east_m / (METERS_PER_DEG_LAT * math.cos(math.radians(lat)))
-    return lat + d_lat, lon + d_lon
-
-
-# Calculate absolute leak location
-LEAK_LAT, LEAK_LON = offset_lat_lon(BASE_LAT, BASE_LON, OFFSET_N_M, OFFSET_E_M)
-
-
-def make_ring(center_lat, center_lon, radius_m, segments=24, noise_factor=0.1):
+def make_ring(center_x, center_y, radius_m, segments=24, noise_factor=0.1):
     """Generate a polygon ring with optional noise for organic shape.
 
     Args:
-        center_lat: Center latitude in degrees.
-        center_lon: Center longitude in degrees.
+        center_x: Center x coordinate in meters.
+        center_y: Center y coordinate in meters.
         radius_m: Radius in meters.
         segments: Number of polygon vertices.
         noise_factor: Random variation as fraction of radius (0.1 = 10%).
 
     Returns:
         list: List of point dictionaries with 'x', 'y', 'z' keys representing
-            the polygon vertices in lat/lon/altitude format.
+            polygon vertices in local XY meter coordinates.
 
     Note:
         The returned list includes a duplicate of the first point at the end
@@ -103,22 +72,21 @@ def make_ring(center_lat, center_lon, radius_m, segments=24, noise_factor=0.1):
         # Add random noise for organic, non-perfect circular appearance
         r = radius_m + random.uniform(-1, 1) * noise_factor * radius_m
 
-        north = math.cos(theta) * r
-        east = math.sin(theta) * r
-        lat, lon = offset_lat_lon(center_lat, center_lon, north, east)
-        points.append({'x': lat, 'y': lon, 'z': 0.0})
+        x = center_x + (math.sin(theta) * r)
+        y = center_y + (math.cos(theta) * r)
+        points.append({'x': x, 'y': y, 'z': 0.0})
 
     # Close the polygon loop by duplicating the first point
     points.append(points[0].copy())
     return points
 
 
-def make_centerline(center_lat, center_lon, wind_dir_rad, length_m=30):
+def make_centerline(center_x, center_y, wind_dir_rad, length_m=30):
     """Create centerline points showing wind direction.
 
     Args:
-        center_lat: Plume center latitude.
-        center_lon: Plume center longitude.
+        center_x: Plume center x in meters.
+        center_y: Plume center y in meters.
         wind_dir_rad: Wind direction in radians (0 = North, pi/2 = East).
         length_m: Length of centerline in meters.
 
@@ -129,11 +97,10 @@ def make_centerline(center_lat, center_lon, wind_dir_rad, length_m=30):
     points = []
     for i in range(4):
         dist = (i / 3) * length_m
-        north = math.cos(wind_dir_rad) * dist
-        east = math.sin(wind_dir_rad) * dist
-        lat, lon = offset_lat_lon(center_lat, center_lon, north, east)
+        x = center_x + (math.sin(wind_dir_rad) * dist)
+        y = center_y + (math.cos(wind_dir_rad) * dist)
         # Rising centerline for 3D visualization
-        points.append({'x': lat, 'y': lon, 'z': float(i * 3)})
+        points.append({'x': x, 'y': y, 'z': float(i * 3)})
     return points
 
 
@@ -152,7 +119,7 @@ def run():
         return
 
     print(f"Connected to ROS Bridge at {HOST}:{PORT}")
-    print(f"Publishing gas plume near lat={LEAK_LAT:.6f}, lon={LEAK_LON:.6f}")
+    print(f"Publishing gas plume near x={LEAK_X_M:.1f}m, y={LEAK_Y_M:.1f}m")
     print("Features: Wind drift, organic noise, centerline")
 
     # Advertise gas isopleth publisher
@@ -171,9 +138,8 @@ def run():
             drift_n = math.sin(t * 0.2) * 8.0   # +/- 8m North
             drift_e = math.cos(t * 0.15) * 5.0  # +/- 5m East
 
-            current_lat, current_lon = offset_lat_lon(
-                LEAK_LAT, LEAK_LON, drift_n, drift_e
-            )
+            current_x = LEAK_X_M + drift_e
+            current_y = LEAK_Y_M + drift_n
 
             # Slowly rotating wind direction
             wind_dir = t * 0.1
@@ -181,9 +147,9 @@ def run():
             # Three concentric polygons: outer=low, mid=med, inner=high
             # Outer ring has more noise (turbulent edges), inner is smoother
             polygons = [
-                {'points': make_ring(current_lat, current_lon, 50.0, segments=32, noise_factor=0.15)},
-                {'points': make_ring(current_lat, current_lon, 30.0, segments=28, noise_factor=0.12)},
-                {'points': make_ring(current_lat, current_lon, 12.0, segments=24, noise_factor=0.08)},
+                {'points': make_ring(current_x, current_y, 50.0, segments=32, noise_factor=0.15)},
+                {'points': make_ring(current_x, current_y, 30.0, segments=28, noise_factor=0.12)},
+                {'points': make_ring(current_x, current_y, 12.0, segments=24, noise_factor=0.08)},
             ]
 
             # Construct GasIsopleth message
@@ -192,7 +158,7 @@ def run():
                 'species': 'VOC',
                 'units': 'ppm',
                 'polygons': polygons,
-                'centerline': make_centerline(current_lat, current_lon, wind_dir),
+                'centerline': make_centerline(current_x, current_y, wind_dir),
             }
 
             pub.publish(roslibpy.Message(msg))
