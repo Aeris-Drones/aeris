@@ -1,4 +1,6 @@
 from contextlib import suppress
+import json
+import math
 import time
 
 import pytest
@@ -92,6 +94,16 @@ def test_fusion_node_publishes_upgrades_for_correlated_modalities() -> None:
         assert second.confidence_level == "HIGH"
         assert first.candidate_id == second.candidate_id
         assert second.source_modalities == ["acoustic", "thermal"]
+        assert second.frame_id == "map"
+        assert second.mission_id == ""
+        assert math.isfinite(second.local_target.x)
+        assert math.isfinite(second.local_target.y)
+        assert len(second.local_geometry) >= 3
+        payload = json.loads(second.hazard_payload_json)
+        assert isinstance(payload, dict)
+        assert "polygons" in payload
+        assert len(payload["polygons"]) >= 1
+        assert len(payload["polygons"][0]) >= 3
     finally:
         for active in (stimulus, observer, node):
             with suppress(RuntimeError):

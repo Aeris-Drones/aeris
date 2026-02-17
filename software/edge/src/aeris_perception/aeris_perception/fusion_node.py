@@ -94,6 +94,7 @@ class FusionNode(Node):
             candidate_ttl_sec=float(
                 self.declare_parameter("candidate_ttl_sec", 20.0).value
             ),
+            max_candidates=max(1, int(self.declare_parameter("max_candidates", 256).value)),
             strong_confidence_min=float(
                 self.declare_parameter("strong_confidence_min", 0.75).value
             ),
@@ -116,6 +117,7 @@ class FusionNode(Node):
             "correlation_window_sec": self._fusion_config.correlation_window_sec,
             "spatial_gate_m": self._fusion_config.spatial_gate_m,
             "candidate_ttl_sec": self._fusion_config.candidate_ttl_sec,
+            "max_candidates": self._fusion_config.max_candidates,
             "strong_confidence_min": self._fusion_config.strong_confidence_min,
             "weak_confidence_min": self._fusion_config.weak_confidence_min,
             "max_future_skew_sec": self._fusion_config.max_future_skew_sec,
@@ -140,6 +142,8 @@ class FusionNode(Node):
                 elif parameter.name == "max_future_skew_sec":
                     updated_max_future_skew_sec = max(0.0, float(parameter.value))
                     fusion_update["max_future_skew_sec"] = updated_max_future_skew_sec
+                elif parameter.name == "max_candidates":
+                    fusion_update["max_candidates"] = int(parameter.value)
                 elif parameter.name in fusion_update:
                     fusion_update[parameter.name] = float(parameter.value)
                 elif parameter.name in {
@@ -172,6 +176,10 @@ class FusionNode(Node):
             return SetParametersResult(
                 successful=False, reason="candidate_ttl_sec must be > 0"
             )
+        if int(fusion_update["max_candidates"]) <= 0:
+            return SetParametersResult(
+                successful=False, reason="max_candidates must be > 0"
+            )
         if fusion_update["weak_confidence_min"] < 0.0:
             return SetParametersResult(
                 successful=False, reason="weak_confidence_min must be >= 0"
@@ -194,6 +202,7 @@ class FusionNode(Node):
             correlation_window_sec=fusion_update["correlation_window_sec"],
             spatial_gate_m=fusion_update["spatial_gate_m"],
             candidate_ttl_sec=fusion_update["candidate_ttl_sec"],
+            max_candidates=int(fusion_update["max_candidates"]),
             strong_confidence_min=fusion_update["strong_confidence_min"],
             weak_confidence_min=fusion_update["weak_confidence_min"],
             max_future_skew_sec=fusion_update["max_future_skew_sec"],
@@ -375,7 +384,7 @@ def main(args: Any = None) -> None:
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        node.get_logger().info("KeyboardInterrupt received; shutting down fusion node.")
     finally:
         node.destroy_node()
         rclpy.shutdown()

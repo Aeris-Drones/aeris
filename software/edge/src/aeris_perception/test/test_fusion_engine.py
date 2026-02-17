@@ -14,14 +14,19 @@ def _make_detection(
     confidence: float,
     x: float,
     z: float,
+    geometry: tuple[tuple[float, float], ...] | None = None,
 ) -> NormalizedDetection:
+    if geometry is None:
+        normalized_geometry = ((float(x), float(z)),)
+    else:
+        normalized_geometry = tuple((float(px), float(pz)) for px, pz in geometry)
     return NormalizedDetection(
         modality=modality,
         timestamp_sec=float(timestamp_sec),
         confidence=float(confidence),
         local_x=float(x),
         local_z=float(z),
-        geometry=((float(x), float(z)),),
+        geometry=normalized_geometry,
     )
 
 
@@ -196,3 +201,58 @@ def test_future_and_stale_samples_are_rejected() -> None:
     )
     assert valid is not None
     assert math.isfinite(valid.local_x)
+
+
+def test_geometry_is_normalized_to_convex_hull() -> None:
+    engine = FusionEngine(config=FusionConfig())
+    first = engine.ingest(
+        _make_detection(
+            modality="thermal",
+            timestamp_sec=10.0,
+            confidence=0.80,
+            x=1.0,
+            z=0.0,
+            geometry=((-1.0, -1.0), (3.0, -1.0), (3.0, 1.0), (-1.0, 1.0)),
+        ),
+        now_sec=10.0,
+    )
+    assert first is not None
+
+    second = engine.ingest(
+        _make_detection(
+            modality="acoustic",
+            timestamp_sec=10.2,
+            confidence=0.90,
+            x=1.0,
+            z=0.0,
+            geometry=((0.0, 0.0), (2.0, 0.0)),
+        ),
+        now_sec=10.2,
+    )
+    assert second is not None
+    assert second.confidence_level == "HIGH"
+    assert len(second.geometry) == 4
+    assert set(second.geometry) == {(-1.0, -1.0), (3.0, -1.0), (3.0, 1.0), (-1.0, 1.0)}
+
+
+def test_candidate_pool_is_bounded_under_spike_load() -> None:
+    engine = FusionEngine(
+        config=FusionConfig(correlation_window_sec=3.0, candidate_ttl_sec=60.0, max_candidates=2)
+    )
+    for index in range(3):
+        emitted = engine.ingest(
+            _make_detection(
+                modality="thermal",
+                timestamp_sec=20.0 + index,
+                confidence=0.95,
+                x=100.0 * index,
+                z=100.0 * index,
+            ),
+            now_sec=20.0 + index,
+        )
+        assert emitted is not None
+    assert len(engine._candidates) == 2
+    assert [candidate.candidate_id for candidate in engine._candidates] == [
+        "cand-00003",
+        "cand-00002",
+    ]

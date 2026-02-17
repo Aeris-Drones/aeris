@@ -11,6 +11,7 @@ class FusionConfig:
     correlation_window_sec: float = 3.0
     spatial_gate_m: float = 12.0
     candidate_ttl_sec: float = 20.0
+    max_candidates: int = 256
     strong_confidence_min: float = 0.75
     weak_confidence_min: float = 0.40
     max_future_skew_sec: float = 0.25
@@ -76,6 +77,7 @@ class FusionEngine:
         if candidate is None:
             candidate = self._create_candidate(detection)
             self._candidates.append(candidate)
+            self._enforce_candidate_capacity()
 
         self._update_candidate(candidate, detection)
         level, score = self._classify_candidate(candidate)
@@ -137,6 +139,14 @@ class FusionEngine:
             for candidate in self._candidates
             if (now_sec - candidate.last_update_sec) <= ttl_sec
         ]
+        self._enforce_candidate_capacity()
+
+    def _enforce_candidate_capacity(self) -> None:
+        max_candidates = max(int(self._config.max_candidates), 1)
+        if len(self._candidates) > max_candidates:
+            # Keep most recently updated candidates when load spikes.
+            self._candidates.sort(key=lambda candidate: candidate.last_update_sec, reverse=True)
+            self._candidates = self._candidates[:max_candidates]
 
     def _select_candidate(self, detection: NormalizedDetection) -> _Candidate | None:
         best_candidate: _Candidate | None = None
@@ -222,8 +232,65 @@ class FusionEngine:
                     continue
                 points.append((x_value, z_value))
 
-        if len(points) >= 3:
-            return tuple(points[:24])
+        normalized = self._normalized_geometry_points(points)
+        if len(normalized) >= 3:
+            return tuple(normalized[:24])
         return (
             (float(candidate.local_x), float(candidate.local_z)),
+        )
+
+    @staticmethod
+    def _normalized_geometry_points(
+        points: list[tuple[float, float]],
+    ) -> list[tuple[float, float]]:
+        unique_points: list[tuple[float, float]] = []
+        seen: set[tuple[float, float]] = set()
+        for x_value, z_value in points:
+            key = (round(float(x_value), 6), round(float(z_value), 6))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_points.append((float(x_value), float(z_value)))
+        if len(unique_points) < 3:
+            return unique_points
+
+        hull = FusionEngine._convex_hull(unique_points)
+        if len(hull) >= 3:
+            return hull
+        return unique_points
+
+    @staticmethod
+    def _convex_hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        ordered = sorted(points)
+        if len(ordered) <= 1:
+            return ordered
+
+        lower: list[tuple[float, float]] = []
+        for point in ordered:
+            while (
+                len(lower) >= 2
+                and FusionEngine._cross(lower[-2], lower[-1], point) <= 0.0
+            ):
+                lower.pop()
+            lower.append(point)
+
+        upper: list[tuple[float, float]] = []
+        for point in reversed(ordered):
+            while (
+                len(upper) >= 2
+                and FusionEngine._cross(upper[-2], upper[-1], point) <= 0.0
+            ):
+                upper.pop()
+            upper.append(point)
+
+        return lower[:-1] + upper[:-1]
+
+    @staticmethod
+    def _cross(
+        origin: tuple[float, float],
+        first: tuple[float, float],
+        second: tuple[float, float],
+    ) -> float:
+        return ((first[0] - origin[0]) * (second[1] - origin[1])) - (
+            (first[1] - origin[1]) * (second[0] - origin[0])
         )

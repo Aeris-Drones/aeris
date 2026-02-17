@@ -271,6 +271,9 @@ class MissionNode(Node):
         self._detection_stale_ms = float(
             self.declare_parameter("detection_stale_ms", 2000.0).value
         )
+        self._detection_future_skew_sec = max(
+            0.0, float(self.declare_parameter("detection_future_skew_sec", 0.25).value)
+        )
         self._tracking_focus_radius_m = float(
             self.declare_parameter("tracking_focus_radius_m", 50.0).value
         )
@@ -1491,7 +1494,18 @@ class MissionNode(Node):
         fallback_window = max(self._raw_detection_fallback_sec, 0.0)
         if fallback_window <= 0.0:
             return False
-        age_sec = time.monotonic() - self._last_fused_detection_accept_monotonic
+        now_monotonic = time.monotonic()
+        stream_health_window = max(
+            min(fallback_window, max(self._detection_stale_ms, 0.0) / 1000.0),
+            0.0,
+        )
+        if (
+            stream_health_window > 0.0
+            and math.isfinite(self._fused_hazard_received_monotonic)
+            and (now_monotonic - self._fused_hazard_received_monotonic) > stream_health_window
+        ):
+            return False
+        age_sec = now_monotonic - self._last_fused_detection_accept_monotonic
         return age_sec <= fallback_window
 
     def _handle_thermal_hotspot(self, message: ThermalHotspot) -> None:
@@ -1650,8 +1664,9 @@ class MissionNode(Node):
         if timestamp_sec <= 0.0:
             timestamp_sec = self._now_seconds()
 
-        target_x = float(message.local_target.x)
-        target_z = float(message.local_target.y)
+        local_target = getattr(message, "local_target", None)
+        target_x = float(getattr(local_target, "x", float("nan")))
+        target_z = float(getattr(local_target, "y", float("nan")))
         if not (math.isfinite(target_x) and math.isfinite(target_z)):
             fallback_target = self._active_scout_position()
             target_x = float(fallback_target["x"])
@@ -1900,7 +1915,13 @@ class MissionNode(Node):
 
         now_sec = self._now_seconds()
         stale_window = max(self._detection_stale_ms, 0.0) / 1000.0
+        future_skew = max(self._detection_future_skew_sec, 0.0)
         age_sec = now_sec - event.timestamp_sec
+        if age_sec < (0.0 - future_skew):
+            return (
+                False,
+                f"detection timestamp is {-age_sec:.3f}s in the future (max {future_skew:.3f}s)",
+            )
         if age_sec > stale_window:
             return (
                 False,

@@ -561,6 +561,7 @@ def mission_harness_detection(ros_runtime: MultiThreadedExecutor):
             Parameter("tracking_timeout_sec", value=0.25),
             Parameter("tracking_dispatch_budget_ms", value=200.0),
             Parameter("detection_stale_ms", value=500.0),
+            Parameter("detection_future_skew_sec", value=0.25),
             Parameter("replan_cooldown_sec", value=1.0),
         ]
     )
@@ -890,7 +891,9 @@ def test_acoustic_detection_acceptance_transitions_to_tracking(
     observer.tracking_resolution_publisher.publish(signal)
     assert _wait_until(lambda: mission_node._state == "SEARCHING")
 
-def test_detection_rejects_low_confidence_stale_and_cooldown(mission_harness_detection) -> None:
+def test_detection_rejects_low_confidence_stale_future_and_cooldown(
+    mission_harness_detection,
+) -> None:
     mission_node, observer = mission_harness_detection
     _start_searching_mission(mission_node, observer)
     mission_node._thermal_confidence_min = 0.9
@@ -907,6 +910,12 @@ def test_detection_rejects_low_confidence_stale_and_cooldown(mission_harness_det
     )
     assert mission_node._state == "SEARCHING"
 
+    _publish_thermal(observer, confidence=0.95, stamp_offset_sec=1.0)
+    assert _wait_until(
+        lambda: "future" in mission_node._last_detection_rejection_reason
+    )
+    assert mission_node._state == "SEARCHING"
+
     _publish_thermal(observer, confidence=0.99)
     assert _wait_until(lambda: mission_node._state == "TRACKING")
     signal = String()
@@ -919,6 +928,24 @@ def test_detection_rejects_low_confidence_stale_and_cooldown(mission_harness_det
         lambda: "cooldown active" in mission_node._last_detection_rejection_reason
     )
     assert mission_node._state == "SEARCHING"
+
+
+def test_raw_detection_fallback_unsuppresses_when_fused_stream_is_stale(
+    mission_harness_detection,
+) -> None:
+    mission_node, observer = mission_harness_detection
+    _start_searching_mission(mission_node, observer)
+
+    now_monotonic = time.monotonic()
+    mission_node._last_fused_detection_accept_monotonic = now_monotonic - 0.05
+    mission_node._fused_hazard_received_monotonic = now_monotonic - 2.0
+    mission_node._raw_detection_fallback_sec = 5.0
+    mission_node._detection_stale_ms = 500.0
+
+    assert not mission_node._raw_detection_path_is_suppressed()
+
+    mission_node._fused_hazard_received_monotonic = time.monotonic()
+    assert mission_node._raw_detection_path_is_suppressed()
 
 
 def test_thermal_normalization_uses_xyxy_bbox_center_projection() -> None:
@@ -990,6 +1017,34 @@ def test_gas_normalization_handles_richer_polygon_payloads() -> None:
     assert event.timestamp_sec == pytest.approx(321.0)
     assert event.local_target["x"] == pytest.approx((4.0 + 7.0 + 9.0) / 3.0)
     assert event.local_target["z"] == pytest.approx((8.0 + 8.2 + 8.5) / 3.0)
+
+
+def test_fused_normalization_falls_back_when_local_target_is_non_finite() -> None:
+    mission_node = MissionNode.__new__(MissionNode)
+    mission_node._mission_id = "fusion-contract"
+    mission_node._fused_confidence_min = 0.4
+    mission_node._acoustic_confidence_min = 0.65
+    mission_node._active_scout_position = lambda: {"x": 11.0, "z": -4.0}
+    mission_node._time_message_to_seconds = (
+        lambda stamp: float(getattr(stamp, "sec", 0))
+        + (float(getattr(stamp, "nanosec", 0)) / 1e9)
+    )
+    mission_node._now_seconds = lambda: 444.0
+
+    message = FusedDetection()
+    message.stamp.sec = 0
+    message.stamp.nanosec = 0
+    message.local_target = Point32(x=float("nan"), y=float("nan"), z=0.0)
+    message.confidence = 0.0
+    message.confidence_level = "MEDIUM"
+    message.mission_id = ""
+
+    event = mission_node._normalize_fused_detection(message)
+
+    assert event.timestamp_sec == pytest.approx(444.0)
+    assert event.local_target["x"] == pytest.approx(11.0)
+    assert event.local_target["z"] == pytest.approx(-4.0)
+    assert event.confidence == pytest.approx(0.65)
 
 
 def test_detection_selects_nearest_online_scout_and_records_dispatch_latency(
