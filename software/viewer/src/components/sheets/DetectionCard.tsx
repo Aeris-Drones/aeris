@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { Flame, AudioLines, Wind, Crosshair, Check, X, MapPin } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getConfidenceTextClass } from '@/lib/detectionViewState';
 
 /**
  * Sensor detection with triage workflow state.
@@ -22,11 +23,14 @@ export interface Detection {
   id: string;
   sensorType: 'thermal' | 'acoustic' | 'gas';
   confidence: number;
+  confidenceLevel?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
   timestamp: number;
   status: 'new' | 'reviewing' | 'confirmed' | 'dismissed';
   vehicleId: string;
   vehicleName: string;
   position: [number, number, number];
+  sourceModalities?: Array<'thermal' | 'acoustic' | 'gas'>;
+  geometry?: [number, number, number][];
   temperature?: number;
   decibels?: number;
   concentration?: number;
@@ -61,13 +65,16 @@ function formatTime(timestamp: number): string {
 }
 
 function getReading(detection: Detection): string {
+  const hasFiniteValue = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value);
+
   switch (detection.sensorType) {
     case 'thermal':
-      return detection.temperature ? `${detection.temperature}°C` : '--';
+      return hasFiniteValue(detection.temperature) ? `${detection.temperature}°C` : '--';
     case 'acoustic':
-      return detection.decibels ? `${detection.decibels}dB` : '--';
+      return hasFiniteValue(detection.decibels) ? `${detection.decibels}dB` : '--';
     case 'gas':
-      return detection.concentration ? `${detection.concentration}ppm` : '--';
+      return hasFiniteValue(detection.concentration) ? `${detection.concentration}ppm` : '--';
   }
 }
 
@@ -119,7 +126,10 @@ export function DetectionCard({
 
   // Derive sector from ENU coordinates when not explicitly provided
   const sector = detection.sector || `Zone ${detection.position[0] > 0 ? 'E' : 'W'}-${Math.abs(Math.round(detection.position[2] / 50))}`;
-  const signature = detection.signatureType || getDefaultSignature(detection);
+  const modalityLabel = detection.sourceModalities?.length
+    ? detection.sourceModalities.join(' + ').toUpperCase()
+    : null;
+  const signature = detection.signatureType || modalityLabel || getDefaultSignature(detection);
 
   return (
     <div
@@ -152,10 +162,7 @@ export function DetectionCard({
         <div className="flex-1" />
 
         {/* Confidence percentage with color coding */}
-        <span className={cn(
-          'font-mono text-xl font-medium',
-          conf >= 85 ? 'text-emerald-400' : conf >= 70 ? 'text-white' : 'text-white/50'
-        )}>
+        <span className={cn('font-mono text-xl font-medium', getConfidenceTextClass(detection))}>
           {conf}%
         </span>
       </div>

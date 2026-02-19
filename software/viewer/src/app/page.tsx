@@ -23,12 +23,13 @@ import { AlertToaster, showAlert, dismissAllAlerts, type Alert } from '@/compone
 import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
-import { useThermalHotspots } from '@/hooks/useThermalHotspots';
+import { useFusedDetections } from '@/hooks/useFusedDetections';
+import { applyDetectionStatusOverrides, computeDetectionCounts } from '@/lib/detectionViewState';
 
 /**
  * Mock detections for UI demonstration when ROS telemetry is unavailable.
- * In production, these are replaced by real-time sensor fusion data from
- * the onboard perception pipeline via ROS topic /detections.
+ * In production, these are replaced by fused detections from
+ * /detections/fused via rosbridge.
  */
 const mockDetections: Detection[] = [
   {
@@ -56,7 +57,6 @@ const mockDetections: Detection[] = [
     temperature: 36.8, sector: 'Sector A-3', signatureType: 'Possible survivor'
   },
 ];
-const INITIAL_ALERT_COUNT = 2;
 
 /**
  * Root page component for the Aeris GCS.
@@ -123,20 +123,16 @@ function V2PageContent() {
   const [pipVehicleId, setPipVehicleId] = useState<string | null>(null);
   const mapRef = useRef<MapScene3DHandle>(null);
   const {
-    detections: liveThermalDetections,
-    isConnected: thermalFeedConnected,
-  } = useThermalHotspots(telemetryVehicles);
+    detections: liveFusedDetections,
+    isConnected: fusedFeedConnected,
+  } = useFusedDetections(telemetryVehicles);
 
   const baseDetections = useMemo<Detection[]>(
-    () => (thermalFeedConnected ? liveThermalDetections : mockDetections),
-    [liveThermalDetections, thermalFeedConnected]
+    () => (fusedFeedConnected ? liveFusedDetections : mockDetections),
+    [fusedFeedConnected, liveFusedDetections]
   );
   const detections = useMemo<Detection[]>(
-    () =>
-      baseDetections.map((detection) => ({
-        ...detection,
-        status: detectionStatusOverrides[detection.id] ?? detection.status,
-      })),
+    () => applyDetectionStatusOverrides(baseDetections, detectionStatusOverrides),
     [baseDetections, detectionStatusOverrides]
   );
 
@@ -362,11 +358,11 @@ function V2PageContent() {
     activeVehicles.reduce((sum, v) => sum + v.altitude, 0) / (activeVehicles.length || 1)
   );
 
-  const thermalCount = detections.filter(d => d.sensorType === 'thermal').length;
-  const acousticCount = detections.filter(d => d.sensorType === 'acoustic').length;
-  const gasCount = detections.filter(d => d.sensorType === 'gas').length;
-  const pendingCount = detections.filter(d => d.status === 'new' || d.status === 'reviewing').length;
-  const confirmedCount = detections.filter(d => d.status === 'confirmed').length;
+  const detectionCounts = useMemo(
+    () => computeDetectionCounts(detections),
+    [detections]
+  );
+  const statusAlertCount = detectionCounts.pending;
 
   return (
     <GCSLayout
@@ -394,8 +390,9 @@ function V2PageContent() {
           elapsedTime={elapsedSeconds}
           progressPercent={Math.round(coveragePercent)}
           connectionStatus={rosConnected ? "connected" : "disconnected"}
-          alertCount={INITIAL_ALERT_COUNT}
-          hasUnreadAlerts={INITIAL_ALERT_COUNT > 0}
+          detectionCounts={detectionCounts}
+          alertCount={statusAlertCount}
+          hasUnreadAlerts={statusAlertCount > 0}
           onAlertClick={handleAlertClick}
         />
       }
@@ -433,11 +430,11 @@ function V2PageContent() {
               onLocate={handleLocateDetection}
               trigger={
                 <DetectionsCard
-                  thermalCount={thermalCount}
-                  acousticCount={acousticCount}
-                  gasCount={gasCount}
-                  pendingCount={pendingCount}
-                  confirmedCount={confirmedCount}
+                  thermalCount={detectionCounts.thermal}
+                  acousticCount={detectionCounts.acoustic}
+                  gasCount={detectionCounts.gas}
+                  pendingCount={detectionCounts.pending}
+                  confirmedCount={detectionCounts.confirmed}
                 />
               }
             />

@@ -2,7 +2,7 @@
 
 import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
+import { Html, Line } from '@react-three/drei';
 import * as THREE from 'three';
 
 /** Props for the DetectionMarker3D component - represents a sensor detection in the 3D scene */
@@ -17,6 +17,8 @@ export interface DetectionMarker3DProps {
   confidence: number;
   /** Review status - drives animation and visual emphasis */
   status: 'new' | 'reviewing' | 'confirmed' | 'dismissed';
+  /** Optional geometry projected from fused payloads (thermal/acoustic/gas) */
+  geometry?: [number, number, number][];
   /** Whether this detection is currently selected */
   isSelected: boolean;
   /** Click handler for selection */
@@ -66,6 +68,7 @@ export function DetectionMarker3D({
   sensorType,
   confidence,
   status,
+  geometry,
   isSelected,
   onClick,
 }: DetectionMarker3DProps) {
@@ -114,6 +117,27 @@ export function DetectionMarker3D({
         return <octahedronGeometry args={[7]} />;
     }
   }, [sensorType]);
+
+  const overlayGeometry = useMemo(() => {
+    const [originX, originY, originZ] = position;
+    return (geometry ?? [])
+      .filter((point) => point.every(Number.isFinite))
+      .map(([x, y, z]) => [x - originX, y - originY, z - originZ] as [number, number, number]);
+  }, [geometry, position]);
+
+  const gasOrThermalPolygon = useMemo(() => {
+    if ((sensorType === 'gas' || sensorType === 'thermal') && overlayGeometry.length >= 3) {
+      return [...overlayGeometry, overlayGeometry[0]];
+    }
+    return [];
+  }, [overlayGeometry, sensorType]);
+
+  const acousticSegment = useMemo(() => {
+    if (sensorType === 'acoustic' && overlayGeometry.length >= 2) {
+      return [overlayGeometry[0], overlayGeometry[1]];
+    }
+    return [];
+  }, [overlayGeometry, sensorType]);
 
   return (
     <group
@@ -180,6 +204,26 @@ export function DetectionMarker3D({
             emissiveIntensity={0.5}
           />
         </mesh>
+      )}
+
+      {gasOrThermalPolygon.length > 0 && (
+        <Line
+          points={gasOrThermalPolygon}
+          color={color}
+          transparent
+          opacity={isSelected ? 0.95 : 0.6}
+          lineWidth={2}
+        />
+      )}
+
+      {acousticSegment.length > 0 && (
+        <Line
+          points={acousticSegment}
+          color={color}
+          transparent
+          opacity={isSelected ? 0.95 : 0.55}
+          lineWidth={2}
+        />
       )}
 
       <mesh position={[0, 20, 0]}>

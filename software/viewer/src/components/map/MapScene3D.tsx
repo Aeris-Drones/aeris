@@ -126,6 +126,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
             sensorType: detection.sensorType,
             confidence: detection.confidence,
             status: detection.status,
+            geometry: detection.geometry,
           })),
       [detections, visibility.acoustic, visibility.gas, visibility.thermal]
     );

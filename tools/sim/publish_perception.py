@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Publish thermal hotspot detections over rosbridge for testing.
+"""Publish perception detections over rosbridge for testing.
 
 This module simulates thermal perception data by generating persistent hotspots
 with slight movement and temperature variation over time. Useful for testing
 the perception visualization pipeline without actual thermal cameras.
 
 ROS Topics:
-    Published:
+    Published (default):
         /perception/thermal (aeris_msgs/ThermalHotspot): Thermal detections
+    Published (--fused):
+        /detections/fused (aeris_msgs/FusedDetection): Fused detections
 
 Usage:
     python publish_perception.py
+    python publish_perception.py --fused
 
 The script connects to a rosbridge server at localhost:9090 and publishes
 the thermal hotspot data at 2 Hz. Five persistent hotspots are generated
@@ -21,8 +24,11 @@ Features:
     - Slight orbital movement to simulate measurement variation
     - Temperature fluctuation over time
     - Randomized confidence values
+    - Optional fused detection stream for viewer end-to-end smoke tests
 """
 
+import argparse
+import json
 import time
 import math
 import random
@@ -37,8 +43,10 @@ except ImportError:
 # ROS bridge connection settings
 HOST = 'localhost'
 PORT = 9090
-TOPIC = '/perception/thermal'
-MSG_TYPE = 'aeris_msgs/ThermalHotspot'
+THERMAL_TOPIC = '/perception/thermal'
+THERMAL_MSG_TYPE = 'aeris_msgs/ThermalHotspot'
+FUSED_TOPIC = '/detections/fused'
+FUSED_MSG_TYPE = 'aeris_msgs/FusedDetection'
 
 # Base location for simulation (San Francisco area)
 BASE_LAT = 37.7749
@@ -70,7 +78,16 @@ def meters_to_lon(meters, lat):
     return meters / (111111.0 * math.cos(math.radians(lat)))
 
 
-def run_publisher():
+def confidence_to_level(confidence):
+    """Convert numeric confidence to the string level used by FusedDetection."""
+    if confidence >= 0.85:
+        return 'HIGH'
+    if confidence >= 0.7:
+        return 'MEDIUM'
+    return 'LOW'
+
+
+def run_publisher(*, fused=False):
     """Main publisher loop for thermal hotspot detections.
 
     Connects to rosbridge, creates 5 persistent hotspots with randomized
@@ -87,8 +104,11 @@ def run_publisher():
 
     print(f"Connected to ROS Bridge at {HOST}:{PORT}")
 
-    # Advertise thermal hotspot publisher
-    publisher = roslibpy.Topic(client, TOPIC, MSG_TYPE)
+    topic = FUSED_TOPIC if fused else THERMAL_TOPIC
+    msg_type = FUSED_MSG_TYPE if fused else THERMAL_MSG_TYPE
+
+    # Advertise perception publisher
+    publisher = roslibpy.Topic(client, topic, msg_type)
     publisher.advertise()
 
     start_time = time.time()
@@ -104,7 +124,8 @@ def run_publisher():
             "altitude": random.uniform(0, 50)       # Some elevated (e.g., buildings)
         })
 
-    print(f"Publishing thermal hotspots to {TOPIC}...")
+    mode = 'fused detections' if fused else 'thermal hotspots'
+    print(f"Publishing {mode} to {topic}...")
 
     try:
         while client.is_connected:
@@ -127,18 +148,57 @@ def run_publisher():
                 lat = BASE_LAT + meters_to_lat(y)
                 lon = BASE_LON + meters_to_lon(x, BASE_LAT)
 
-                # Construct ThermalHotspot message
-                msg = {
-                    "stamp": {"sec": sec, "nanosec": nanosec},
-                    "id": h["id"],
-                    "latitude": lat,
-                    "longitude": lon,
-                    "altitude": h["altitude"],
-                    "temp_c": current_temp,
-                    "confidence": random.uniform(0.7, 0.99),
-                    "frame_id": "map",
-                    "bbox_px": [0, 0, 0, 0]  # Dummy bounding box (not used in sim)
-                }
+                confidence = random.uniform(0.7, 0.99)
+
+                if fused:
+                    half_extent = 4.0
+                    local_geometry = [
+                        {"x": x - half_extent, "y": y - half_extent, "z": 0.0},
+                        {"x": x + half_extent, "y": y - half_extent, "z": 0.0},
+                        {"x": x + half_extent, "y": y + half_extent, "z": 0.0},
+                        {"x": x - half_extent, "y": y + half_extent, "z": 0.0},
+                    ]
+                    modalities = ['thermal']
+                    if idx % 3 == 1:
+                        modalities = ['acoustic']
+                    elif idx % 3 == 2:
+                        modalities = ['gas']
+
+                    hazard_payload = ""
+                    if 'gas' in modalities:
+                        hazard_payload = json.dumps({
+                            "polygons": [[
+                                {"x": point["x"], "z": point["y"]}
+                                for point in local_geometry
+                            ]]
+                        })
+
+                    # Construct FusedDetection message
+                    msg = {
+                        "stamp": {"sec": sec, "nanosec": nanosec},
+                        "candidate_id": str(h["id"]),
+                        "mission_id": "sim-mission",
+                        "confidence_level": confidence_to_level(confidence),
+                        "confidence": confidence,
+                        "source_modalities": modalities,
+                        "local_target": {"x": x, "y": y, "z": h["altitude"]},
+                        "local_geometry": local_geometry,
+                        "frame_id": "map",
+                        "hazard_payload_json": hazard_payload,
+                    }
+                else:
+                    # Construct ThermalHotspot message
+                    msg = {
+                        "stamp": {"sec": sec, "nanosec": nanosec},
+                        "id": h["id"],
+                        "latitude": lat,
+                        "longitude": lon,
+                        "altitude": h["altitude"],
+                        "temp_c": current_temp,
+                        "confidence": confidence,
+                        "frame_id": "map",
+                        "bbox_px": [0, 0, 0, 0]  # Dummy bounding box (not used in sim)
+                    }
 
                 publisher.publish(roslibpy.Message(msg))
 
@@ -153,4 +213,11 @@ def run_publisher():
 
 
 if __name__ == '__main__':
-    run_publisher()
+    parser = argparse.ArgumentParser(description='Publish simulated perception data over rosbridge.')
+    parser.add_argument(
+        '--fused',
+        action='store_true',
+        help='Publish aeris_msgs/FusedDetection data to /detections/fused for viewer smoke tests.',
+    )
+    args = parser.parse_args()
+    run_publisher(fused=args.fused)
