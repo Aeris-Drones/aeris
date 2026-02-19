@@ -118,10 +118,12 @@ export function DetectionMarker3D({
     }
   }, [sensorType]);
 
-  const overlayGeometry = useMemo(
-    () => (geometry ?? []).filter((point) => point.every(Number.isFinite)),
-    [geometry]
-  );
+  const overlayGeometry = useMemo(() => {
+    const [originX, originY, originZ] = position;
+    return (geometry ?? [])
+      .filter((point) => point.every(Number.isFinite))
+      .map(([x, y, z]) => [x - originX, y - originY, z - originZ] as [number, number, number]);
+  }, [geometry, position]);
 
   const gasOrThermalPolygon = useMemo(() => {
     if ((sensorType === 'gas' || sensorType === 'thermal') && overlayGeometry.length >= 3) {

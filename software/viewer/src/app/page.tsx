@@ -57,7 +57,6 @@ const mockDetections: Detection[] = [
     temperature: 36.8, sector: 'Sector A-3', signatureType: 'Possible survivor'
   },
 ];
-const INITIAL_ALERT_COUNT = 2;
 
 /**
  * Root page component for the Aeris GCS.
@@ -363,6 +362,7 @@ function V2PageContent() {
     () => computeDetectionCounts(detections),
     [detections]
   );
+  const statusAlertCount = detectionCounts.pending;
 
   return (
     <GCSLayout
@@ -390,8 +390,9 @@ function V2PageContent() {
           elapsedTime={elapsedSeconds}
           progressPercent={Math.round(coveragePercent)}
           connectionStatus={rosConnected ? "connected" : "disconnected"}
-          alertCount={INITIAL_ALERT_COUNT}
-          hasUnreadAlerts={INITIAL_ALERT_COUNT > 0}
+          detectionCounts={detectionCounts}
+          alertCount={statusAlertCount}
+          hasUnreadAlerts={statusAlertCount > 0}
           onAlertClick={handleAlertClick}
         />
       }

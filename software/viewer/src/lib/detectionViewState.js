@@ -1,15 +1,10 @@
-const KNOWN_MODALITIES = new Set(["thermal", "acoustic", "gas"]);
+import { KNOWN_MODALITIES, normalizeModalities } from "./modalities.js";
 
-function normalizeModalities(modalities, sensorType) {
-  if (Array.isArray(modalities)) {
-    const normalized = modalities
-      .map(modality => (typeof modality === "string" ? modality.trim().toLowerCase() : ""))
-      .filter(modality => KNOWN_MODALITIES.has(modality));
-    if (normalized.length > 0) {
-      return Array.from(new Set(normalized));
-    }
+function resolveModalities(modalities, sensorType) {
+  const normalized = normalizeModalities(modalities);
+  if (normalized.length > 0) {
+    return normalized;
   }
-
   if (typeof sensorType === "string" && KNOWN_MODALITIES.has(sensorType)) {
     return [sensorType];
   }
@@ -40,10 +35,10 @@ export function getConfidenceTextClass(detection) {
   if (percent >= 85) {
     return "text-emerald-400";
   }
-  if (percent >= 70) {
+  if (percent >= 60) {
     return "text-white";
   }
-  return "text-white/50";
+  return "text-white/60";
 }
 
 export function computeDetectionCounts(detections) {
@@ -56,7 +51,7 @@ export function computeDetectionCounts(detections) {
   };
 
   for (const detection of detections) {
-    const modalities = normalizeModalities(detection?.sourceModalities, detection?.sensorType);
+    const modalities = resolveModalities(detection?.sourceModalities, detection?.sensorType);
     for (const modality of modalities) {
       counts[modality] += 1;
     }

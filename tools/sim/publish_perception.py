@@ -82,7 +82,7 @@ def confidence_to_level(confidence):
     """Convert numeric confidence to the string level used by FusedDetection."""
     if confidence >= 0.85:
         return 'HIGH'
-    if confidence >= 0.6:
+    if confidence >= 0.7:
         return 'MEDIUM'
     return 'LOW'
 
@@ -176,7 +176,7 @@ def run_publisher(*, fused=False):
                     # Construct FusedDetection message
                     msg = {
                         "stamp": {"sec": sec, "nanosec": nanosec},
-                        "candidate_id": h["id"],
+                        "candidate_id": str(h["id"]),
                         "mission_id": "sim-mission",
                         "confidence_level": confidence_to_level(confidence),
                         "confidence": confidence,

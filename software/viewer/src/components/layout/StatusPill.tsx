@@ -17,6 +17,14 @@ export type MissionPhase =
 /** Telemetry link quality states - drives connection indicator UI */
 export type ConnectionStatus = 'connected' | 'degraded' | 'disconnected';
 
+export interface DetectionStatusCounts {
+  thermal: number;
+  acoustic: number;
+  gas: number;
+  pending: number;
+  confirmed: number;
+}
+
 /** Props for the StatusPill component - centralizes mission-critical information */
 export interface StatusPillProps {
   /** Optional custom logo element; defaults to "AERIS" text */
@@ -33,6 +41,8 @@ export interface StatusPillProps {
   alertCount: number;
   /** Whether there are unread alerts (shows red dot indicator) */
   hasUnreadAlerts: boolean;
+  /** Live fused detection counts shown in the status bar */
+  detectionCounts?: DetectionStatusCounts;
   /** Callback when alert bell is clicked */
   onAlertClick?: () => void;
 }
@@ -84,6 +94,7 @@ function formatElapsedTime(seconds: number): string {
  *   elapsedTime={360}
  *   progressPercent={45}
  *   connectionStatus="connected"
+ *   detectionCounts={{ thermal: 3, acoustic: 2, gas: 1, pending: 4, confirmed: 2 }}
  *   alertCount={2}
  *   hasUnreadAlerts={true}
  *   onAlertClick={() => openAlertsPanel()}
@@ -98,11 +109,19 @@ export function StatusPill({
   connectionStatus,
   alertCount,
   hasUnreadAlerts,
+  detectionCounts,
   onAlertClick,
 }: StatusPillProps) {
   const phase = phaseConfig[missionPhase];
   const connection = connectionConfig[connectionStatus];
   const ConnectionIcon = connection.Icon;
+  const liveDetections: DetectionStatusCounts = detectionCounts ?? {
+    thermal: 0,
+    acoustic: 0,
+    gas: 0,
+    pending: 0,
+    confirmed: 0,
+  };
 
   return (
     <div
@@ -154,6 +173,18 @@ export function StatusPill({
         <span className="font-mono text-xs tabular-nums text-white/70">
           {progressPercent}%
         </span>
+      </div>
+
+      <div className="h-4 w-px bg-[var(--glass-border)]" />
+
+      <div className="flex items-center gap-1.5 px-3">
+        <span className="text-[10px] uppercase tracking-wide text-white/50">Det</span>
+        <span className="font-mono text-xs text-orange-400">T{liveDetections.thermal}</span>
+        <span className="font-mono text-xs text-sky-400">A{liveDetections.acoustic}</span>
+        <span className="font-mono text-xs text-amber-400">G{liveDetections.gas}</span>
+        <span className="text-white/25">|</span>
+        <span className="font-mono text-xs text-emerald-400">P{liveDetections.pending}</span>
+        <span className="font-mono text-xs text-white/70">C{liveDetections.confirmed}</span>
       </div>
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />

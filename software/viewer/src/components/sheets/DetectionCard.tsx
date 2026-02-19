@@ -65,13 +65,16 @@ function formatTime(timestamp: number): string {
 }
 
 function getReading(detection: Detection): string {
+  const hasFiniteValue = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value);
+
   switch (detection.sensorType) {
     case 'thermal':
-      return detection.temperature ? `${detection.temperature}°C` : '--';
+      return hasFiniteValue(detection.temperature) ? `${detection.temperature}°C` : '--';
     case 'acoustic':
-      return detection.decibels ? `${detection.decibels}dB` : '--';
+      return hasFiniteValue(detection.decibels) ? `${detection.decibels}dB` : '--';
     case 'gas':
-      return detection.concentration ? `${detection.concentration}ppm` : '--';
+      return hasFiniteValue(detection.concentration) ? `${detection.concentration}ppm` : '--';
   }
 }
 

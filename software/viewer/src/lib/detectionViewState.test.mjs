@@ -71,3 +71,18 @@ test("getConfidenceTextClass honors fused confidence levels for card color mappi
     "text-white/60"
   );
 });
+
+test("getConfidenceTextClass numeric fallback aligns with fused confidence bands", () => {
+  assert.equal(
+    getConfidenceTextClass({ confidence: 0.9 }),
+    "text-emerald-400"
+  );
+  assert.equal(
+    getConfidenceTextClass({ confidence: 0.65 }),
+    "text-white"
+  );
+  assert.equal(
+    getConfidenceTextClass({ confidence: 0.2 }),
+    "text-white/60"
+  );
+});

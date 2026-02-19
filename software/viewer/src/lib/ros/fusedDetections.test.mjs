@@ -94,9 +94,65 @@ test("normalizeFusedDetectionMessage drops stale detections", () => {
   assert.equal(detection, null);
 });
 
+test("normalizeFusedDetectionMessage rejects messages with future timestamps beyond skew", () => {
+  const message = {
+    stamp: { sec: 1_700_000_010, nanosec: 0 },
+    candidate_id: "cand-future",
+    confidence_level: "HIGH",
+    confidence: 0.9,
+    source_modalities: ["thermal"],
+    local_target: { x: 0, y: 0, z: 0 },
+    local_geometry: [],
+  };
+
+  const detection = normalizeFusedDetectionMessage(message, {
+    nowMs: 1_700_000_000 * 1000,
+    maxFutureSkewMs: 5_000,
+  });
+
+  assert.equal(detection, null);
+});
+
 test("normalizeFusedDetectionMessage rejects malformed payloads", () => {
   assert.throws(
     () => normalizeFusedDetectionMessage({ confidence: 0.4 }, { nowMs: Date.now() }),
     /local_target/
+  );
+});
+
+test("normalizeFusedDetectionMessage rejects missing confidence", () => {
+  const message = {
+    stamp: { sec: 1_700_000_000, nanosec: 0 },
+    candidate_id: "cand-00045",
+    confidence_level: "MEDIUM",
+    source_modalities: ["thermal"],
+    local_target: { x: 1, y: 2, z: 3 },
+    local_geometry: [],
+  };
+
+  assert.throws(
+    () => normalizeFusedDetectionMessage(message, { nowMs: (1_700_000_000 * 1000) + 1_000 }),
+    /confidence/
+  );
+});
+
+test("normalizeFusedDetectionMessage rejects missing or unknown source modalities", () => {
+  const base = {
+    stamp: { sec: 1_700_000_000, nanosec: 0 },
+    candidate_id: "cand-00046",
+    confidence_level: "LOW",
+    confidence: 0.4,
+    local_target: { x: 0, y: 0, z: 0 },
+    local_geometry: [],
+  };
+
+  assert.throws(
+    () => normalizeFusedDetectionMessage({ ...base, source_modalities: [] }, { nowMs: (1_700_000_000 * 1000) + 1_000 }),
+    /source_modalities/
+  );
+
+  assert.throws(
+    () => normalizeFusedDetectionMessage({ ...base, source_modalities: ["unknown"] }, { nowMs: (1_700_000_000 * 1000) + 1_000 }),
+    /source_modalities/
   );
 });

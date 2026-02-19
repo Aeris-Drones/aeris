@@ -1,4 +1,4 @@
-const KNOWN_MODALITIES = new Set(["thermal", "acoustic", "gas"]);
+import { normalizeModalities } from "../modalities.js";
 const MODALITY_PRIORITY = ["gas", "thermal", "acoustic"];
 
 function isFiniteNumber(value) {
@@ -12,16 +12,12 @@ function clamp01(value) {
   return Math.max(0, Math.min(1, value));
 }
 
-function normalizeModalities(rawModalities) {
-  if (!Array.isArray(rawModalities)) {
-    return [];
+function parseConfidence(rawConfidence) {
+  const confidence = Number(rawConfidence);
+  if (!isFiniteNumber(confidence)) {
+    throw new Error("Invalid fused detection message: confidence must be numeric");
   }
-
-  const normalized = rawModalities
-    .map((modality) => (typeof modality === "string" ? modality.trim().toLowerCase() : ""))
-    .filter((modality) => KNOWN_MODALITIES.has(modality));
-
-  return Array.from(new Set(normalized));
+  return clamp01(confidence);
 }
 
 function normalizeConfidenceLevel(rawLevel, confidence) {
@@ -173,10 +169,16 @@ export function normalizeFusedDetectionMessage(rawMessage, options = {}) {
   const [targetX, targetY, targetZ] = parsePoint(message.local_target, "local_target");
   const position = [targetX, targetZ, targetY];
 
+  if (!Array.isArray(message.source_modalities)) {
+    throw new Error("Invalid fused detection message: source_modalities must be an array");
+  }
   const sourceModalities = normalizeModalities(message.source_modalities);
+  if (sourceModalities.length === 0) {
+    throw new Error("Invalid fused detection message: source_modalities must contain at least one known modality");
+  }
   const sensorType = pickPrimarySensorType(sourceModalities);
 
-  const confidence = clamp01(Number(message.confidence));
+  const confidence = parseConfidence(message.confidence);
   const confidenceLevel = normalizeConfidenceLevel(message.confidence_level, confidence);
   const geometry = parseGeometryFromLocalGeometry(message.local_geometry);
   const fallbackGeometry = geometry.length > 0
