@@ -1,128 +1,26 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
-  <transport_descriptors>
-    <transport_descriptor name="udp_ipv4">
-      <transport_type>UDPv4</transport_type>
-      <sendBufferSize>4194304</sendBufferSize>
-      <receiveBufferSize>4194304</receiveBufferSize>
-      <TTL>32</TTL>
-      <non_blocking_send>true</non_blocking_send>
-    </transport_descriptor>
-  </transport_descriptors>
-
-  <participant profile_name="aeris_participant" is_default_profile="true">
-    <rtps>
-      <userTransports>
+<dds>
+  <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+    <!-- Keep this profile minimal and Humble-compatible.
+         Topic/entity-level QoS is controlled by ROS defaults and launch-time tuning. -->
+    <transport_descriptors>
+      <transport_descriptor>
         <transport_id>udp_ipv4</transport_id>
-      </userTransports>
-      <useBuiltinTransports>false</useBuiltinTransports>
-      <builtin>
-        <domainId>0</domainId>
-        <leaseDuration>15</leaseDuration>
-        <leaseDuration_announcementperiod>5</leaseDuration_announcementperiod>
-        <initialPeersList>
-          <address>239.255.0.1</address>
-        </initialPeersList>
-        <metatrafficUnicastLocatorList>
-          <locator>
-            <kind>UDPv4</kind>
-            <port>7400</port>
-            <address>0.0.0.0</address>
-          </locator>
-        </metatrafficUnicastLocatorList>
-      </builtin>
-    </rtps>
-  </participant>
+        <type>UDPv4</type>
+        <sendBufferSize>4194304</sendBufferSize>
+        <receiveBufferSize>4194304</receiveBufferSize>
+        <TTL>32</TTL>
+        <non_blocking_send>true</non_blocking_send>
+      </transport_descriptor>
+    </transport_descriptors>
 
-  <!-- Control/telemetry parity profile -->
-  <publisher profile_name="control_telemetry_writer" is_default_profile="false">
-    <qos>
-      <publishModeQos>
-        <kind>ASYNCHRONOUS_PUBLISH_MODE</kind>
-      </publishModeQos>
-      <reliabilityQos>
-        <kind>RELIABLE_RELIABILITY_QOS</kind>
-      </reliabilityQos>
-      <historyQos>
-        <kind>KEEP_LAST_HISTORY_QOS</kind>
-        <depth>20</depth>
-      </historyQos>
-      <resourceLimitsQos>
-        <max_samples>1024</max_samples>
-        <allocated_samples>512</allocated_samples>
-      </resourceLimitsQos>
-    </qos>
-  </publisher>
-
-  <subscriber profile_name="control_telemetry_reader" is_default_profile="false">
-    <qos>
-      <reliabilityQos>
-        <kind>RELIABLE_RELIABILITY_QOS</kind>
-      </reliabilityQos>
-      <historyQos>
-        <kind>KEEP_LAST_HISTORY_QOS</kind>
-        <depth>20</depth>
-      </historyQos>
-    </qos>
-  </subscriber>
-
-  <!-- Video/metadata parity profile -->
-  <publisher profile_name="video_metadata_writer" is_default_profile="false">
-    <qos>
-      <publishModeQos>
-        <kind>ASYNCHRONOUS_PUBLISH_MODE</kind>
-      </publishModeQos>
-      <reliabilityQos>
-        <kind>BEST_EFFORT_RELIABILITY_QOS</kind>
-      </reliabilityQos>
-      <historyQos>
-        <kind>KEEP_LAST_HISTORY_QOS</kind>
-        <depth>5</depth>
-      </historyQos>
-    </qos>
-  </publisher>
-
-  <subscriber profile_name="video_metadata_reader" is_default_profile="false">
-    <qos>
-      <reliabilityQos>
-        <kind>BEST_EFFORT_RELIABILITY_QOS</kind>
-      </reliabilityQos>
-      <historyQos>
-        <kind>KEEP_LAST_HISTORY_QOS</kind>
-        <depth>5</depth>
-      </historyQos>
-    </qos>
-  </subscriber>
-
-  <!-- Backward-compatible aliases retained for existing tooling -->
-  <publisher profile_name="reliable_large" is_default_profile="false">
-    <qos>
-      <publishModeQos>
-        <kind>ASYNCHRONOUS_PUBLISH_MODE</kind>
-      </publishModeQos>
-      <reliabilityQos>
-        <kind>RELIABLE_RELIABILITY_QOS</kind>
-      </reliabilityQos>
-      <historyQos>
-        <kind>KEEP_LAST_HISTORY_QOS</kind>
-        <depth>20</depth>
-      </historyQos>
-      <resourceLimitsQos>
-        <max_samples>1024</max_samples>
-        <allocated_samples>512</allocated_samples>
-      </resourceLimitsQos>
-    </qos>
-  </publisher>
-
-  <subscriber profile_name="best_effort" is_default_profile="false">
-    <qos>
-      <reliabilityQos>
-        <kind>BEST_EFFORT_RELIABILITY_QOS</kind>
-      </reliabilityQos>
-      <historyQos>
-        <kind>KEEP_LAST_HISTORY_QOS</kind>
-        <depth>5</depth>
-      </historyQos>
-    </qos>
-  </subscriber>
-</profiles>
+    <participant profile_name="aeris_participant" is_default_profile="true">
+      <rtps>
+        <userTransports>
+          <transport_id>udp_ipv4</transport_id>
+        </userTransports>
+        <useBuiltinTransports>false</useBuiltinTransports>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

@@ -77,6 +77,9 @@ def launch_setup(context):
     cyclonedds_uri = LaunchConfiguration('cyclonedds_uri').perform(context)
     fastdds_profiles_file = LaunchConfiguration('fastdds_profiles_file').perform(context)
     rmw_implementation = LaunchConfiguration('rmw_implementation').perform(context)
+    rmw_fastrtps_use_qos_from_xml = LaunchConfiguration(
+        'rmw_fastrtps_use_qos_from_xml'
+    ).perform(context)
 
     # Parse boolean flags from string configuration values
     gps_denied_enabled = gps_denied_mode.strip().lower() in {'1', 'true', 'yes', 'on'}
@@ -90,6 +93,7 @@ def launch_setup(context):
         'CYCLONEDDS_URI': cyclonedds_uri,
         'FASTRTPS_DEFAULT_PROFILES_FILE': fastdds_profiles_file,
         'RMW_IMPLEMENTATION': rmw_implementation,
+        'RMW_FASTRTPS_USE_QOS_FROM_XML': rmw_fastrtps_use_qos_from_xml,
     }
 
     # Construct SITL command with optional GPS-denied and external vision flags
@@ -125,6 +129,17 @@ def launch_setup(context):
 
     # Conditionally launch mission orchestrator node
     if launch_orchestrator_enabled:
+        actions.append(
+            ExecuteProcess(
+                cmd=[
+                    'bash',
+                    '-lc',
+                    'ros2 run aeris_orchestrator heartbeat',
+                ],
+                additional_env=dds_env,
+                output='screen',
+            )
+        )
         actions.append(
             ExecuteProcess(
                 cmd=[
@@ -181,6 +196,9 @@ def generate_launch_description() -> LaunchDescription:
         rmw_implementation (str): ROS 2 middleware implementation to use for
             launched processes.
             Default: 'rmw_cyclonedds_cpp'
+        rmw_fastrtps_use_qos_from_xml (str): Fast DDS XML QoS activation flag
+            passed to launched processes via RMW_FASTRTPS_USE_QOS_FROM_XML.
+            Default: '0'
 
     Returns:
         LaunchDescription containing all launch arguments and the setup function.
@@ -242,6 +260,11 @@ def generate_launch_description() -> LaunchDescription:
             'rmw_implementation',
             default_value='rmw_cyclonedds_cpp',
             description='RMW_IMPLEMENTATION value used by launched processes',
+        ),
+        DeclareLaunchArgument(
+            'rmw_fastrtps_use_qos_from_xml',
+            default_value='0',
+            description='RMW_FASTRTPS_USE_QOS_FROM_XML value used by launched processes',
         ),
         # Opaque function to resolve configurations at launch time
         OpaqueFunction(function=launch_setup),
