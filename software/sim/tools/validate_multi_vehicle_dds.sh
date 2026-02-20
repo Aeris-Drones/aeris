@@ -275,7 +275,11 @@ sample_topic_hz() {
   local topic=$1
   local pass_log_dir=$2
   local label=$3
-  local out_file="${pass_log_dir}/topic_hz_${label}_$(echo "${topic}" | tr '/:' '__').log"
+  local sanitized_topic=""
+  local out_file=""
+
+  sanitized_topic=$(echo "${topic}" | tr '/:' '__')
+  out_file="${pass_log_dir}/topic_hz_${label}_${sanitized_topic}.log"
   timeout "${HZ_SAMPLE_SEC}"s ros2 topic hz "${topic}" >"${out_file}" 2>&1 || true
   echo "[validate_multi_vehicle_dds] Captured rate sample: ${topic} (${label}) -> ${out_file}" >&2
   echo "${out_file}"
@@ -285,7 +289,11 @@ capture_topic_info() {
   local topic=$1
   local pass_log_dir=$2
   local label=$3
-  local out_file="${pass_log_dir}/topic_info_${label}_$(echo "${topic}" | tr '/:' '__').log"
+  local sanitized_topic=""
+  local out_file=""
+
+  sanitized_topic=$(echo "${topic}" | tr '/:' '__')
+  out_file="${pass_log_dir}/topic_info_${label}_${sanitized_topic}.log"
   ros2 topic info -v "${topic}" >"${out_file}"
   echo "${out_file}"
 }
