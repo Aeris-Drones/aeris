@@ -63,4 +63,13 @@ RUN ln -s /opt/PX4-Autopilot/build/px4_sitl_default/bin/px4 /usr/local/bin/px4
 ENV PX4_BIN=/opt/PX4-Autopilot/build/px4_sitl_default/bin/px4
 ENV ROS_DISTRO=humble
 
+RUN groupadd --gid 1000 aeris \
+ && useradd --uid 1000 --gid aeris --create-home --shell /bin/bash aeris \
+ && mkdir -p /workspace \
+ && chown -R aeris:aeris /workspace /opt/PX4-Autopilot/build/px4_sitl_default
+
+WORKDIR /workspace
+
+USER aeris
+
 CMD ["bash"]
