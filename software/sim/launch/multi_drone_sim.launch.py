@@ -74,6 +74,9 @@ def launch_setup(context):
     # Resolve additional configuration parameters
     launch_orchestrator = LaunchConfiguration('launch_orchestrator').perform(context)
     vio_odom_stale_sec = LaunchConfiguration('vio_odom_stale_sec').perform(context)
+    cyclonedds_uri = LaunchConfiguration('cyclonedds_uri').perform(context)
+    fastdds_profiles_file = LaunchConfiguration('fastdds_profiles_file').perform(context)
+    rmw_implementation = LaunchConfiguration('rmw_implementation').perform(context)
 
     # Parse boolean flags from string configuration values
     gps_denied_enabled = gps_denied_mode.strip().lower() in {'1', 'true', 'yes', 'on'}
@@ -82,6 +85,11 @@ def launch_setup(context):
         'true',
         'yes',
         'on',
+    }
+    dds_env = {
+        'CYCLONEDDS_URI': cyclonedds_uri,
+        'FASTRTPS_DEFAULT_PROFILES_FILE': fastdds_profiles_file,
+        'RMW_IMPLEMENTATION': rmw_implementation,
     }
 
     # Construct SITL command with optional GPS-denied and external vision flags
@@ -104,11 +112,13 @@ def launch_setup(context):
                 f'VEHICLES_CONFIG={config} '
                 f'./software/sim/tools/run_basic_sim.sh',
             ],
+            additional_env=dds_env,
             output='screen',
         ),
         # Launch multi-drone SITL instances
         ExecuteProcess(
             cmd=['bash', '-lc', sitl_command],
+            additional_env=dds_env,
             output='screen',
         ),
     ]
@@ -127,6 +137,7 @@ def launch_setup(context):
                         f'-p vio_odom_stale_sec:={vio_odom_stale_sec}'
                     ),
                 ],
+                additional_env=dds_env,
                 output='screen',
             )
         )
@@ -161,6 +172,15 @@ def generate_launch_description() -> LaunchDescription:
         vio_odom_stale_sec (float): Maximum age in seconds for VIO odometry
             samples before they are considered stale and ignored.
             Default: '1.0'
+        cyclonedds_uri (str): CycloneDDS XML profile URI passed to launched
+            processes via CYCLONEDDS_URI.
+            Default: 'file://software/edge/config/dds/cyclonedds.xml'
+        fastdds_profiles_file (str): Fast DDS profiles file path passed to
+            launched processes via FASTRTPS_DEFAULT_PROFILES_FILE.
+            Default: 'software/edge/config/dds/fastdds.xml'
+        rmw_implementation (str): ROS 2 middleware implementation to use for
+            launched processes.
+            Default: 'rmw_cyclonedds_cpp'
 
     Returns:
         LaunchDescription containing all launch arguments and the setup function.
@@ -207,6 +227,21 @@ def generate_launch_description() -> LaunchDescription:
             'vio_odom_stale_sec',
             default_value='1.0',
             description='Maximum age (seconds) for VIO odometry samples before treated as stale',
+        ),
+        DeclareLaunchArgument(
+            'cyclonedds_uri',
+            default_value='file://software/edge/config/dds/cyclonedds.xml',
+            description='CYCLONEDDS_URI value used by launched processes',
+        ),
+        DeclareLaunchArgument(
+            'fastdds_profiles_file',
+            default_value='software/edge/config/dds/fastdds.xml',
+            description='FASTRTPS_DEFAULT_PROFILES_FILE value used by launched processes',
+        ),
+        DeclareLaunchArgument(
+            'rmw_implementation',
+            default_value='rmw_cyclonedds_cpp',
+            description='RMW_IMPLEMENTATION value used by launched processes',
         ),
         # Opaque function to resolve configurations at launch time
         OpaqueFunction(function=launch_setup),

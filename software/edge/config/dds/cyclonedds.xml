@@ -31,15 +31,64 @@
     </Internal>
 
     <QoS>
+      <!-- Control/telemetry class: strongly delivered channels -->
       <Topic name="map/tiles">
         <Reliability>Reliable</Reliability>
         <History kind="KeepLast" depth="20"/>
         <DataRepresentation>cdr</DataRepresentation>
       </Topic>
       <Topic name="orchestrator/heartbeat">
+        <Reliability>Reliable</Reliability>
+        <History kind="KeepLast" depth="20"/>
+      </Topic>
+      <Topic name="mesh/heartbeat_imp">
+        <Reliability>Reliable</Reliability>
+        <History kind="KeepLast" depth="20"/>
+      </Topic>
+      <Topic name="detections/fused">
+        <Reliability>Reliable</Reliability>
+        <History kind="KeepLast" depth="10"/>
+      </Topic>
+      <Topic name="acoustic/bearing">
+        <Reliability>Reliable</Reliability>
+        <History kind="KeepLast" depth="10"/>
+      </Topic>
+      <Topic name="gas/isopleth">
+        <Reliability>Reliable</Reliability>
+        <History kind="KeepLast" depth="10"/>
+      </Topic>
+
+      <!-- Video/metadata class: lossy-tolerant high-rate streams -->
+      <Topic name="*/stereo/left/image_raw">
         <Reliability>BestEffort</Reliability>
         <History kind="KeepLast" depth="5"/>
       </Topic>
+      <Topic name="*/stereo/right/image_raw">
+        <Reliability>BestEffort</Reliability>
+        <History kind="KeepLast" depth="5"/>
+      </Topic>
+      <Topic name="*/stereo/left/camera_info">
+        <Reliability>BestEffort</Reliability>
+        <History kind="KeepLast" depth="5"/>
+      </Topic>
+      <Topic name="*/stereo/right/camera_info">
+        <Reliability>BestEffort</Reliability>
+        <History kind="KeepLast" depth="5"/>
+      </Topic>
+      <Topic name="*/thermal/image_raw">
+        <Reliability>BestEffort</Reliability>
+        <History kind="KeepLast" depth="5"/>
+      </Topic>
+      <Topic name="video/*">
+        <Reliability>BestEffort</Reliability>
+        <History kind="KeepLast" depth="5"/>
+      </Topic>
+      <Topic name="metadata/*">
+        <Reliability>BestEffort</Reliability>
+        <History kind="KeepLast" depth="5"/>
+      </Topic>
+
+      <!-- Default to reliable delivery for non-video topics -->
       <Topic name="*">
         <Reliability>Reliable</Reliability>
         <History kind="KeepLast" depth="10"/>

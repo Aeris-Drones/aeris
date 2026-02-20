@@ -34,6 +34,67 @@
     </rtps>
   </participant>
 
+  <!-- Control/telemetry parity profile -->
+  <publisher profile_name="control_telemetry_writer" is_default_profile="false">
+    <qos>
+      <publishModeQos>
+        <kind>ASYNCHRONOUS_PUBLISH_MODE</kind>
+      </publishModeQos>
+      <reliabilityQos>
+        <kind>RELIABLE_RELIABILITY_QOS</kind>
+      </reliabilityQos>
+      <historyQos>
+        <kind>KEEP_LAST_HISTORY_QOS</kind>
+        <depth>20</depth>
+      </historyQos>
+      <resourceLimitsQos>
+        <max_samples>1024</max_samples>
+        <allocated_samples>512</allocated_samples>
+      </resourceLimitsQos>
+    </qos>
+  </publisher>
+
+  <subscriber profile_name="control_telemetry_reader" is_default_profile="false">
+    <qos>
+      <reliabilityQos>
+        <kind>RELIABLE_RELIABILITY_QOS</kind>
+      </reliabilityQos>
+      <historyQos>
+        <kind>KEEP_LAST_HISTORY_QOS</kind>
+        <depth>20</depth>
+      </historyQos>
+    </qos>
+  </subscriber>
+
+  <!-- Video/metadata parity profile -->
+  <publisher profile_name="video_metadata_writer" is_default_profile="false">
+    <qos>
+      <publishModeQos>
+        <kind>ASYNCHRONOUS_PUBLISH_MODE</kind>
+      </publishModeQos>
+      <reliabilityQos>
+        <kind>BEST_EFFORT_RELIABILITY_QOS</kind>
+      </reliabilityQos>
+      <historyQos>
+        <kind>KEEP_LAST_HISTORY_QOS</kind>
+        <depth>5</depth>
+      </historyQos>
+    </qos>
+  </publisher>
+
+  <subscriber profile_name="video_metadata_reader" is_default_profile="false">
+    <qos>
+      <reliabilityQos>
+        <kind>BEST_EFFORT_RELIABILITY_QOS</kind>
+      </reliabilityQos>
+      <historyQos>
+        <kind>KEEP_LAST_HISTORY_QOS</kind>
+        <depth>5</depth>
+      </historyQos>
+    </qos>
+  </subscriber>
+
+  <!-- Backward-compatible aliases retained for existing tooling -->
   <publisher profile_name="reliable_large" is_default_profile="false">
     <qos>
       <publishModeQos>
