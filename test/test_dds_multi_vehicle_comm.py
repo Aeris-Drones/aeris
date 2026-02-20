@@ -114,10 +114,10 @@ def test_fastdds_socket_buffers_align_with_sysctl_overlay_limits() -> None:
 def test_multi_drone_launch_wires_dds_env_vars_for_launched_processes() -> None:
     text = MULTI_DRONE_LAUNCH.read_text()
 
-    assert "DeclareLaunchArgument(\n            'cyclonedds_uri'" in text
-    assert "DeclareLaunchArgument(\n            'fastdds_profiles_file'" in text
-    assert "DeclareLaunchArgument(\n            'rmw_implementation'" in text
-    assert "DeclareLaunchArgument(\n            'rmw_fastrtps_use_qos_from_xml'" in text
+    assert re.search(r"DeclareLaunchArgument\(\s*'cyclonedds_uri'", text)
+    assert re.search(r"DeclareLaunchArgument\(\s*'fastdds_profiles_file'", text)
+    assert re.search(r"DeclareLaunchArgument\(\s*'rmw_implementation'", text)
+    assert re.search(r"DeclareLaunchArgument\(\s*'rmw_fastrtps_use_qos_from_xml'", text)
 
     assert "'CYCLONEDDS_URI': cyclonedds_uri" in text
     assert "'FASTRTPS_DEFAULT_PROFILES_FILE': fastdds_profiles_file" in text
