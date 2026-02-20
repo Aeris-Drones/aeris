@@ -2,11 +2,12 @@
 <CycloneDDS xmlns="https://cdds.io/config">
   <Domain id="any">
     <General>
-      <NetworkInterfaceAddress>auto</NetworkInterfaceAddress>
+      <!-- Keep to Humble-supported elements so rmw_cyclonedds_cpp can initialize reliably. -->
+      <Interfaces>
+        <NetworkInterface autodetermine="true" priority="default" multicast="default" />
+      </Interfaces>
       <AllowMulticast>true</AllowMulticast>
-      <MultiChannel>false</MultiChannel>
-      <EnableDataSharing>false</EnableDataSharing>
-      <MaxMessageSize>131072</MaxMessageSize>
+      <MaxMessageSize>131072B</MaxMessageSize>
     </General>
 
     <Discovery>
@@ -16,34 +17,5 @@
         <Peer address="239.255.0.1"/>
       </Peers>
     </Discovery>
-
-    <Trace>
-      <Category>none</Category>
-    </Trace>
-
-    <Internal>
-      <Watermarks>
-        <WhcLow bw="0" packets="64"/>
-        <WhcHigh bw="0" packets="512"/>
-      </Watermarks>
-      <ReceiveBufferSize>4194304</ReceiveBufferSize>
-      <TransmitBufferSize>4194304</TransmitBufferSize>
-    </Internal>
-
-    <QoS>
-      <Topic name="map/tiles">
-        <Reliability>Reliable</Reliability>
-        <History kind="KeepLast" depth="20"/>
-        <DataRepresentation>cdr</DataRepresentation>
-      </Topic>
-      <Topic name="orchestrator/heartbeat">
-        <Reliability>BestEffort</Reliability>
-        <History kind="KeepLast" depth="5"/>
-      </Topic>
-      <Topic name="*">
-        <Reliability>Reliable</Reliability>
-        <History kind="KeepLast" depth="10"/>
-      </Topic>
-    </QoS>
   </Domain>
 </CycloneDDS>
