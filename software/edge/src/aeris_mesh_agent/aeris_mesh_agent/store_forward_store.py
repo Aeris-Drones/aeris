@@ -9,6 +9,8 @@ import sqlite3
 import threading
 import time
 
+_SQLITE_IN_CLAUSE_CHUNK_SIZE = 900
+
 
 @dataclass(frozen=True)
 class EnqueueResult:
@@ -312,29 +314,33 @@ class StoreForwardStore:
             cur = self._conn.cursor()
             cur.execute("BEGIN IMMEDIATE;")
             try:
-                placeholders = ",".join("?" for _ in normalized)
-                dedupe_rows = cur.execute(
-                    f"""
-                    SELECT DISTINCT dedupe_key
-                    FROM queue
-                    WHERE ingest_seq IN ({placeholders})
-                    """,
-                    tuple(normalized),
-                ).fetchall()
-                affected_dedupe_keys = {
-                    str(row["dedupe_key"])
-                    for row in dedupe_rows
-                    if row["dedupe_key"] is not None
-                }
+                affected_dedupe_keys: set[str] = set()
+                deleted = 0
+                for start in range(0, len(normalized), _SQLITE_IN_CLAUSE_CHUNK_SIZE):
+                    chunk = normalized[start : start + _SQLITE_IN_CLAUSE_CHUNK_SIZE]
+                    placeholders = ",".join("?" for _ in chunk)
+                    dedupe_rows = cur.execute(
+                        f"""
+                        SELECT DISTINCT dedupe_key
+                        FROM queue
+                        WHERE ingest_seq IN ({placeholders})
+                        """,
+                        tuple(chunk),
+                    ).fetchall()
+                    affected_dedupe_keys.update(
+                        str(row["dedupe_key"])
+                        for row in dedupe_rows
+                        if row["dedupe_key"] is not None
+                    )
 
-                cur.execute(
-                    f"""
-                    DELETE FROM queue
-                    WHERE ingest_seq IN ({placeholders})
-                    """,
-                    tuple(normalized),
-                )
-                deleted = int(cur.rowcount)
+                    cur.execute(
+                        f"""
+                        DELETE FROM queue
+                        WHERE ingest_seq IN ({placeholders})
+                        """,
+                        tuple(chunk),
+                    )
+                    deleted += int(cur.rowcount)
                 self._refresh_dedupe_for_keys(cur, affected_dedupe_keys)
                 cur.execute("COMMIT;")
                 return deleted

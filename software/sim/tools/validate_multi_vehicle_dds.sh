@@ -597,6 +597,8 @@ run_validation_pass() {
     else
       echo "[validate_multi_vehicle_dds] WARNING: replay annotation sample missing expected metadata fields on ${REPLAY_ANNOTATION_TOPIC}" >&2
     fi
+  else
+    echo "[validate_multi_vehicle_dds] WARNING: replay annotation topic not discovered (skipping restored replay metadata checks): ${REPLAY_ANNOTATION_TOPIC}" >&2
   fi
 
   if [[ -n "${impaired_detection_probe_log}" && -n "${restored_detection_probe_log}" ]]; then

@@ -199,7 +199,7 @@ class StoreForwardController:
         return "deduplicated"
 
     def sync_connectivity_and_flush(self, publish_callback: PublishCallback) -> bool:
-        """Flush queued records exactly when connectivity transitions up."""
+        """Flush when connectivity comes up, and opportunistically drain pending backlog."""
         link_up = self._connectivity.is_link_up()
         reconnected = link_up and not self._last_link_up
         self._last_link_up = link_up

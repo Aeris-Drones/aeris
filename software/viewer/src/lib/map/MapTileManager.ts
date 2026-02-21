@@ -140,6 +140,7 @@ export class MapTileManager {
 
     const localPos = geoToLocal(center, activeOrigin);
     const dimensions = getTileDimensions(coords.z, center.lat);
+    const normalizedDeliveryMode = normalizeDeliveryMode(message.delivery_mode);
 
     const tile: TileData = {
       id: key,
@@ -149,16 +150,10 @@ export class MapTileManager {
       coordinates: coords,
       timestamp: Date.now(),
       byteSize: message.byte_size,
-      deliveryMode:
-        typeof message.delivery_mode === 'string' &&
-        message.delivery_mode.toLowerCase() === 'replayed'
-          ? 'replayed'
-          : 'live',
+      deliveryMode: normalizedDeliveryMode,
       originalEventTsMs: parseEpochMs(message.original_event_ts),
       replayedAtTsMs: parseEpochMs(message.replayed_at_ts),
-      isRetroactive:
-        typeof message.delivery_mode === 'string' &&
-        message.delivery_mode.toLowerCase() === 'replayed',
+      isRetroactive: normalizedDeliveryMode === 'replayed',
     };
 
     this.cache.set(key, tile);
@@ -290,4 +285,10 @@ function parseEpochMs(value: unknown): number | null {
     }
   }
   return null;
+}
+
+function normalizeDeliveryMode(deliveryMode: unknown): 'live' | 'replayed' {
+  return typeof deliveryMode === 'string' && deliveryMode.trim().toLowerCase() === 'replayed'
+    ? 'replayed'
+    : 'live';
 }

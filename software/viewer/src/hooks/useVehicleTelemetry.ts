@@ -239,14 +239,11 @@ export function useVehicleTelemetry() {
 }
 
 function buildTelemetryDedupeKey(rawMessage: ROSLIB.Message): string | null {
-  const vehicleId = String((rawMessage as { vehicle_id?: unknown }).vehicle_id ?? '').trim();
+  const vehicleId = String((rawMessage as { vehicle_id?: unknown }).vehicle_id ?? '');
   const stamp = (rawMessage as { timestamp?: { sec?: unknown; nanosec?: unknown } }).timestamp;
-  const sec = Number(stamp?.sec);
-  const nanosec = Number(stamp?.nanosec ?? 0);
-  if (!vehicleId || !Number.isFinite(sec)) {
-    return null;
-  }
-  return `telemetry:${vehicleId}:${Math.trunc(sec)}:${Math.trunc(Number.isFinite(nanosec) ? nanosec : 0)}`;
+  const sec = stamp?.sec ?? 0;
+  const nanosec = stamp?.nanosec ?? 0;
+  return `telemetry:${vehicleId}:${sec}:${nanosec}`;
 }
 
 function parseReplayAnnotation(rawMessage: ROSLIB.Message): {

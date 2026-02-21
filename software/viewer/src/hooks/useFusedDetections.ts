@@ -236,14 +236,11 @@ export function useFusedDetections(
 }
 
 function buildFusedDetectionDedupeKey(rawMessage: ROSLIB.Message): string | null {
-  const candidateId = String((rawMessage as { candidate_id?: unknown }).candidate_id ?? '').trim();
+  const candidateId = String((rawMessage as { candidate_id?: unknown }).candidate_id ?? '');
   const stamp = (rawMessage as { stamp?: { sec?: unknown; nanosec?: unknown } }).stamp;
-  const sec = Number(stamp?.sec);
-  const nanosec = Number(stamp?.nanosec ?? 0);
-  if (!candidateId || !Number.isFinite(sec)) {
-    return null;
-  }
-  return `fused_detection:${candidateId}:${Math.trunc(sec)}:${Math.trunc(Number.isFinite(nanosec) ? nanosec : 0)}`;
+  const sec = stamp?.sec ?? 0;
+  const nanosec = stamp?.nanosec ?? 0;
+  return `fused_detection:${candidateId}:${sec}:${nanosec}`;
 }
 
 function parseReplayAnnotation(rawMessage: ROSLIB.Message): {
