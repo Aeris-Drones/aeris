@@ -25,6 +25,10 @@ export interface DroneMarker3DProps {
   trailPoints: [number, number, number][];
   /** Click handler for selection - typically updates selection state in parent */
   onClick: () => void;
+  /** Delivery mode from replay metadata */
+  deliveryMode?: 'live' | 'replayed';
+  /** Whether this marker represents replayed telemetry */
+  isRetroactive?: boolean;
 }
 
 /** Status color mapping for visual feedback across the GCS */
@@ -68,11 +72,14 @@ export function DroneMarker3D({
   status,
   isSelected,
   onClick,
+  deliveryMode,
+  isRetroactive,
 }: DroneMarker3DProps) {
   const groupRef = useRef<THREE.Group>(null);
   const ringRef = useRef<THREE.Mesh>(null);
   const pulseRef = useRef<THREE.Mesh>(null);
   const statusColor = STATUS_COLORS[status];
+  const showReplayBadge = deliveryMode === 'replayed' || isRetroactive === true;
 
   /**
    * Per-frame animation loop for selection effects.
@@ -196,6 +203,11 @@ export function DroneMarker3D({
         >
           <span className="font-bold">{vehicleName}</span>
           <span className="ml-1.5 opacity-60">{vehicleId}</span>
+          {showReplayBadge && (
+            <span className="ml-2 rounded border border-cyan-300/60 bg-cyan-400/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-cyan-200">
+              Replayed
+            </span>
+          )}
         </div>
       </Html>
     </group>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { Canvas, ThreeEvent } from '@react-three/fiber';
 import { CameraControls, Grid } from '@react-three/drei';
@@ -11,7 +11,9 @@ import { ZoneOverlay3D, ZoneDrawingPreview } from './ZoneOverlay3D';
 import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
 import type { Detection } from '@/components/sheets/DetectionCard';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
+import { useMapTiles } from '@/hooks/useMapTiles';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
+import type { TileData } from '@/lib/map/MapTileManager';
 
 /**
  * Imperative handle interface exposed by MapScene3D.
@@ -90,6 +92,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     onAddZonePoint,
   }, ref) => {
     const { vehicles, returnTrajectories } = useVehicleTelemetry();
+    const { tiles: mapTiles } = useMapTiles();
     const visibility = useLayerVisibility();
     const cameraControlsRef = useRef<CameraControls>(null);
 
@@ -108,6 +111,8 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
         status: 'active',
         showTrail: trailPoints.length > 1,
         trailPoints,
+        deliveryMode: vehicle.deliveryMode,
+        isRetroactive: vehicle.isRetroactive,
       };
     });
 
@@ -126,6 +131,8 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
             sensorType: detection.sensorType,
             confidence: detection.confidence,
             status: detection.status,
+            deliveryMode: detection.deliveryMode,
+            isRetroactive: detection.isRetroactive,
             geometry: detection.geometry,
           })),
       [detections, visibility.acoustic, visibility.gas, visibility.thermal]
@@ -185,6 +192,12 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
           <directionalLight position={[50, 100, 50]} intensity={0.5} />
           <pointLight position={[0, 200, 0]} intensity={0.2} color="#4488ff" />
 
+          {/* Map tiles */}
+          {visibility.map &&
+            mapTiles.map((tile) => (
+              <MapTile3D key={tile.id} tile={tile} />
+            ))}
+
           {/* Render order: trails first so markers appear on top */}
           {visibility.trajectories &&
             telemetryDrones.map((drone) =>
@@ -192,7 +205,13 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
                 <FlightTrail3D
                   key={`trail-${drone.vehicleId}`}
                   points={drone.trailPoints}
-                  color={drone.status === 'active' ? '#22c55e' : '#f59e0b'}
+                  color={
+                    drone.isRetroactive
+                      ? '#06b6d4'
+                      : drone.status === 'active'
+                        ? '#22c55e'
+                        : '#f59e0b'
+                  }
                 />
               ) : null
             )}
@@ -292,3 +311,46 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
 );
 
 MapScene3D.displayName = 'MapScene3D';
+
+function MapTile3D({ tile }: { tile: TileData }) {
+  const texture = useMemo(() => {
+    const loaded = new THREE.TextureLoader().load(tile.url);
+    loaded.colorSpace = THREE.SRGBColorSpace;
+    loaded.generateMipmaps = false;
+    loaded.minFilter = THREE.LinearFilter;
+    loaded.magFilter = THREE.LinearFilter;
+    loaded.needsUpdate = true;
+    return loaded;
+  }, [tile.url]);
+  useEffect(
+    () => () => {
+      texture.dispose();
+    },
+    [texture]
+  );
+
+  const showReplayBadge = tile.deliveryMode === 'replayed' || tile.isRetroactive === true;
+
+  return (
+    <group position={[tile.position[0], -0.45, tile.position[2]]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[tile.size, tile.size]} />
+        <meshBasicMaterial
+          map={texture}
+          transparent
+          opacity={0.96}
+        />
+      </mesh>
+      {showReplayBadge && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+          <ringGeometry args={[tile.size * 0.42, tile.size * 0.48, 48]} />
+          <meshBasicMaterial
+            color="#22d3ee"
+            transparent
+            opacity={0.35}
+          />
+        </mesh>
+      )}
+    </group>
+  );
+}

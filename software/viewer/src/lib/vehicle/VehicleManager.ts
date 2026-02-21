@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Vector3, Quaternion, Color } from 'three';
-import { VehicleTelemetryMessage, VehicleType } from '../ros/telemetry';
+import { ReplayDeliveryMetadata, VehicleTelemetryMessage, VehicleType } from '../ros/telemetry';
 import { geoToLocal, GeoCoordinates } from '../ros/mapTile';
 
 export interface VehicleState {
@@ -19,6 +19,11 @@ export interface VehicleState {
   trajectory: Vector3[];
   /** Unix timestamp (ms) of last telemetry update */
   lastUpdate: number;
+  /** Delivery provenance to distinguish live vs replayed telemetry */
+  deliveryMode?: 'live' | 'replayed';
+  isRetroactive?: boolean;
+  originalEventTsMs?: number;
+  replayedAtTsMs?: number | null;
   /** Vehicle color based on type (SCOUT=blue, RANGER=orange, UNKNOWN=gray) */
   color: Color;
 }
@@ -96,6 +101,7 @@ export class VehicleManager {
 
     const now = Date.now();
     const vehicleId = message.vehicle_id;
+    const messageTimestampMs = (message.timestamp.sec * 1000) + (message.timestamp.nanosec / 1_000_000);
 
     // Store raw telemetry for potential interpolation use
     this.lastTelemetry.set(vehicleId, {
@@ -137,10 +143,28 @@ export class VehicleManager {
       heading: message.orientation.yaw,
       trajectory: [...buffer.positions],
       lastUpdate: now,
+      deliveryMode: message.replay?.deliveryMode ?? 'live',
+      isRetroactive: message.replay?.isRetroactive ?? false,
+      originalEventTsMs: message.replay?.originalEventTsMs ?? messageTimestampMs,
+      replayedAtTsMs: message.replay?.replayedAtTsMs ?? null,
       color: color
     });
 
     return newOrigin;
+  }
+
+  public applyReplayMetadata(vehicleId: string, replay: ReplayDeliveryMetadata): void {
+    const existing = this.vehicles.get(vehicleId);
+    if (!existing) {
+      return;
+    }
+    this.vehicles.set(vehicleId, {
+      ...existing,
+      deliveryMode: replay.deliveryMode,
+      isRetroactive: replay.isRetroactive,
+      originalEventTsMs: replay.originalEventTsMs,
+      replayedAtTsMs: replay.replayedAtTsMs,
+    });
   }
 
   /**

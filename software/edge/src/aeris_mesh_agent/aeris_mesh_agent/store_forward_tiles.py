@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import rclpy
@@ -18,7 +19,7 @@ from .message_envelope import (
     extract_event_timestamp,
     serialize_message_payload,
 )
-from .store_forward_core import StoreForwardController
+from .store_forward_core import ReplayMetadata, StoreForwardController
 from .store_forward_store import StoreForwardStore
 
 
@@ -67,6 +68,16 @@ class StoreForwardTiles(Node):
             ).value
         )
         self._max_bytes = int(self.declare_parameter("max_bytes", 256 * 1024 * 1024).value)
+        self._replay_batch_size = int(self.declare_parameter("replay_batch_size", 64).value)
+        self._max_replay_per_cycle = int(
+            self.declare_parameter("max_replay_per_cycle", 256).value
+        )
+        self._replay_annotation_topic = str(
+            self.declare_parameter("replay_annotation_topic", "mesh/replay_annotations").value
+        )
+        self._publish_live_annotations = bool(
+            self.declare_parameter("publish_live_annotations", True).value
+        )
         self._link_up_override_value = bool(self.declare_parameter("link_up", True).value)
         self._link_up_override_enabled = bool(
             self.declare_parameter("link_up_override", False).value
@@ -77,6 +88,8 @@ class StoreForwardTiles(Node):
             store=self._store,
             heartbeat_timeout_sec=self._heartbeat_timeout_sec,
             pdr_threshold=self._pdr_threshold,
+            replay_batch_size=self._replay_batch_size,
+            max_replay_per_cycle=self._max_replay_per_cycle,
         )
         self._controller.set_connectivity_override(
             enabled=self._link_up_override_enabled,
@@ -90,6 +103,9 @@ class StoreForwardTiles(Node):
         self._heartbeat_publisher = self.create_publisher(String, self._heartbeat_output_topic, 10)
         self._telemetry_publisher = self.create_publisher(
             Telemetry, self._telemetry_output_topic, 10
+        )
+        self._replay_annotation_publisher = self.create_publisher(
+            String, self._replay_annotation_topic, 10
         )
         self._route_specs: dict[str, tuple[type[Any], Any]] = {
             "map_tile": (MapTile, self._map_publisher),
@@ -137,6 +153,7 @@ class StoreForwardTiles(Node):
             "heartbeat_output_topic",
             "telemetry_input_topic",
             "telemetry_output_topic",
+            "replay_annotation_topic",
             "pdr_topic",
             "storage_path",
         }
@@ -170,6 +187,32 @@ class StoreForwardTiles(Node):
                     return SetParametersResult(successful=False)
                 self._max_bytes = value
                 self._store.set_max_bytes(value)
+                continue
+
+            if param.name == "replay_batch_size":
+                value = int(param.value)
+                if value <= 0:
+                    return SetParametersResult(successful=False)
+                self._replay_batch_size = value
+                self._controller.set_replay_limits(
+                    replay_batch_size=self._replay_batch_size,
+                    max_replay_per_cycle=self._max_replay_per_cycle,
+                )
+                continue
+
+            if param.name == "max_replay_per_cycle":
+                value = int(param.value)
+                if value <= 0:
+                    return SetParametersResult(successful=False)
+                self._max_replay_per_cycle = value
+                self._controller.set_replay_limits(
+                    replay_batch_size=self._replay_batch_size,
+                    max_replay_per_cycle=self._max_replay_per_cycle,
+                )
+                continue
+
+            if param.name == "publish_live_annotations":
+                self._publish_live_annotations = bool(param.value)
                 continue
 
             if param.name == "link_up":
@@ -279,10 +322,8 @@ class StoreForwardTiles(Node):
         route_key: str,
         message_kind: str,
         payload: bytes,
+        metadata: ReplayMetadata,
     ) -> None:
-        del topic
-        del message_kind
-
         spec = self._route_specs.get(route_key)
         if spec is None:
             self.get_logger().warning(f"no route configured for replay key '{route_key}'")
@@ -290,10 +331,28 @@ class StoreForwardTiles(Node):
         message_type, publisher = spec
         message = deserialize_message_payload(message_type, payload)
         publisher.publish(message)
+        if metadata.delivery_mode == "replayed" or self._publish_live_annotations:
+            annotation = {
+                "delivery_mode": metadata.delivery_mode,
+                "original_event_ts": metadata.original_event_ts,
+                "replayed_at_ts": metadata.replayed_at_ts,
+                "ingest_seq": ingest_seq if ingest_seq > 0 else None,
+                "topic": topic,
+                "route_key": route_key,
+                "message_kind": message_kind,
+                "priority_class": metadata.priority_class,
+                "dedupe_key": metadata.dedupe_key,
+                "payload_hash": metadata.payload_hash,
+            }
+            self._replay_annotation_publisher.publish(
+                String(data=json.dumps(annotation, separators=(",", ":")))
+            )
 
         if ingest_seq > 0:
             self.get_logger().debug(
-                f"replayed buffered message ingest_seq={ingest_seq} route={route_key}"
+                "replayed buffered message "
+                f"ingest_seq={ingest_seq} route={route_key} "
+                f"priority={metadata.priority_class}"
             )
 
     def _sync_connectivity(self) -> None:
@@ -301,13 +360,21 @@ class StoreForwardTiles(Node):
 
     def _log_metrics(self) -> None:
         metrics = self._store.metrics()
+        replay_metrics = self._controller.replay_metrics
         link_state = "up" if self._controller.connectivity.is_link_up() else "down"
         self.get_logger().info(
             "store-forward metrics "
             f"link={link_state} queued={metrics.queued_count} "
+            f"(control={metrics.queued_count_by_class.get('control', 0)} "
+            f"telemetry={metrics.queued_count_by_class.get('telemetry', 0)} "
+            f"tiles={metrics.queued_count_by_class.get('tiles', 0)} "
+            f"bulk={metrics.queued_count_by_class.get('bulk', 0)}) "
             f"bytes={metrics.bytes_on_disk} dedupe_hits={metrics.dedupe_hits} "
             f"evicted={metrics.evicted_count} "
-            f"oldest_age_sec={metrics.oldest_buffered_age_sec:.2f}"
+            f"oldest_age_sec={metrics.oldest_buffered_age_sec:.2f} "
+            f"replay_total={replay_metrics.replayed_total} "
+            f"replay_last_batch={replay_metrics.last_flush_count} "
+            f"replay_rate={replay_metrics.last_flush_rate_msgs_per_sec:.1f}/s"
         )
 
     def destroy_node(self) -> bool:
