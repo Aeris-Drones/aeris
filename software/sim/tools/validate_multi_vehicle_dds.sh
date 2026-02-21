@@ -32,6 +32,7 @@
 #   MAP_TILE_TOPIC                 Default: /map/tiles
 #   TELEMETRY_TOPIC                Default: /orchestrator/heartbeat
 #   DETECTION_TOPIC                Default: /detections/fused
+#   REPLAY_ANNOTATION_TOPIC        Default: /mesh/replay_annotations
 #   VIDEO_METADATA_TOPIC           Default: /scout1/stereo/left/image_raw
 #   REQUIRED_NAMESPACES            Comma-separated namespace checks (default: scout1,scout2)
 #   MULTI_DRONE_LAUNCH_PACKAGE     Default: aeris_sim
@@ -68,6 +69,7 @@ FLOOD_PAYLOAD_BYTES=${FLOOD_PAYLOAD_BYTES:-512}
 MAP_TILE_TOPIC=${MAP_TILE_TOPIC:-/map/tiles}
 TELEMETRY_TOPIC=${TELEMETRY_TOPIC:-/orchestrator/heartbeat}
 DETECTION_TOPIC=${DETECTION_TOPIC:-/detections/fused}
+REPLAY_ANNOTATION_TOPIC=${REPLAY_ANNOTATION_TOPIC:-/mesh/replay_annotations}
 VIDEO_METADATA_TOPIC=${VIDEO_METADATA_TOPIC:-/scout1/stereo/left/image_raw}
 REQUIRED_NAMESPACES=${REQUIRED_NAMESPACES:-scout1,scout2}
 MULTI_DRONE_LAUNCH_PACKAGE=${MULTI_DRONE_LAUNCH_PACKAGE:-aeris_sim}
@@ -404,6 +406,9 @@ run_validation_pass() {
   local impaired_telemetry_hz_file=""
   local impaired_map_hz_file=""
   local impaired_detection_probe_log=""
+  local replay_annotation_impaired_hz_file=""
+  local replay_annotation_restored_hz_file=""
+  local replay_annotation_sample_file=""
   local restored_mesh_hz_file=""
   local restored_telemetry_hz_file=""
   local restored_map_hz_file=""
@@ -550,6 +555,14 @@ run_validation_pass() {
     "${pass_log_dir}" \
     "detection_impaired"
   impaired_detection_probe_log="${pass_log_dir}/probe_detection_impaired_echo_attempt1.log"
+  if ros2 topic list 2>/dev/null | grep -Fxq "${REPLAY_ANNOTATION_TOPIC}"; then
+    replay_annotation_impaired_hz_file=$(sample_topic_hz "${REPLAY_ANNOTATION_TOPIC}" "${pass_log_dir}" "replay_annotation_impaired")
+    if ! assert_topic_rate_observed "${REPLAY_ANNOTATION_TOPIC}" "impaired" "${replay_annotation_impaired_hz_file}"; then
+      echo "[validate_multi_vehicle_dds] WARNING: replay annotation topic has no impaired sample yet: ${REPLAY_ANNOTATION_TOPIC}" >&2
+    fi
+  else
+    echo "[validate_multi_vehicle_dds] WARNING: replay annotation topic not discovered (skipping impaired replay metadata checks): ${REPLAY_ANNOTATION_TOPIC}" >&2
+  fi
 
   echo "[validate_multi_vehicle_dds] Disabling impairment"
   ros2 param set /impairment_relay drop_prob 0.0 >"${pass_log_dir}/param_set_drop_prob_off.log"
@@ -571,6 +584,20 @@ run_validation_pass() {
     "${pass_log_dir}" \
     "detection_restored"
   restored_detection_probe_log="${pass_log_dir}/probe_detection_restored_echo_attempt1.log"
+  if ros2 topic list 2>/dev/null | grep -Fxq "${REPLAY_ANNOTATION_TOPIC}"; then
+    replay_annotation_restored_hz_file=$(sample_topic_hz "${REPLAY_ANNOTATION_TOPIC}" "${pass_log_dir}" "replay_annotation_restored")
+    if ! assert_topic_rate_observed "${REPLAY_ANNOTATION_TOPIC}" "restored" "${replay_annotation_restored_hz_file}"; then
+      echo "[validate_multi_vehicle_dds] WARNING: replay annotation topic has no restored sample yet: ${REPLAY_ANNOTATION_TOPIC}" >&2
+    fi
+
+    replay_annotation_sample_file="${pass_log_dir}/replay_annotation_sample.log"
+    timeout "${PROBE_TIMEOUT_SEC}"s ros2 topic echo "${REPLAY_ANNOTATION_TOPIC}" --once >"${replay_annotation_sample_file}" 2>&1 || true
+    if [[ -f "${replay_annotation_sample_file}" ]] && grep -Eiq 'delivery_mode|original_event_ts|replayed_at_ts' "${replay_annotation_sample_file}"; then
+      echo "[validate_multi_vehicle_dds] Replay annotation metadata observed on ${REPLAY_ANNOTATION_TOPIC}"
+    else
+      echo "[validate_multi_vehicle_dds] WARNING: replay annotation sample missing expected metadata fields on ${REPLAY_ANNOTATION_TOPIC}" >&2
+    fi
+  fi
 
   if [[ -n "${impaired_detection_probe_log}" && -n "${restored_detection_probe_log}" ]]; then
     echo "[validate_multi_vehicle_dds] Detection probes captured during impaired and restored phases."
