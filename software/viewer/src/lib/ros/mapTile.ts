@@ -25,10 +25,6 @@ export interface MapTileMessage {
     sec: number;
     nanosec: number;
   };
-  /** Optional replay provenance from mesh store-forward transport */
-  delivery_mode?: 'live' | 'replayed';
-  original_event_ts?: number | { sec: number; nanosec: number };
-  replayed_at_ts?: number | { sec: number; nanosec: number } | null;
 }
 
 /**

@@ -145,7 +145,6 @@ def test_validation_recipe_contains_nominal_and_impaired_checks() -> None:
     assert "wait_for_topic \"${TELEMETRY_TOPIC}\"" in text
     assert "wait_for_topic \"${MAP_TILE_TOPIC}\"" in text
     assert "wait_for_topic \"${VIDEO_METADATA_TOPIC}\"" in text
-    assert "REPLAY_ANNOTATION_TOPIC=${REPLAY_ANNOTATION_TOPIC:-/mesh/replay_annotations}" in text
     assert "probe_topic_roundtrip" in text
     assert "PROBE_TIMEOUT_SEC=${PROBE_TIMEOUT_SEC:-20}" in text
     assert "PROBE_ATTEMPTS=${PROBE_ATTEMPTS:-3}" in text
@@ -175,9 +174,6 @@ def test_validation_recipe_contains_nominal_and_impaired_checks() -> None:
     assert "sample_topic_hz \"${MAP_TILE_TOPIC}\" \"${pass_log_dir}\" \"restored\"" in text
     assert "\"detection_impaired\"" in text
     assert "\"detection_restored\"" in text
-    assert "replay_annotation_impaired" in text
-    assert "replay_annotation_restored" in text
-    assert "Replay annotation metadata observed on ${REPLAY_ANNOTATION_TOPIC}" in text
     assert "preflight_runtime_checks" in text
     assert "ensure_local_ros_package_visible" in text
     assert "ensure_local_ros_package_visible aeris_msgs || true" in text

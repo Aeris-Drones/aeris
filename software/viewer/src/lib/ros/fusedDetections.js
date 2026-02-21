@@ -48,53 +48,6 @@ function parseTimestampMs(rawStamp, nowMs) {
   return nowMs;
 }
 
-function parseEpochMs(rawValue, fallbackMs = null) {
-  if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
-    return rawValue > 1_000_000_000_000 ? rawValue : rawValue * 1000;
-  }
-  if (rawValue && typeof rawValue === "object") {
-    const sec = Number(rawValue.sec);
-    const nanosec = Number(rawValue.nanosec);
-    if (Number.isFinite(sec)) {
-      const safeNanosec = Number.isFinite(nanosec) ? nanosec : 0;
-      return (sec * 1000) + (safeNanosec / 1_000_000);
-    }
-  }
-  return fallbackMs;
-}
-
-function parseReplayMetadata(rawMessage, fallbackOriginalTsMs) {
-  const nested = rawMessage?.replay_metadata;
-  const source = nested && typeof nested === "object" ? nested : rawMessage;
-  const hasReplayFields =
-    source &&
-    typeof source === "object" &&
-    (
-      "delivery_mode" in source ||
-      "original_event_ts" in source ||
-      "replayed_at_ts" in source
-    );
-  if (!hasReplayFields) {
-    return null;
-  }
-
-  const deliveryMode = typeof source.delivery_mode === "string" &&
-    source.delivery_mode.trim().toLowerCase() === "replayed"
-    ? "replayed"
-    : "live";
-  const originalEventTs = parseEpochMs(source.original_event_ts, fallbackOriginalTsMs);
-  const replayedAtTs = deliveryMode === "replayed"
-    ? parseEpochMs(source.replayed_at_ts, null)
-    : null;
-
-  return {
-    deliveryMode,
-    originalEventTs,
-    replayedAtTs,
-    isRetroactive: deliveryMode === "replayed",
-  };
-}
-
 function parsePoint(rawPoint, pointName) {
   if (!rawPoint || typeof rawPoint !== "object") {
     throw new Error(`Invalid fused detection message: ${pointName} is missing`);
@@ -227,7 +180,6 @@ export function normalizeFusedDetectionMessage(rawMessage, options = {}) {
 
   const confidence = parseConfidence(message.confidence);
   const confidenceLevel = normalizeConfidenceLevel(message.confidence_level, confidence);
-  const replayMetadata = parseReplayMetadata(message, timestamp);
   const geometry = parseGeometryFromLocalGeometry(message.local_geometry);
   const fallbackGeometry = geometry.length > 0
     ? geometry
@@ -253,9 +205,5 @@ export function normalizeFusedDetectionMessage(rawMessage, options = {}) {
     sourceModalities,
     geometry: fallbackGeometry.length > 0 ? fallbackGeometry : undefined,
     signatureType: buildSignature(sourceModalities, confidenceLevel),
-    deliveryMode: replayMetadata?.deliveryMode,
-    originalEventTs: replayMetadata?.originalEventTs ?? timestamp,
-    replayedAtTs: replayMetadata?.replayedAtTs ?? undefined,
-    isRetroactive: replayMetadata?.isRetroactive ?? false,
   };
 }

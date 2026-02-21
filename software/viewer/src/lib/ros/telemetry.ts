@@ -54,15 +54,6 @@ export interface VehicleTelemetryMessage {
     y: number;
     z: number;
   };
-  /** Optional replay provenance from store-forward transport */
-  replay?: ReplayDeliveryMetadata;
-}
-
-export interface ReplayDeliveryMetadata {
-  deliveryMode: 'live' | 'replayed';
-  originalEventTsMs: number;
-  replayedAtTsMs: number | null;
-  isRetroactive: boolean;
 }
 
 /**
@@ -144,9 +135,6 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
     vehicleType = VehicleType.RANGER;
   }
 
-  const messageTimestampMs = (timestamp.sec as number) * 1000 + ((timestamp.nanosec as number) / 1_000_000);
-  const replay = parseReplayDeliveryMetadata(data, messageTimestampMs);
-
   return {
     vehicle_id: data.vehicle_id as string,
     vehicle_type: vehicleType,
@@ -169,56 +157,5 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
       y: velocity.y as number,
       z: velocity.z as number,
     },
-    replay: replay ?? undefined,
   };
-}
-
-function parseReplayDeliveryMetadata(
-  data: Record<string, unknown>,
-  fallbackOriginalTsMs: number
-): ReplayDeliveryMetadata | null {
-  const nested = data.replay_metadata;
-  const source = nested && typeof nested === 'object'
-    ? (nested as Record<string, unknown>)
-    : data;
-
-  const hasReplayFields =
-    'delivery_mode' in source ||
-    'original_event_ts' in source ||
-    'replayed_at_ts' in source;
-  if (!hasReplayFields) {
-    return null;
-  }
-
-  const deliveryMode =
-    typeof source.delivery_mode === 'string' && source.delivery_mode.trim().toLowerCase() === 'replayed'
-      ? 'replayed'
-      : 'live';
-  const originalEventTsMs = parseEpochMs(source.original_event_ts, fallbackOriginalTsMs);
-  const replayedAtTsMs = deliveryMode === 'replayed'
-    ? parseEpochMs(source.replayed_at_ts, null)
-    : null;
-
-  return {
-    deliveryMode,
-    originalEventTsMs: originalEventTsMs ?? fallbackOriginalTsMs,
-    replayedAtTsMs,
-    isRetroactive: deliveryMode === 'replayed',
-  };
-}
-
-function parseEpochMs(value: unknown, fallback: number | null): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value > 1_000_000_000_000 ? value : value * 1000;
-  }
-  if (value && typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    const sec = Number(obj.sec);
-    const nanosec = Number(obj.nanosec ?? 0);
-    if (Number.isFinite(sec)) {
-      const safeNs = Number.isFinite(nanosec) ? nanosec : 0;
-      return (sec * 1000) + (safeNs / 1_000_000);
-    }
-  }
-  return fallback;
 }

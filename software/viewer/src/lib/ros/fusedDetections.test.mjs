@@ -156,29 +156,3 @@ test("normalizeFusedDetectionMessage rejects missing or unknown source modalitie
     /source_modalities/
   );
 });
-
-test("normalizeFusedDetectionMessage preserves replay provenance fields", () => {
-  const message = {
-    stamp: { sec: 1_700_000_100, nanosec: 0 },
-    candidate_id: "cand-replayed",
-    confidence_level: "MEDIUM",
-    confidence: 0.7,
-    source_modalities: ["thermal"],
-    local_target: { x: 2, y: 3, z: 1 },
-    local_geometry: [],
-    delivery_mode: "replayed",
-    original_event_ts: 1_700_000_050.25,
-    replayed_at_ts: 1_700_000_110.75,
-  };
-
-  const detection = normalizeFusedDetectionMessage(message, {
-    nowMs: (1_700_000_120 * 1000),
-    maxAgeMs: 120_000,
-  });
-
-  assert.ok(detection);
-  assert.equal(detection.deliveryMode, "replayed");
-  assert.equal(detection.isRetroactive, true);
-  assert.equal(detection.originalEventTs, 1_700_000_050_250);
-  assert.equal(detection.replayedAtTs, 1_700_000_110_750);
-});
