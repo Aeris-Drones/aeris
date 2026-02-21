@@ -49,6 +49,11 @@ interface ReplayMetadata {
   observedAtMs: number;
 }
 
+interface ReplayDetectionIndexEntry {
+  detectionId: string;
+  observedAtMs: number;
+}
+
 export function useFusedDetections(
   vehicles: VehicleState[],
   options: UseFusedDetectionsOptions = {}
@@ -58,6 +63,7 @@ export function useFusedDetections(
   const [detections, setDetections] = useState<Detection[]>([]);
   const vehiclesRef = useRef<VehicleState[]>(vehicles);
   const replayMetadataRef = useRef<Map<string, ReplayMetadata>>(new Map());
+  const replayDetectionIndexRef = useRef<Map<string, ReplayDetectionIndexEntry>>(new Map());
 
   const fallbackVehicleName = useMemo(
     () => toVehicleName(merged.fallbackVehicleId),
@@ -74,10 +80,9 @@ export function useFusedDetections(
     }
 
     const applyReplayMetadata = (
-      rawMessage: ROSLIB.Message,
+      dedupeKey: string | null,
       detection: Detection
     ): Detection => {
-      const dedupeKey = buildFusedDetectionDedupeKey(rawMessage);
       if (!dedupeKey) {
         return detection;
       }
@@ -125,7 +130,16 @@ export function useFusedDetections(
             vehicleName: toVehicleName(nearestVehicle.id),
           }
         : normalized;
-      const detectionWithReplay = applyReplayMetadata(rawMessage, detection);
+      const dedupeKey = buildFusedDetectionDedupeKey(rawMessage);
+      const detectionWithReplay = applyReplayMetadata(dedupeKey, detection);
+
+      if (dedupeKey) {
+        replayDetectionIndexRef.current.set(dedupeKey, {
+          detectionId: detectionWithReplay.id,
+          observedAtMs: Date.now(),
+        });
+        pruneReplayDetectionIndexCache(replayDetectionIndexRef.current, merged.replayAnnotationTtlMs);
+      }
 
       setDetections((previous) => {
         return mergeLiveDetections(previous, detectionWithReplay, {
@@ -139,13 +153,40 @@ export function useFusedDetections(
       if (!parsed || parsed.routeKey !== 'fused_detection') {
         return;
       }
+      const nowMs = Date.now();
       replayMetadataRef.current.set(parsed.dedupeKey, {
         deliveryMode: parsed.deliveryMode,
         originalEventTs: parsed.originalEventTs,
         replayedAtTs: parsed.replayedAtTs,
-        observedAtMs: Date.now(),
+        observedAtMs: nowMs,
       });
+      const indexedDetection = replayDetectionIndexRef.current.get(parsed.dedupeKey);
+      const indexedDetectionId =
+        indexedDetection && (nowMs - indexedDetection.observedAtMs) <= merged.replayAnnotationTtlMs
+          ? indexedDetection.detectionId
+          : extractFusedDetectionIdFromDedupeKey(parsed.dedupeKey);
+
+      if (indexedDetectionId) {
+        setDetections((previous) => {
+          let changed = false;
+          const next = previous.map((detection) => {
+            if (detection.id !== indexedDetectionId) {
+              return detection;
+            }
+            changed = true;
+            return {
+              ...detection,
+              deliveryMode: parsed.deliveryMode,
+              originalEventTs: parsed.originalEventTs,
+              replayedAtTs: parsed.replayedAtTs,
+              isRetroactive: parsed.deliveryMode === 'replayed',
+            };
+          });
+          return changed ? next : previous;
+        });
+      }
       pruneReplayMetadataCache(replayMetadataRef.current, merged.replayAnnotationTtlMs);
+      pruneReplayDetectionIndexCache(replayDetectionIndexRef.current, merged.replayAnnotationTtlMs);
     };
 
     const unsubscribeFused = subscribeToFusedTopic({
@@ -262,4 +303,24 @@ function pruneReplayMetadataCache(
       cache.delete(key);
     }
   }
+}
+
+function pruneReplayDetectionIndexCache(
+  cache: Map<string, ReplayDetectionIndexEntry>,
+  ttlMs: number
+): void {
+  const cutoff = Date.now() - ttlMs;
+  for (const [key, value] of cache.entries()) {
+    if (value.observedAtMs < cutoff) {
+      cache.delete(key);
+    }
+  }
+}
+
+function extractFusedDetectionIdFromDedupeKey(dedupeKey: string): string | null {
+  const [routeKey, candidateId] = dedupeKey.split(':', 3);
+  if (routeKey !== 'fused_detection' || !candidateId?.trim()) {
+    return null;
+  }
+  return candidateId.trim();
 }

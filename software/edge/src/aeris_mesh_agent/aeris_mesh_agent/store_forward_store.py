@@ -498,11 +498,11 @@ class StoreForwardStore:
     def _priority_case_sql() -> str:
         return (
             "CASE "
-            "WHEN route_key = 'heartbeat' OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
+            "WHEN lower(route_key) = 'heartbeat' OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
             "THEN 'control' "
-            "WHEN route_key = 'telemetry' OR lower(message_kind) = 'telemetry' "
+            "WHEN lower(route_key) = 'telemetry' OR lower(message_kind) = 'telemetry' "
             "THEN 'telemetry' "
-            "WHEN route_key = 'map_tile' OR lower(message_kind) = 'map_tile' "
+            "WHEN lower(route_key) = 'map_tile' OR lower(message_kind) = 'map_tile' "
             "THEN 'tiles' "
             "ELSE 'bulk' "
             "END"
@@ -512,11 +512,11 @@ class StoreForwardStore:
     def _priority_rank_sql() -> str:
         return (
             "CASE "
-            "WHEN route_key = 'heartbeat' OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
+            "WHEN lower(route_key) = 'heartbeat' OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
             "THEN 0 "
-            "WHEN route_key = 'telemetry' OR lower(message_kind) = 'telemetry' "
+            "WHEN lower(route_key) = 'telemetry' OR lower(message_kind) = 'telemetry' "
             "THEN 1 "
-            "WHEN route_key = 'map_tile' OR lower(message_kind) = 'map_tile' "
+            "WHEN lower(route_key) = 'map_tile' OR lower(message_kind) = 'map_tile' "
             "THEN 2 "
             "ELSE 3 "
             "END"

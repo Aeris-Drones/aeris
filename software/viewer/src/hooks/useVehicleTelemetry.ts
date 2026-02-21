@@ -6,6 +6,7 @@ import { parseVehicleTelemetry } from '../lib/ros/telemetry';
 import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 
 type ReturnTrajectoryMap = Record<string, [number, number, number][]>;
+const REPLAY_METADATA_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Subscribes to vehicle telemetry from ROS and manages real-time state.
@@ -33,6 +34,8 @@ export function useVehicleTelemetry() {
     replayedAtTsMs: number | null;
     observedAtMs: number;
   }>>(new Map());
+  const replayMessageIndexRef = useRef<Map<string, { vehicleId: string; observedAtMs: number }>>(new Map());
+  const latestTelemetryKeyByVehicleRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     originRef.current = origin;
@@ -68,8 +71,15 @@ export function useVehicleTelemetry() {
       }
       const dedupeKey = buildTelemetryDedupeKey(message);
       if (dedupeKey) {
+        replayMessageIndexRef.current.set(dedupeKey, {
+          vehicleId: telemetry.vehicle_id,
+          observedAtMs: Date.now(),
+        });
+        latestTelemetryKeyByVehicleRef.current.set(telemetry.vehicle_id, dedupeKey);
+        pruneReplayMetadataCache(replayMessageIndexRef.current, REPLAY_METADATA_TTL_MS);
+
         const replayMeta = replayMetadataRef.current.get(dedupeKey);
-        if (replayMeta && Date.now() - replayMeta.observedAtMs <= 5 * 60 * 1000) {
+        if (replayMeta && Date.now() - replayMeta.observedAtMs <= REPLAY_METADATA_TTL_MS) {
           telemetry = {
             ...telemetry,
             replay: {
@@ -164,7 +174,21 @@ export function useVehicleTelemetry() {
         replayedAtTsMs: parsed.replayedAtTsMs,
         observedAtMs: Date.now(),
       });
-      pruneReplayMetadataCache(replayMetadataRef.current, 5 * 60 * 1000);
+      const indexedTelemetry = replayMessageIndexRef.current.get(parsed.dedupeKey);
+      if (indexedTelemetry) {
+        const latestKey = latestTelemetryKeyByVehicleRef.current.get(indexedTelemetry.vehicleId);
+        if (latestKey === parsed.dedupeKey) {
+          manager.applyReplayMetadata(indexedTelemetry.vehicleId, {
+            deliveryMode: parsed.deliveryMode,
+            originalEventTsMs: parsed.originalEventTsMs,
+            replayedAtTsMs: parsed.replayedAtTsMs,
+            isRetroactive: parsed.deliveryMode === 'replayed',
+          });
+          setVehicles([...manager.getVehicles()]);
+        }
+      }
+      pruneReplayMetadataCache(replayMetadataRef.current, REPLAY_METADATA_TTL_MS);
+      pruneReplayMetadataCache(replayMessageIndexRef.current, REPLAY_METADATA_TTL_MS);
     };
 
     topic.subscribe(handleMessage);
