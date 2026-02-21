@@ -2,7 +2,7 @@
 <package format="3">
   <name>aeris_mesh_agent</name>
   <version>0.1.0</version>
-  <description>Mesh impairment shims (drop/delay relay and store-and-forward tiles).</description>
+  <description>Mesh impairment shims (drop/delay relay and durable store-and-forward buffering).</description>
   <maintainer email="dev@aeris.local">Aeris Developers</maintainer>
   <license>proprietary</license>
 

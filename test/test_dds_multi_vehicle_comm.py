@@ -170,6 +170,10 @@ def test_validation_recipe_contains_nominal_and_impaired_checks() -> None:
 
     assert "sample_topic_hz \"/mesh/heartbeat_imp\" \"${pass_log_dir}\" \"impaired\"" in text
     assert "sample_topic_hz \"/mesh/heartbeat_imp\" \"${pass_log_dir}\" \"restored\"" in text
+    assert "sample_topic_hz \"${MAP_TILE_TOPIC}\" \"${pass_log_dir}\" \"impaired\"" in text
+    assert "sample_topic_hz \"${MAP_TILE_TOPIC}\" \"${pass_log_dir}\" \"restored\"" in text
+    assert "\"detection_impaired\"" in text
+    assert "\"detection_restored\"" in text
     assert "preflight_runtime_checks" in text
     assert "ensure_local_ros_package_visible" in text
     assert "ensure_local_ros_package_visible aeris_msgs || true" in text

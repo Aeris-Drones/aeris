@@ -19,7 +19,7 @@ setup(
     zip_safe=True,
     maintainer="Aeris Developers",
     maintainer_email="dev@aeris.local",
-    description="Mesh impairment helpers for Aeris simulation.",
+    description="Mesh impairment helpers and durable store-forward buffering for Aeris simulation.",
     license="proprietary",
     tests_require=["pytest"],
     entry_points={

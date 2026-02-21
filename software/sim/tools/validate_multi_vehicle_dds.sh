@@ -402,8 +402,12 @@ run_validation_pass() {
   local baseline_mesh_hz_file=""
   local impaired_mesh_hz_file=""
   local impaired_telemetry_hz_file=""
+  local impaired_map_hz_file=""
+  local impaired_detection_probe_log=""
   local restored_mesh_hz_file=""
   local restored_telemetry_hz_file=""
+  local restored_map_hz_file=""
+  local restored_detection_probe_log=""
   local map_publisher_log=""
 
   if [[ -n "${RMW_IMPLEMENTATION+x}" ]]; then
@@ -533,10 +537,19 @@ run_validation_pass() {
 
   impaired_mesh_hz_file=$(sample_topic_hz "/mesh/heartbeat_imp" "${pass_log_dir}" "impaired")
   impaired_telemetry_hz_file=$(sample_topic_hz "${TELEMETRY_TOPIC}" "${pass_log_dir}" "impaired")
+  impaired_map_hz_file=$(sample_topic_hz "${MAP_TILE_TOPIC}" "${pass_log_dir}" "impaired")
   if ! assert_topic_rate_observed "/mesh/heartbeat_imp" "impaired" "${impaired_mesh_hz_file}"; then
     echo "[validate_multi_vehicle_dds] WARNING: no impaired mesh rate observed on /mesh/heartbeat_imp; continuing because CLI sampling can miss delayed relay windows under load." >&2
   fi
   assert_topic_rate_observed "${TELEMETRY_TOPIC}" "impaired" "${impaired_telemetry_hz_file}"
+  assert_topic_rate_observed "${MAP_TILE_TOPIC}" "impaired" "${impaired_map_hz_file}"
+  probe_topic_roundtrip \
+    "${DETECTION_TOPIC}" \
+    "aeris_msgs/msg/FusedDetection" \
+    "{}" \
+    "${pass_log_dir}" \
+    "detection_impaired"
+  impaired_detection_probe_log="${pass_log_dir}/probe_detection_impaired_echo_attempt1.log"
 
   echo "[validate_multi_vehicle_dds] Disabling impairment"
   ros2 param set /impairment_relay drop_prob 0.0 >"${pass_log_dir}/param_set_drop_prob_off.log"
@@ -545,10 +558,23 @@ run_validation_pass() {
 
   restored_mesh_hz_file=$(sample_topic_hz "/mesh/heartbeat_imp" "${pass_log_dir}" "restored")
   restored_telemetry_hz_file=$(sample_topic_hz "${TELEMETRY_TOPIC}" "${pass_log_dir}" "restored")
+  restored_map_hz_file=$(sample_topic_hz "${MAP_TILE_TOPIC}" "${pass_log_dir}" "restored")
   if ! assert_topic_rate_observed "/mesh/heartbeat_imp" "restored" "${restored_mesh_hz_file}"; then
     echo "[validate_multi_vehicle_dds] WARNING: no restored mesh rate observed on /mesh/heartbeat_imp; continuing because CLI sampling can miss delayed relay windows under load." >&2
   fi
   assert_topic_rate_observed "${TELEMETRY_TOPIC}" "restored" "${restored_telemetry_hz_file}"
+  assert_topic_rate_observed "${MAP_TILE_TOPIC}" "restored" "${restored_map_hz_file}"
+  probe_topic_roundtrip \
+    "${DETECTION_TOPIC}" \
+    "aeris_msgs/msg/FusedDetection" \
+    "{}" \
+    "${pass_log_dir}" \
+    "detection_restored"
+  restored_detection_probe_log="${pass_log_dir}/probe_detection_restored_echo_attempt1.log"
+
+  if [[ -n "${impaired_detection_probe_log}" && -n "${restored_detection_probe_log}" ]]; then
+    echo "[validate_multi_vehicle_dds] Detection probes captured during impaired and restored phases."
+  fi
 
   cleanup
   SIM_PID=""
