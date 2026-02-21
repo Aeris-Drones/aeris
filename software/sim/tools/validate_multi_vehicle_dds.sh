@@ -64,6 +64,8 @@ PROBE_PUB_RATE_HZ=${PROBE_PUB_RATE_HZ:-5}
 PROBE_PUB_COUNT=${PROBE_PUB_COUNT:-15}
 IMPAIRMENT_DROP_PROB=${IMPAIRMENT_DROP_PROB:-0.30}
 IMPAIRMENT_DELAY_MS=${IMPAIRMENT_DELAY_MS:-120}
+RELAY_TILE_LATENCY_P95_TARGET_SEC=${RELAY_TILE_LATENCY_P95_TARGET_SEC:-2.0}
+RELAY_TILE_SAMPLE_TIMEOUT_SEC=${RELAY_TILE_SAMPLE_TIMEOUT_SEC:-20}
 FLOOD_RATE_HZ=${FLOOD_RATE_HZ:-200}
 FLOOD_PAYLOAD_BYTES=${FLOOD_PAYLOAD_BYTES:-512}
 MAP_TILE_TOPIC=${MAP_TILE_TOPIC:-/map/tiles}
@@ -333,6 +335,65 @@ assert_topic_rate_observed() {
   fi
 }
 
+assert_relay_tile_latency_p95() {
+  local annotation_file=$1
+  local target_p95=$2
+
+  python3 - "$annotation_file" "$target_p95" <<'PY'
+import json
+import re
+import sys
+
+annotation_file = sys.argv[1]
+target = float(sys.argv[2])
+latencies = []
+
+with open(annotation_file, "r", encoding="utf-8", errors="ignore") as f:
+    for line in f:
+        line = line.strip()
+        match = re.search(r"data:\s*'(.+)'", line)
+        if not match:
+            continue
+        raw = match.group(1)
+        raw = raw.replace("\\'", "'")
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        relay = payload.get("relay_envelope", {})
+        if not isinstance(relay, dict):
+            continue
+        if relay.get("delivery_mode") != "relay":
+            continue
+        route_key = str(payload.get("route_key", ""))
+        if "tile" not in route_key:
+            continue
+        original = payload.get("original_event_ts")
+        replayed = payload.get("replayed_at_ts")
+        if original is None or replayed is None:
+            continue
+        try:
+            latency = float(replayed) - float(original)
+        except (TypeError, ValueError):
+            continue
+        if latency >= 0:
+            latencies.append(latency)
+
+if not latencies:
+    print("ERROR: no relay tile latency samples with replay metadata")
+    sys.exit(1)
+
+latencies.sort()
+p95_index = max(0, min(len(latencies) - 1, round((len(latencies) - 1) * 0.95)))
+p95 = latencies[p95_index]
+if p95 > target:
+    print(f"ERROR: relay tile latency p95 {p95:.3f}s exceeded target {target:.3f}s")
+    sys.exit(1)
+
+print(f"Relay tile latency p95={p95:.3f}s within target {target:.3f}s")
+PY
+}
+
 probe_topic_roundtrip() {
   local topic=$1
   local msg_type=$2
@@ -409,6 +470,7 @@ run_validation_pass() {
   local replay_annotation_impaired_hz_file=""
   local replay_annotation_restored_hz_file=""
   local replay_annotation_sample_file=""
+  local relay_tile_latency_sample_file=""
   local restored_mesh_hz_file=""
   local restored_telemetry_hz_file=""
   local restored_map_hz_file=""
@@ -597,6 +659,14 @@ run_validation_pass() {
     else
       echo "[validate_multi_vehicle_dds] WARNING: replay annotation sample missing expected metadata fields on ${REPLAY_ANNOTATION_TOPIC}" >&2
     fi
+
+    relay_tile_latency_sample_file="${pass_log_dir}/relay_tile_latency_samples.log"
+    timeout "${RELAY_TILE_SAMPLE_TIMEOUT_SEC}"s ros2 topic echo "${REPLAY_ANNOTATION_TOPIC}" >"${relay_tile_latency_sample_file}" 2>&1 || true
+    if [[ -f "${relay_tile_latency_sample_file}" ]] && grep -Eiq 'relay_envelope|route_key|replayed_at_ts' "${relay_tile_latency_sample_file}"; then
+      assert_relay_tile_latency_p95 "${relay_tile_latency_sample_file}" "${RELAY_TILE_LATENCY_P95_TARGET_SEC}"
+    else
+      echo "[validate_multi_vehicle_dds] WARNING: no relay tile latency samples captured on ${REPLAY_ANNOTATION_TOPIC}; skipping p95 assertion." >&2
+    fi
   else
     echo "[validate_multi_vehicle_dds] WARNING: replay annotation topic not discovered (skipping restored replay metadata checks): ${REPLAY_ANNOTATION_TOPIC}" >&2
   fi
@@ -646,6 +716,7 @@ echo "[validate_multi_vehicle_dds] CYCLONEDDS_URI=${CYCLONEDDS_URI}"
 echo "[validate_multi_vehicle_dds] FASTRTPS_DEFAULT_PROFILES_FILE=${FASTRTPS_DEFAULT_PROFILES_FILE}"
 echo "[validate_multi_vehicle_dds] RMW_VALIDATION_SET=${RMW_VALIDATION_SET}"
 echo "[validate_multi_vehicle_dds] RMW_FASTRTPS_USE_QOS_FROM_XML=${RMW_FASTRTPS_USE_QOS_FROM_XML}"
+echo "[validate_multi_vehicle_dds] RELAY_TILE_LATENCY_P95_TARGET_SEC=${RELAY_TILE_LATENCY_P95_TARGET_SEC}"
 echo "[validate_multi_vehicle_dds] MULTI_DRONE_LAUNCH_PACKAGE=${MULTI_DRONE_LAUNCH_PACKAGE}"
 echo "[validate_multi_vehicle_dds] MULTI_DRONE_LAUNCH_FILE=${MULTI_DRONE_LAUNCH_FILE}"
 

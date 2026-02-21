@@ -20,6 +20,10 @@ class ReplayMetadata:
     dedupe_key: str
     payload_hash: str
     priority_class: str
+    source_vehicle_id: str = ""
+    relay_vehicle_id: str = ""
+    relay_hop: int = 0
+    relay_delivery_mode: str = "direct"
 
 
 @dataclass(frozen=True)
@@ -143,6 +147,10 @@ class StoreForwardController:
         dedupe_key: str,
         payload: bytes,
         payload_hash: str,
+        source_vehicle_id: str = "",
+        relay_vehicle_id: str = "",
+        relay_hop: int = 0,
+        relay_delivery_mode: str = "direct",
         publish_callback: PublishCallback,
     ) -> str:
         """Publish immediately when healthy, otherwise persist for replay."""
@@ -168,6 +176,10 @@ class StoreForwardController:
                     dedupe_key=dedupe_key,
                     payload_hash=payload_hash,
                     priority_class=priority_class,
+                    source_vehicle_id=source_vehicle_id,
+                    relay_vehicle_id=relay_vehicle_id,
+                    relay_hop=int(relay_hop),
+                    relay_delivery_mode=relay_delivery_mode,
                 ),
             )
             if has_backlog:
@@ -186,6 +198,10 @@ class StoreForwardController:
             dedupe_key=dedupe_key,
             payload=payload,
             payload_hash=payload_hash,
+            source_vehicle_id=source_vehicle_id,
+            relay_vehicle_id=relay_vehicle_id,
+            relay_hop=int(relay_hop),
+            relay_delivery_mode=relay_delivery_mode,
         )
         if result.accepted:
             if self._connectivity.is_link_up():
@@ -257,6 +273,10 @@ class StoreForwardController:
                                 dedupe_key=record.dedupe_key,
                                 payload_hash=record.payload_hash,
                                 priority_class=record.priority_class,
+                                source_vehicle_id=record.source_vehicle_id,
+                                relay_vehicle_id=record.relay_vehicle_id,
+                                relay_hop=record.relay_hop,
+                                relay_delivery_mode=record.relay_delivery_mode,
                             ),
                         )
                     except Exception:

@@ -36,6 +36,10 @@ class QueueRecord:
     payload_size: int
     enqueued_monotonic: float
     priority_class: str
+    source_vehicle_id: str
+    relay_vehicle_id: str
+    relay_hop: int
+    relay_delivery_mode: str
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,7 @@ class StoreMetrics:
     dedupe_hits: int
     oldest_buffered_age_sec: float
     queued_count_by_class: dict[str, int]
+    queued_count_by_delivery_mode: dict[str, int]
 
 
 class StoreForwardStore:
@@ -101,7 +106,11 @@ class StoreForwardStore:
                   payload_bytes BLOB NOT NULL,
                   payload_hash TEXT NOT NULL,
                   payload_size INTEGER NOT NULL,
-                  enqueued_mono REAL NOT NULL
+                  enqueued_mono REAL NOT NULL,
+                  source_vehicle_id TEXT NOT NULL DEFAULT '',
+                  relay_vehicle_id TEXT NOT NULL DEFAULT '',
+                  relay_hop INTEGER NOT NULL DEFAULT 0,
+                  relay_delivery_mode TEXT NOT NULL DEFAULT 'direct'
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_queue_ingest_seq
@@ -122,6 +131,12 @@ class StoreForwardStore:
                   value INTEGER NOT NULL
                 );
                 """
+            )
+            self._ensure_queue_column("source_vehicle_id", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_queue_column("relay_vehicle_id", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_queue_column("relay_hop", "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_queue_column(
+                "relay_delivery_mode", "TEXT NOT NULL DEFAULT 'direct'"
             )
             self._conn.execute(
                 "INSERT OR IGNORE INTO stats(key, value) VALUES ('dedupe_hits', 0);"
@@ -144,6 +159,20 @@ class StoreForwardStore:
                 self._conn.execute("ROLLBACK;")
                 raise
 
+    def _ensure_queue_column(self, column_name: str, column_ddl: str) -> None:
+        row = self._conn.execute(
+            """
+            SELECT 1
+            FROM pragma_table_info('queue')
+            WHERE name = ?
+            LIMIT 1
+            """,
+            (column_name,),
+        ).fetchone()
+        if row is not None:
+            return
+        self._conn.execute(f"ALTER TABLE queue ADD COLUMN {column_name} {column_ddl}")
+
     def enqueue(
         self,
         *,
@@ -154,6 +183,10 @@ class StoreForwardStore:
         dedupe_key: str,
         payload: bytes,
         payload_hash: str,
+        source_vehicle_id: str = "",
+        relay_vehicle_id: str = "",
+        relay_hop: int = 0,
+        relay_delivery_mode: str = "direct",
     ) -> EnqueueResult:
         """Queue an outbound message unless dedupe metadata marks it duplicate."""
         with self._lock:
@@ -174,12 +207,16 @@ class StoreForwardStore:
                     return EnqueueResult(accepted=False, ingest_seq=None, reason="deduplicated")
 
                 now_mono = time.monotonic()
+                normalized_relay_mode = relay_delivery_mode.strip().lower()
+                if normalized_relay_mode not in {"direct", "relay"}:
+                    normalized_relay_mode = "direct"
                 cur.execute(
                     """
                     INSERT INTO queue(
                       topic, route_key, message_kind, event_ts, dedupe_key,
-                      payload_bytes, payload_hash, payload_size, enqueued_mono
-                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                      payload_bytes, payload_hash, payload_size, enqueued_mono,
+                      source_vehicle_id, relay_vehicle_id, relay_hop, relay_delivery_mode
+                    ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         topic,
@@ -191,6 +228,10 @@ class StoreForwardStore:
                         payload_hash,
                         len(payload),
                         now_mono,
+                        source_vehicle_id,
+                        relay_vehicle_id,
+                        int(relay_hop),
+                        normalized_relay_mode,
                     ),
                 )
                 ingest_seq = int(cur.lastrowid)
@@ -221,7 +262,8 @@ class StoreForwardStore:
             rows = self._conn.execute(
                 """
                 SELECT ingest_seq, topic, route_key, message_kind, event_ts, dedupe_key,
-                       payload_bytes, payload_hash, payload_size, enqueued_mono
+                       payload_bytes, payload_hash, payload_size, enqueued_mono,
+                       source_vehicle_id, relay_vehicle_id, relay_hop, relay_delivery_mode
                 FROM queue
                 ORDER BY ingest_seq ASC
                 LIMIT ?
@@ -245,6 +287,10 @@ class StoreForwardStore:
                     route_key=str(row["route_key"]),
                     message_kind=str(row["message_kind"]),
                 ),
+                source_vehicle_id=str(row["source_vehicle_id"]),
+                relay_vehicle_id=str(row["relay_vehicle_id"]),
+                relay_hop=int(row["relay_hop"]),
+                relay_delivery_mode=str(row["relay_delivery_mode"]),
             )
             for row in rows
         ]
@@ -256,6 +302,7 @@ class StoreForwardStore:
                 f"""
                 SELECT ingest_seq, topic, route_key, message_kind, event_ts, dedupe_key,
                        payload_bytes, payload_hash, payload_size, enqueued_mono,
+                       source_vehicle_id, relay_vehicle_id, relay_hop, relay_delivery_mode,
                        {self._priority_case_sql()} AS priority_class,
                        {self._priority_rank_sql()} AS priority_rank
                 FROM queue
@@ -278,6 +325,10 @@ class StoreForwardStore:
                 payload_size=int(row["payload_size"]),
                 enqueued_monotonic=float(row["enqueued_mono"]),
                 priority_class=str(row["priority_class"]),
+                source_vehicle_id=str(row["source_vehicle_id"]),
+                relay_vehicle_id=str(row["relay_vehicle_id"]),
+                relay_hop=int(row["relay_hop"]),
+                relay_delivery_mode=str(row["relay_delivery_mode"]),
             )
             for row in rows
         ]
@@ -383,6 +434,13 @@ class StoreForwardStore:
                 GROUP BY priority_class
                 """
             ).fetchall()
+            mode_rows = self._conn.execute(
+                """
+                SELECT lower(relay_delivery_mode) AS relay_delivery_mode, COUNT(*) AS c
+                FROM queue
+                GROUP BY lower(relay_delivery_mode)
+                """
+            ).fetchall()
 
         queued_count = int(row["queued_count"]) if row is not None else 0
         bytes_on_disk = int(row["bytes_on_disk"]) if row is not None else 0
@@ -401,6 +459,13 @@ class StoreForwardStore:
         for row in class_rows:
             queued_count_by_class[str(row["priority_class"])] = int(row["c"])
 
+        queued_count_by_delivery_mode: dict[str, int] = {"direct": 0, "relay": 0}
+        for row in mode_rows:
+            mode = str(row["relay_delivery_mode"])
+            if mode not in queued_count_by_delivery_mode:
+                queued_count_by_delivery_mode[mode] = 0
+            queued_count_by_delivery_mode[mode] = int(row["c"])
+
         return StoreMetrics(
             queued_count=queued_count,
             bytes_on_disk=bytes_on_disk,
@@ -408,6 +473,7 @@ class StoreForwardStore:
             dedupe_hits=dedupe_hits,
             oldest_buffered_age_sec=oldest_age,
             queued_count_by_class=queued_count_by_class,
+            queued_count_by_delivery_mode=queued_count_by_delivery_mode,
         )
 
     def close(self) -> None:
@@ -498,7 +564,7 @@ class StoreForwardStore:
     @staticmethod
     def classify_priority(*, route_key: str, message_kind: str) -> str:
         """Classify route/message into replay priority classes."""
-        route = route_key.strip().lower()
+        route = route_key.strip().lower().removeprefix("relay_")
         kind = message_kind.strip().lower()
         if route == "heartbeat" or kind in {"heartbeat", "control", "command"}:
             return "control"
@@ -512,11 +578,11 @@ class StoreForwardStore:
     def _priority_case_sql() -> str:
         return (
             "CASE "
-            "WHEN lower(route_key) = 'heartbeat' OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
+            "WHEN lower(route_key) IN ('heartbeat', 'relay_heartbeat') OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
             "THEN 'control' "
-            "WHEN lower(route_key) = 'telemetry' OR lower(message_kind) = 'telemetry' "
+            "WHEN lower(route_key) IN ('telemetry', 'relay_telemetry') OR lower(message_kind) = 'telemetry' "
             "THEN 'telemetry' "
-            "WHEN lower(route_key) = 'map_tile' OR lower(message_kind) = 'map_tile' "
+            "WHEN lower(route_key) IN ('map_tile', 'relay_map_tile') OR lower(message_kind) = 'map_tile' "
             "THEN 'tiles' "
             "ELSE 'bulk' "
             "END"
@@ -526,11 +592,11 @@ class StoreForwardStore:
     def _priority_rank_sql() -> str:
         return (
             "CASE "
-            "WHEN lower(route_key) = 'heartbeat' OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
+            "WHEN lower(route_key) IN ('heartbeat', 'relay_heartbeat') OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
             "THEN 0 "
-            "WHEN lower(route_key) = 'telemetry' OR lower(message_kind) = 'telemetry' "
+            "WHEN lower(route_key) IN ('telemetry', 'relay_telemetry') OR lower(message_kind) = 'telemetry' "
             "THEN 1 "
-            "WHEN lower(route_key) = 'map_tile' OR lower(message_kind) = 'map_tile' "
+            "WHEN lower(route_key) IN ('map_tile', 'relay_map_tile') OR lower(message_kind) = 'map_tile' "
             "THEN 2 "
             "ELSE 3 "
             "END"

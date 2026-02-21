@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import rclpy
@@ -19,6 +20,7 @@ from .message_envelope import (
     extract_event_timestamp,
     serialize_message_payload,
 )
+from .relay_routing import RelayEnvelope, RelayLatencyTracker, RelayRouteDecision, RelayRouteSelector
 from .store_forward_core import ReplayMetadata, StoreForwardController
 from .store_forward_store import StoreForwardStore
 
@@ -56,6 +58,49 @@ class StoreForwardTiles(Node):
             self.declare_parameter("telemetry_output_topic", "telemetry_out").value
         )
         self._pdr_topic = str(self.declare_parameter("pdr_topic", "").value)
+        self._vehicle_id = str(self.declare_parameter("vehicle_id", "").value)
+        self._source_vehicle_id = str(
+            self.declare_parameter("source_vehicle_id", self._vehicle_id).value
+        )
+        self._relay_vehicle_id = str(self.declare_parameter("relay_vehicle_id", "ranger1").value)
+        self._relay_enabled = bool(self.declare_parameter("relay_enabled", False).value)
+        self._relay_activation_policy = str(
+            self.declare_parameter("relay_activation_policy", "auto").value
+        )
+        self._relay_heartbeat_topic = str(
+            self.declare_parameter("relay_heartbeat_topic", "").value
+        )
+        self._relay_pdr_topic = str(self.declare_parameter("relay_pdr_topic", "").value)
+        self._relay_heartbeat_timeout_sec = float(
+            self.declare_parameter("relay_heartbeat_timeout_sec", 2.0).value
+        )
+        self._relay_pdr_threshold = float(
+            self.declare_parameter("relay_pdr_threshold", 0.0).value
+        )
+        self._map_relay_output_topic = str(
+            self.declare_parameter("map_relay_output_topic", "relay/map/tiles_out").value
+        )
+        self._detection_relay_output_topic = str(
+            self.declare_parameter(
+                "detection_relay_output_topic", "relay/detections/fused_out"
+            ).value
+        )
+        self._heartbeat_relay_output_topic = str(
+            self.declare_parameter("heartbeat_relay_output_topic", "relay/heartbeat_out").value
+        )
+        self._telemetry_relay_output_topic = str(
+            self.declare_parameter("telemetry_relay_output_topic", "relay/telemetry_out").value
+        )
+        self._relay_map_input_topic = str(self.declare_parameter("relay_map_input_topic", "").value)
+        self._relay_detection_input_topic = str(
+            self.declare_parameter("relay_detection_input_topic", "").value
+        )
+        self._relay_heartbeat_input_topic = str(
+            self.declare_parameter("relay_heartbeat_input_topic", "").value
+        )
+        self._relay_telemetry_input_topic = str(
+            self.declare_parameter("relay_telemetry_input_topic", "").value
+        )
 
         # Connectivity + storage controls required by Story 4.2.
         self._heartbeat_timeout_sec = float(
@@ -91,6 +136,15 @@ class StoreForwardTiles(Node):
             replay_batch_size=self._replay_batch_size,
             max_replay_per_cycle=self._max_replay_per_cycle,
         )
+        self._route_selector = RelayRouteSelector(
+            relay_enabled=self._relay_enabled,
+            activation_policy=self._relay_activation_policy,
+            direct_heartbeat_timeout_sec=self._heartbeat_timeout_sec,
+            direct_pdr_threshold=self._pdr_threshold,
+            relay_heartbeat_timeout_sec=self._relay_heartbeat_timeout_sec,
+            relay_pdr_threshold=self._relay_pdr_threshold,
+        )
+        self._relay_latency = RelayLatencyTracker(window_size=512)
         self._controller.set_connectivity_override(
             enabled=self._link_up_override_enabled,
             link_up=self._link_up_override_value,
@@ -104,14 +158,43 @@ class StoreForwardTiles(Node):
         self._telemetry_publisher = self.create_publisher(
             Telemetry, self._telemetry_output_topic, 10
         )
+        self._map_relay_publisher = self.create_publisher(
+            MapTile, self._map_relay_output_topic, 10
+        )
+        self._detection_relay_publisher = self.create_publisher(
+            FusedDetection, self._detection_relay_output_topic, 10
+        )
+        self._heartbeat_relay_publisher = self.create_publisher(
+            String, self._heartbeat_relay_output_topic, 10
+        )
+        self._telemetry_relay_publisher = self.create_publisher(
+            Telemetry, self._telemetry_relay_output_topic, 10
+        )
         self._replay_annotation_publisher = self.create_publisher(
             String, self._replay_annotation_topic, 10
         )
         self._route_specs: dict[str, tuple[type[Any], Any]] = {
             "map_tile": (MapTile, self._map_publisher),
+            "relay_map_tile": (MapTile, self._map_relay_publisher),
             "fused_detection": (FusedDetection, self._detection_publisher),
+            "relay_fused_detection": (FusedDetection, self._detection_relay_publisher),
             "heartbeat": (String, self._heartbeat_publisher),
+            "relay_heartbeat": (String, self._heartbeat_relay_publisher),
             "telemetry": (Telemetry, self._telemetry_publisher),
+            "relay_telemetry": (Telemetry, self._telemetry_relay_publisher),
+        }
+        self._topic_specs: dict[str, tuple[type[Any], Any]] = {
+            self._map_output_topic: (MapTile, self._map_publisher),
+            self._detection_output_topic: (FusedDetection, self._detection_publisher),
+            self._heartbeat_output_topic: (String, self._heartbeat_publisher),
+            self._telemetry_output_topic: (Telemetry, self._telemetry_publisher),
+            self._map_relay_output_topic: (MapTile, self._map_relay_publisher),
+            self._detection_relay_output_topic: (
+                FusedDetection,
+                self._detection_relay_publisher,
+            ),
+            self._heartbeat_relay_output_topic: (String, self._heartbeat_relay_publisher),
+            self._telemetry_relay_output_topic: (Telemetry, self._telemetry_relay_publisher),
         }
 
         self._map_subscription = self.create_subscription(
@@ -137,6 +220,46 @@ class StoreForwardTiles(Node):
             self._pdr_subscription = self.create_subscription(
                 Float32, self._pdr_topic, self._handle_pdr, 10
             )
+        self._relay_heartbeat_subscription = None
+        if self._relay_heartbeat_topic:
+            self._relay_heartbeat_subscription = self.create_subscription(
+                String, self._relay_heartbeat_topic, self._handle_relay_connectivity_heartbeat, 10
+            )
+        self._relay_pdr_subscription = None
+        if self._relay_pdr_topic:
+            self._relay_pdr_subscription = self.create_subscription(
+                Float32, self._relay_pdr_topic, self._handle_relay_pdr, 10
+            )
+
+        self._relay_map_subscription = None
+        if self._relay_map_input_topic:
+            self._relay_map_subscription = self.create_subscription(
+                MapTile, self._relay_map_input_topic, self._handle_map_tile_relay_ingress, 10
+            )
+        self._relay_detection_subscription = None
+        if self._relay_detection_input_topic:
+            self._relay_detection_subscription = self.create_subscription(
+                FusedDetection,
+                self._relay_detection_input_topic,
+                self._handle_detection_relay_ingress,
+                10,
+            )
+        self._relay_heartbeat_input_subscription = None
+        if self._relay_heartbeat_input_topic:
+            self._relay_heartbeat_input_subscription = self.create_subscription(
+                String,
+                self._relay_heartbeat_input_topic,
+                self._handle_heartbeat_relay_ingress,
+                10,
+            )
+        self._relay_telemetry_subscription = None
+        if self._relay_telemetry_input_topic:
+            self._relay_telemetry_subscription = self.create_subscription(
+                Telemetry,
+                self._relay_telemetry_input_topic,
+                self._handle_telemetry_relay_ingress,
+                10,
+            )
 
         self._link_monitor_timer = self.create_timer(0.25, self._sync_connectivity)
         self._metrics_timer = self.create_timer(5.0, self._log_metrics)
@@ -153,6 +276,16 @@ class StoreForwardTiles(Node):
             "heartbeat_output_topic",
             "telemetry_input_topic",
             "telemetry_output_topic",
+            "map_relay_output_topic",
+            "detection_relay_output_topic",
+            "heartbeat_relay_output_topic",
+            "telemetry_relay_output_topic",
+            "relay_map_input_topic",
+            "relay_detection_input_topic",
+            "relay_heartbeat_input_topic",
+            "relay_telemetry_input_topic",
+            "relay_heartbeat_topic",
+            "relay_pdr_topic",
             "replay_annotation_topic",
             "pdr_topic",
             "storage_path",
@@ -171,6 +304,10 @@ class StoreForwardTiles(Node):
                     return SetParametersResult(successful=False)
                 self._heartbeat_timeout_sec = value
                 self._controller.connectivity.heartbeat_timeout_sec = value
+                self._route_selector.set_direct_thresholds(
+                    heartbeat_timeout_sec=value,
+                    pdr_threshold=self._pdr_threshold,
+                )
                 continue
 
             if param.name == "pdr_threshold":
@@ -179,6 +316,42 @@ class StoreForwardTiles(Node):
                     return SetParametersResult(successful=False)
                 self._pdr_threshold = value
                 self._controller.connectivity.pdr_threshold = value
+                self._route_selector.set_direct_thresholds(
+                    heartbeat_timeout_sec=self._heartbeat_timeout_sec,
+                    pdr_threshold=value,
+                )
+                continue
+
+            if param.name == "relay_enabled":
+                self._relay_enabled = bool(param.value)
+                self._route_selector.relay_enabled = self._relay_enabled
+                continue
+
+            if param.name == "relay_activation_policy":
+                self._relay_activation_policy = str(param.value)
+                self._route_selector.activation_policy = self._relay_activation_policy
+                continue
+
+            if param.name == "relay_heartbeat_timeout_sec":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._relay_heartbeat_timeout_sec = value
+                self._route_selector.set_relay_thresholds(
+                    heartbeat_timeout_sec=value,
+                    pdr_threshold=self._relay_pdr_threshold,
+                )
+                continue
+
+            if param.name == "relay_pdr_threshold":
+                value = float(param.value)
+                if value < 0.0 or value > 1.0:
+                    return SetParametersResult(successful=False)
+                self._relay_pdr_threshold = value
+                self._route_selector.set_relay_thresholds(
+                    heartbeat_timeout_sec=self._relay_heartbeat_timeout_sec,
+                    pdr_threshold=value,
+                )
                 continue
 
             if param.name == "max_bytes":
@@ -265,6 +438,10 @@ class StoreForwardTiles(Node):
 
     def _handle_connectivity_heartbeat(self, _msg: String) -> None:
         self._controller.connectivity.observe_heartbeat()
+        self._route_selector.observe_direct_heartbeat()
+
+    def _handle_relay_connectivity_heartbeat(self, _msg: String) -> None:
+        self._route_selector.observe_relay_heartbeat()
 
     def _handle_telemetry(self, msg: Telemetry) -> None:
         self._handle_outbound(
@@ -277,6 +454,70 @@ class StoreForwardTiles(Node):
 
     def _handle_pdr(self, msg: Float32) -> None:
         self._controller.connectivity.observe_pdr(float(msg.data))
+        self._route_selector.observe_direct_pdr(float(msg.data))
+
+    def _handle_relay_pdr(self, msg: Float32) -> None:
+        self._route_selector.observe_relay_pdr(float(msg.data))
+
+    def _handle_map_tile_relay_ingress(self, msg: MapTile) -> None:
+        self._handle_outbound(
+            message=msg,
+            input_topic=self._relay_map_input_topic,
+            output_topic=self._map_output_topic,
+            route_key="relay_map_tile",
+            message_kind="map_tile",
+            route_decision=RelayRouteDecision(
+                delivery_mode="relay",
+                selected_link_up=True,
+                reason="relay-ingress",
+            ),
+            relay_hop=1,
+        )
+
+    def _handle_detection_relay_ingress(self, msg: FusedDetection) -> None:
+        self._handle_outbound(
+            message=msg,
+            input_topic=self._relay_detection_input_topic,
+            output_topic=self._detection_output_topic,
+            route_key="relay_fused_detection",
+            message_kind="fused_detection",
+            route_decision=RelayRouteDecision(
+                delivery_mode="relay",
+                selected_link_up=True,
+                reason="relay-ingress",
+            ),
+            relay_hop=1,
+        )
+
+    def _handle_heartbeat_relay_ingress(self, msg: String) -> None:
+        self._handle_outbound(
+            message=msg,
+            input_topic=self._relay_heartbeat_input_topic,
+            output_topic=self._heartbeat_output_topic,
+            route_key="relay_heartbeat",
+            message_kind="heartbeat",
+            route_decision=RelayRouteDecision(
+                delivery_mode="relay",
+                selected_link_up=True,
+                reason="relay-ingress",
+            ),
+            relay_hop=1,
+        )
+
+    def _handle_telemetry_relay_ingress(self, msg: Telemetry) -> None:
+        self._handle_outbound(
+            message=msg,
+            input_topic=self._relay_telemetry_input_topic,
+            output_topic=self._telemetry_output_topic,
+            route_key="relay_telemetry",
+            message_kind="telemetry",
+            route_decision=RelayRouteDecision(
+                delivery_mode="relay",
+                selected_link_up=True,
+                reason="relay-ingress",
+            ),
+            relay_hop=1,
+        )
 
     def _handle_outbound(
         self,
@@ -286,7 +527,15 @@ class StoreForwardTiles(Node):
         output_topic: str,
         route_key: str,
         message_kind: str,
+        route_decision: RelayRouteDecision | None = None,
+        relay_hop: int = 0,
     ) -> None:
+        decision = route_decision or self._select_route_decision()
+        target_topic, target_route_key = self._resolve_route_target(
+            delivery_mode=decision.delivery_mode,
+            output_topic=output_topic,
+            route_key=route_key,
+        )
         payload = serialize_message_payload(message)
         payload_hash = compute_payload_hash(payload)
         dedupe_key = build_dedupe_key(
@@ -296,14 +545,30 @@ class StoreForwardTiles(Node):
             payload_hash=payload_hash,
         )
         event_ts = extract_event_timestamp(message)
+        source_vehicle_id = self._source_vehicle_id_from_message(message)
+        relay_vehicle_id = self._relay_vehicle_id if decision.delivery_mode == "relay" else ""
+        effective_relay_hop = max(relay_hop, 1 if decision.delivery_mode == "relay" else 0)
+
+        if self._link_up_override_enabled:
+            selected_link_up = self._link_up_override_value
+        else:
+            selected_link_up = decision.selected_link_up
+
+        if self._relay_enabled and not self._link_up_override_enabled:
+            self._controller.set_connectivity_override(enabled=True, link_up=selected_link_up)
+
         disposition = self._controller.handle_outbound(
-            topic=output_topic,
-            route_key=route_key,
+            topic=target_topic,
+            route_key=target_route_key,
             message_kind=message_kind,
             event_ts=event_ts,
             dedupe_key=dedupe_key,
             payload=payload,
             payload_hash=payload_hash,
+            source_vehicle_id=source_vehicle_id,
+            relay_vehicle_id=relay_vehicle_id,
+            relay_hop=effective_relay_hop,
+            relay_delivery_mode=decision.delivery_mode,
             publish_callback=self._publish_record,
         )
         if disposition != "published-live":
@@ -315,6 +580,47 @@ class StoreForwardTiles(Node):
                 f"evicted={metrics.evicted_count}"
             )
 
+    def _select_route_decision(self) -> RelayRouteDecision:
+        if not self._relay_enabled:
+            return RelayRouteDecision(
+                delivery_mode="direct",
+                selected_link_up=self._controller.connectivity.is_link_up(),
+                reason="relay-disabled",
+            )
+        return self._route_selector.select_route()
+
+    def _resolve_route_target(
+        self, *, delivery_mode: str, output_topic: str, route_key: str
+    ) -> tuple[str, str]:
+        mode = delivery_mode.strip().lower()
+        if mode != "relay":
+            return output_topic, route_key
+
+        relay_topic_by_route = {
+            "map_tile": self._map_relay_output_topic,
+            "fused_detection": self._detection_relay_output_topic,
+            "heartbeat": self._heartbeat_relay_output_topic,
+            "telemetry": self._telemetry_relay_output_topic,
+        }
+        relay_route_key_by_route = {
+            "map_tile": "relay_map_tile",
+            "fused_detection": "relay_fused_detection",
+            "heartbeat": "relay_heartbeat",
+            "telemetry": "relay_telemetry",
+        }
+        return (
+            relay_topic_by_route.get(route_key, output_topic),
+            relay_route_key_by_route.get(route_key, route_key),
+        )
+
+    def _source_vehicle_id_from_message(self, message: Any) -> str:
+        candidate = getattr(message, "vehicle_id", "")
+        if isinstance(candidate, str) and candidate:
+            return candidate
+        if self._source_vehicle_id:
+            return self._source_vehicle_id
+        return self._vehicle_id
+
     def _publish_record(
         self,
         ingest_seq: int,
@@ -324,13 +630,25 @@ class StoreForwardTiles(Node):
         payload: bytes,
         metadata: ReplayMetadata,
     ) -> None:
-        spec = self._route_specs.get(route_key)
+        spec = self._topic_specs.get(topic) or self._route_specs.get(route_key)
         if spec is None:
             self.get_logger().warning(f"no route configured for replay key '{route_key}'")
             return
         message_type, publisher = spec
         message = deserialize_message_payload(message_type, payload)
         publisher.publish(message)
+        relay_envelope = RelayEnvelope(
+            source_vehicle_id=metadata.source_vehicle_id,
+            relay_vehicle_id=metadata.relay_vehicle_id,
+            relay_hop=metadata.relay_hop,
+            delivery_mode=metadata.relay_delivery_mode,
+        )
+        self._relay_latency.record(
+            envelope=relay_envelope,
+            original_event_ts=metadata.original_event_ts,
+            replayed_at_ts=metadata.replayed_at_ts,
+            published_at_ts=time.time(),
+        )
         if metadata.delivery_mode == "replayed" or self._publish_live_annotations:
             annotation = {
                 "delivery_mode": metadata.delivery_mode,
@@ -343,6 +661,12 @@ class StoreForwardTiles(Node):
                 "priority_class": metadata.priority_class,
                 "dedupe_key": metadata.dedupe_key,
                 "payload_hash": metadata.payload_hash,
+                "relay_envelope": {
+                    "source_vehicle_id": relay_envelope.source_vehicle_id,
+                    "relay_vehicle_id": relay_envelope.relay_vehicle_id,
+                    "relay_hop": relay_envelope.relay_hop,
+                    "delivery_mode": relay_envelope.delivery_mode,
+                },
             }
             self._replay_annotation_publisher.publish(
                 String(data=json.dumps(annotation, separators=(",", ":")))
@@ -356,11 +680,19 @@ class StoreForwardTiles(Node):
             )
 
     def _sync_connectivity(self) -> None:
+        if self._relay_enabled and not self._link_up_override_enabled:
+            decision = self._route_selector.select_route()
+            self._controller.set_connectivity_override(
+                enabled=True,
+                link_up=decision.selected_link_up,
+            )
         self._controller.sync_connectivity_and_flush(self._publish_record)
 
     def _log_metrics(self) -> None:
         metrics = self._store.metrics()
         replay_metrics = self._controller.replay_metrics
+        relay_snapshot = self._relay_latency.snapshot()
+        current_route = self._select_route_decision()
         link_state = "up" if self._controller.connectivity.is_link_up() else "down"
         self.get_logger().info(
             "store-forward metrics "
@@ -369,12 +701,20 @@ class StoreForwardTiles(Node):
             f"telemetry={metrics.queued_count_by_class.get('telemetry', 0)} "
             f"tiles={metrics.queued_count_by_class.get('tiles', 0)} "
             f"bulk={metrics.queued_count_by_class.get('bulk', 0)}) "
+            f"(direct_backlog={metrics.queued_count_by_delivery_mode.get('direct', 0)} "
+            f"relay_backlog={metrics.queued_count_by_delivery_mode.get('relay', 0)}) "
             f"bytes={metrics.bytes_on_disk} dedupe_hits={metrics.dedupe_hits} "
             f"evicted={metrics.evicted_count} "
             f"oldest_age_sec={metrics.oldest_buffered_age_sec:.2f} "
             f"replay_total={replay_metrics.replayed_total} "
             f"replay_last_batch={replay_metrics.last_flush_count} "
-            f"replay_rate={replay_metrics.last_flush_rate_msgs_per_sec:.1f}/s"
+            f"replay_rate={replay_metrics.last_flush_rate_msgs_per_sec:.1f}/s "
+            f"relay_mode={current_route.delivery_mode} "
+            f"relay_forwarded_total={relay_snapshot.relay_forwarded_total} "
+            f"relay_latency_p50={relay_snapshot.relay_latency_p50_sec:.3f}s "
+            f"relay_latency_p95={relay_snapshot.relay_latency_p95_sec:.3f}s "
+            f"replay_lag_p50={relay_snapshot.replay_lag_p50_sec:.3f}s "
+            f"replay_lag_p95={relay_snapshot.replay_lag_p95_sec:.3f}s"
         )
 
     def destroy_node(self) -> bool:

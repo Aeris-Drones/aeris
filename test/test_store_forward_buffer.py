@@ -13,6 +13,7 @@ from aeris_mesh_agent.store_forward_core import (
     ReplayMetadata,
     StoreForwardController,
 )
+from aeris_mesh_agent.relay_routing import RelayEnvelope, RelayLatencyTracker, RelayRouteSelector
 from aeris_mesh_agent.store_forward_store import StoreForwardStore
 
 
@@ -512,3 +513,136 @@ def test_connectivity_state_uses_heartbeat_timeout_and_pdr_threshold() -> None:
 
     state.observe_pdr(0.2)
     assert state.is_link_up() is False
+
+
+def test_relay_route_selector_prefers_direct_then_falls_back_to_relay() -> None:
+    current_time = {"value": 100.0}
+    selector = RelayRouteSelector(
+        relay_enabled=True,
+        activation_policy="auto",
+        direct_heartbeat_timeout_sec=2.0,
+        direct_pdr_threshold=0.0,
+        relay_heartbeat_timeout_sec=2.0,
+        relay_pdr_threshold=0.0,
+        now_fn=lambda: current_time["value"],
+    )
+
+    selector.observe_direct_heartbeat()
+    selector.observe_relay_heartbeat()
+    assert selector.select_route().delivery_mode == "direct"
+
+    current_time["value"] = 103.1
+    selector.observe_relay_heartbeat()
+    decision = selector.select_route()
+    assert decision.delivery_mode == "relay"
+    assert decision.selected_link_up is True
+
+    current_time["value"] = 106.5
+    decision = selector.select_route()
+    assert decision.delivery_mode == "direct"
+    assert decision.selected_link_up is False
+
+
+def test_controller_replays_relay_metadata_fields(tmp_path: Path) -> None:
+    db_path = tmp_path / "buffer" / "store-forward.db"
+    store = StoreForwardStore(db_path=str(db_path), max_bytes=1024 * 1024)
+    controller = StoreForwardController(store=store, heartbeat_timeout_sec=5.0)
+    controller.set_connectivity_override(enabled=True, link_up=False)
+
+    published: list[ReplayMetadata] = []
+
+    def _publish(
+        ingest_seq: int,
+        topic: str,
+        route_key: str,
+        message_kind: str,
+        payload: bytes,
+        metadata: ReplayMetadata,
+    ) -> None:
+        del ingest_seq, topic, route_key, message_kind, payload
+        published.append(metadata)
+
+    controller.handle_outbound(
+        topic="relay/telemetry_out",
+        route_key="relay_telemetry",
+        message_kind="telemetry",
+        event_ts=10.0,
+        dedupe_key="telemetry:relay:1",
+        payload=b"payload",
+        payload_hash="relay-hash",
+        source_vehicle_id="scout1",
+        relay_vehicle_id="ranger1",
+        relay_hop=1,
+        relay_delivery_mode="relay",
+        publish_callback=_publish,
+    )
+    metrics = store.metrics(now_wallclock=20.0)
+    assert metrics.queued_count_by_delivery_mode["relay"] == 1
+
+    controller.set_connectivity_override(enabled=True, link_up=True)
+    controller.flush_pending(_publish, batch_size=8, max_records=8)
+
+    assert len(published) == 1
+    assert published[0].source_vehicle_id == "scout1"
+    assert published[0].relay_vehicle_id == "ranger1"
+    assert published[0].relay_hop == 1
+    assert published[0].relay_delivery_mode == "relay"
+
+
+def test_store_dedupe_stays_stable_across_direct_and_relay_modes(tmp_path: Path) -> None:
+    db_path = tmp_path / "buffer" / "store-forward.db"
+    store = StoreForwardStore(db_path=str(db_path), max_bytes=1024 * 1024)
+
+    first = store.enqueue(
+        topic="telemetry_out",
+        route_key="telemetry",
+        message_kind="telemetry",
+        event_ts=1.0,
+        dedupe_key="telemetry:scout1:1:0",
+        payload=b"same-payload",
+        payload_hash="same-hash",
+        relay_delivery_mode="direct",
+    )
+    second = store.enqueue(
+        topic="relay/telemetry_out",
+        route_key="relay_telemetry",
+        message_kind="telemetry",
+        event_ts=1.1,
+        dedupe_key="telemetry:scout1:1:0",
+        payload=b"same-payload",
+        payload_hash="same-hash",
+        relay_delivery_mode="relay",
+    )
+
+    assert first.accepted is True
+    assert second.accepted is False
+    assert store.pending_count() == 1
+    assert store.metrics(now_wallclock=10.0).dedupe_hits == 1
+
+
+def test_relay_latency_tracker_reports_percentiles() -> None:
+    tracker = RelayLatencyTracker(window_size=16)
+    envelope = RelayEnvelope(
+        source_vehicle_id="scout1",
+        relay_vehicle_id="ranger1",
+        relay_hop=1,
+        delivery_mode="relay",
+    )
+
+    tracker.record(
+        envelope=envelope,
+        original_event_ts=10.0,
+        replayed_at_ts=10.4,
+        published_at_ts=10.8,
+    )
+    tracker.record(
+        envelope=envelope,
+        original_event_ts=20.0,
+        replayed_at_ts=20.2,
+        published_at_ts=20.5,
+    )
+
+    snapshot = tracker.snapshot()
+    assert snapshot.relay_forwarded_total == 2
+    assert snapshot.relay_latency_p95_sec >= snapshot.relay_latency_p50_sec
+    assert snapshot.replay_lag_p95_sec >= snapshot.replay_lag_p50_sec
