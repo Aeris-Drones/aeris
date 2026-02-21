@@ -250,7 +250,22 @@ class StoreForwardStore:
                 )
 
                 self._evict_to_capacity(cur)
+                survived = cur.execute(
+                    """
+                    SELECT 1
+                    FROM queue
+                    WHERE ingest_seq = ?
+                    LIMIT 1
+                    """,
+                    (ingest_seq,),
+                ).fetchone()
                 cur.execute("COMMIT;")
+                if survived is None:
+                    return EnqueueResult(
+                        accepted=False,
+                        ingest_seq=None,
+                        reason="dropped-over-capacity",
+                    )
                 return EnqueueResult(accepted=True, ingest_seq=ingest_seq, reason="buffered")
             except Exception:
                 cur.execute("ROLLBACK;")

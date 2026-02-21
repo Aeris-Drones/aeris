@@ -466,11 +466,7 @@ class StoreForwardTiles(Node):
             output_topic=self._map_output_topic,
             route_key="relay_map_tile",
             message_kind="map_tile",
-            route_decision=RelayRouteDecision(
-                delivery_mode="relay",
-                selected_link_up=True,
-                reason="relay-ingress",
-            ),
+            route_decision=self._relay_ingress_decision(),
             relay_hop=1,
         )
 
@@ -481,11 +477,7 @@ class StoreForwardTiles(Node):
             output_topic=self._detection_output_topic,
             route_key="relay_fused_detection",
             message_kind="fused_detection",
-            route_decision=RelayRouteDecision(
-                delivery_mode="relay",
-                selected_link_up=True,
-                reason="relay-ingress",
-            ),
+            route_decision=self._relay_ingress_decision(),
             relay_hop=1,
         )
 
@@ -496,11 +488,7 @@ class StoreForwardTiles(Node):
             output_topic=self._heartbeat_output_topic,
             route_key="relay_heartbeat",
             message_kind="heartbeat",
-            route_decision=RelayRouteDecision(
-                delivery_mode="relay",
-                selected_link_up=True,
-                reason="relay-ingress",
-            ),
+            route_decision=self._relay_ingress_decision(),
             relay_hop=1,
         )
 
@@ -511,11 +499,7 @@ class StoreForwardTiles(Node):
             output_topic=self._telemetry_output_topic,
             route_key="relay_telemetry",
             message_kind="telemetry",
-            route_decision=RelayRouteDecision(
-                delivery_mode="relay",
-                selected_link_up=True,
-                reason="relay-ingress",
-            ),
+            route_decision=self._relay_ingress_decision(),
             relay_hop=1,
         )
 
@@ -545,7 +529,16 @@ class StoreForwardTiles(Node):
             payload_hash=payload_hash,
         )
         event_ts = extract_event_timestamp(message)
-        source_vehicle_id = self._source_vehicle_id_from_message(message)
+        source_vehicle_id = self._source_vehicle_id_from_message(
+            message,
+            input_topic=input_topic,
+            is_relay_ingress=route_key.startswith("relay_"),
+        )
+        if route_key.startswith("relay_") and not source_vehicle_id:
+            self.get_logger().warning(
+                "relay ingress message missing source vehicle metadata "
+                f"(topic={input_topic}, route={route_key})"
+            )
         relay_vehicle_id = self._relay_vehicle_id if decision.delivery_mode == "relay" else ""
         effective_relay_hop = max(relay_hop, 1 if decision.delivery_mode == "relay" else 0)
 
@@ -589,6 +582,14 @@ class StoreForwardTiles(Node):
             )
         return self._route_selector.select_route()
 
+    def _relay_ingress_decision(self) -> RelayRouteDecision:
+        """Relay ingress still depends on Ranger->GCS connectivity for buffering."""
+        return RelayRouteDecision(
+            delivery_mode="relay",
+            selected_link_up=self._controller.connectivity.is_link_up(),
+            reason="relay-ingress",
+        )
+
     def _resolve_route_target(
         self, *, delivery_mode: str, output_topic: str, route_key: str
     ) -> tuple[str, str]:
@@ -613,13 +614,54 @@ class StoreForwardTiles(Node):
             relay_route_key_by_route.get(route_key, route_key),
         )
 
-    def _source_vehicle_id_from_message(self, message: Any) -> str:
+    def _source_vehicle_id_from_message(
+        self,
+        message: Any,
+        *,
+        input_topic: str,
+        is_relay_ingress: bool,
+    ) -> str:
         candidate = getattr(message, "vehicle_id", "")
         if isinstance(candidate, str) and candidate:
             return candidate
+
+        hazard_payload_json = getattr(message, "hazard_payload_json", "")
+        if isinstance(hazard_payload_json, str) and hazard_payload_json:
+            try:
+                payload = json.loads(hazard_payload_json)
+                if isinstance(payload, dict):
+                    payload_source = payload.get("source_vehicle_id") or payload.get(
+                        "vehicle_id"
+                    )
+                    if isinstance(payload_source, str) and payload_source:
+                        return payload_source
+            except json.JSONDecodeError:
+                # Not all detections carry JSON payload metadata.
+                pass
+
+        topic_source = self._extract_vehicle_id_from_topic(input_topic)
+        if topic_source:
+            return topic_source
+
+        # For relay ingress, unknown provenance is safer than wrong provenance.
+        if is_relay_ingress:
+            return ""
         if self._source_vehicle_id:
             return self._source_vehicle_id
         return self._vehicle_id
+
+    @staticmethod
+    def _extract_vehicle_id_from_topic(topic: str) -> str:
+        for part in topic.split("/"):
+            candidate = part.strip()
+            if not candidate:
+                continue
+            lower = candidate.lower()
+            if lower.startswith(("scout", "ranger", "uav", "drone", "vehicle")) and any(
+                char.isdigit() for char in candidate
+            ):
+                return candidate
+        return ""
 
     def _publish_record(
         self,
@@ -637,6 +679,7 @@ class StoreForwardTiles(Node):
         message_type, publisher = spec
         message = deserialize_message_payload(message_type, payload)
         publisher.publish(message)
+        published_at_ts = time.time()
         relay_envelope = RelayEnvelope(
             source_vehicle_id=metadata.source_vehicle_id,
             relay_vehicle_id=metadata.relay_vehicle_id,
@@ -647,13 +690,14 @@ class StoreForwardTiles(Node):
             envelope=relay_envelope,
             original_event_ts=metadata.original_event_ts,
             replayed_at_ts=metadata.replayed_at_ts,
-            published_at_ts=time.time(),
+            published_at_ts=published_at_ts,
         )
         if metadata.delivery_mode == "replayed" or self._publish_live_annotations:
             annotation = {
                 "delivery_mode": metadata.delivery_mode,
                 "original_event_ts": metadata.original_event_ts,
                 "replayed_at_ts": metadata.replayed_at_ts,
+                "published_at_ts": published_at_ts,
                 "ingest_seq": ingest_seq if ingest_seq > 0 else None,
                 "topic": topic,
                 "route_key": route_key,

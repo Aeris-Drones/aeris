@@ -29,6 +29,7 @@
 #   IMPAIRMENT_DELAY_MS            Default: 120
 #   FLOOD_RATE_HZ                  Default: 200
 #   FLOOD_PAYLOAD_BYTES            Default: 512
+#   RELAY_TILE_LATENCY_REQUIRED    Default: 1 (fail validation if relay tile latency cannot be asserted)
 #   MAP_TILE_TOPIC                 Default: /map/tiles
 #   TELEMETRY_TOPIC                Default: /orchestrator/heartbeat
 #   DETECTION_TOPIC                Default: /detections/fused
@@ -66,6 +67,7 @@ IMPAIRMENT_DROP_PROB=${IMPAIRMENT_DROP_PROB:-0.30}
 IMPAIRMENT_DELAY_MS=${IMPAIRMENT_DELAY_MS:-120}
 RELAY_TILE_LATENCY_P95_TARGET_SEC=${RELAY_TILE_LATENCY_P95_TARGET_SEC:-2.0}
 RELAY_TILE_SAMPLE_TIMEOUT_SEC=${RELAY_TILE_SAMPLE_TIMEOUT_SEC:-20}
+RELAY_TILE_LATENCY_REQUIRED=${RELAY_TILE_LATENCY_REQUIRED:-1}
 FLOOD_RATE_HZ=${FLOOD_RATE_HZ:-200}
 FLOOD_PAYLOAD_BYTES=${FLOOD_PAYLOAD_BYTES:-512}
 MAP_TILE_TOPIC=${MAP_TILE_TOPIC:-/map/tiles}
@@ -369,11 +371,11 @@ with open(annotation_file, "r", encoding="utf-8", errors="ignore") as f:
         if "tile" not in route_key:
             continue
         original = payload.get("original_event_ts")
-        replayed = payload.get("replayed_at_ts")
-        if original is None or replayed is None:
+        published = payload.get("published_at_ts", payload.get("replayed_at_ts"))
+        if original is None or published is None:
             continue
         try:
-            latency = float(replayed) - float(original)
+            latency = float(published) - float(original)
         except (TypeError, ValueError):
             continue
         if latency >= 0:
@@ -392,6 +394,14 @@ if p95 > target:
 
 print(f"Relay tile latency p95={p95:.3f}s within target {target:.3f}s")
 PY
+}
+
+is_truthy() {
+  local value="${1:-}"
+  case "${value,,}" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 probe_topic_roundtrip() {
@@ -662,12 +672,20 @@ run_validation_pass() {
 
     relay_tile_latency_sample_file="${pass_log_dir}/relay_tile_latency_samples.log"
     timeout "${RELAY_TILE_SAMPLE_TIMEOUT_SEC}"s ros2 topic echo "${REPLAY_ANNOTATION_TOPIC}" >"${relay_tile_latency_sample_file}" 2>&1 || true
-    if [[ -f "${relay_tile_latency_sample_file}" ]] && grep -Eiq 'relay_envelope|route_key|replayed_at_ts' "${relay_tile_latency_sample_file}"; then
+    if [[ -f "${relay_tile_latency_sample_file}" ]] && grep -Eiq 'relay_envelope|route_key|published_at_ts|replayed_at_ts' "${relay_tile_latency_sample_file}"; then
       assert_relay_tile_latency_p95 "${relay_tile_latency_sample_file}" "${RELAY_TILE_LATENCY_P95_TARGET_SEC}"
     else
+      if is_truthy "${RELAY_TILE_LATENCY_REQUIRED}"; then
+        echo "[validate_multi_vehicle_dds] ERROR: no relay tile latency samples captured on ${REPLAY_ANNOTATION_TOPIC}; cannot assert p95 target." >&2
+        return 1
+      fi
       echo "[validate_multi_vehicle_dds] WARNING: no relay tile latency samples captured on ${REPLAY_ANNOTATION_TOPIC}; skipping p95 assertion." >&2
     fi
   else
+    if is_truthy "${RELAY_TILE_LATENCY_REQUIRED}"; then
+      echo "[validate_multi_vehicle_dds] ERROR: replay annotation topic not discovered; relay tile latency validation is required: ${REPLAY_ANNOTATION_TOPIC}" >&2
+      return 1
+    fi
     echo "[validate_multi_vehicle_dds] WARNING: replay annotation topic not discovered (skipping restored replay metadata checks): ${REPLAY_ANNOTATION_TOPIC}" >&2
   fi
 
@@ -717,6 +735,7 @@ echo "[validate_multi_vehicle_dds] FASTRTPS_DEFAULT_PROFILES_FILE=${FASTRTPS_DEF
 echo "[validate_multi_vehicle_dds] RMW_VALIDATION_SET=${RMW_VALIDATION_SET}"
 echo "[validate_multi_vehicle_dds] RMW_FASTRTPS_USE_QOS_FROM_XML=${RMW_FASTRTPS_USE_QOS_FROM_XML}"
 echo "[validate_multi_vehicle_dds] RELAY_TILE_LATENCY_P95_TARGET_SEC=${RELAY_TILE_LATENCY_P95_TARGET_SEC}"
+echo "[validate_multi_vehicle_dds] RELAY_TILE_LATENCY_REQUIRED=${RELAY_TILE_LATENCY_REQUIRED}"
 echo "[validate_multi_vehicle_dds] MULTI_DRONE_LAUNCH_PACKAGE=${MULTI_DRONE_LAUNCH_PACKAGE}"
 echo "[validate_multi_vehicle_dds] MULTI_DRONE_LAUNCH_FILE=${MULTI_DRONE_LAUNCH_FILE}"
 

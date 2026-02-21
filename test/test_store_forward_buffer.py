@@ -379,6 +379,24 @@ def test_store_allows_reenqueue_after_eviction(tmp_path: Path) -> None:
     assert replay.accepted is True
 
 
+def test_store_rejects_enqueue_when_record_exceeds_capacity(tmp_path: Path) -> None:
+    db_path = tmp_path / "buffer" / "store-forward.db"
+    store = StoreForwardStore(db_path=str(db_path), max_bytes=2)
+
+    result = store.enqueue(
+        topic="map/tiles_out",
+        event_ts=1.0,
+        dedupe_key="map:oversized",
+        payload=b"abc",
+        payload_hash="oversized-hash",
+    )
+
+    assert result.accepted is False
+    assert result.reason == "dropped-over-capacity"
+    assert result.ingest_seq is None
+    assert store.pending_count() == 0
+
+
 def test_store_evicts_oldest_when_size_limit_exceeded(tmp_path: Path) -> None:
     db_path = tmp_path / "buffer" / "store-forward.db"
     store = StoreForwardStore(db_path=str(db_path), max_bytes=80)
