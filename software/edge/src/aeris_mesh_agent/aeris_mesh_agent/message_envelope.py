@@ -6,8 +6,11 @@ from base64 import b64decode, b64encode
 from collections.abc import Mapping
 from hashlib import sha256
 import json
+import logging
 import time
 from typing import Any
+
+LOGGER = logging.getLogger(__name__)
 
 
 def serialize_message_payload(message: Any) -> bytes:
@@ -24,11 +27,20 @@ def deserialize_message_payload(message_type: type[Any], payload_bytes: bytes) -
     # Preferred ROS helper path for nested typed message reconstruction.
     try:
         from rosidl_runtime_py.set_message import set_message_fields
+    except (ImportError, ModuleNotFoundError):
+        set_message_fields = None
 
-        set_message_fields(message, payload)
-        return message
-    except Exception:
-        pass
+    if set_message_fields is not None:
+        try:
+            set_message_fields(message, payload)
+            return message
+        except Exception as err:
+            LOGGER.debug(
+                "set_message_fields fallback for %s: %s",
+                message_type.__name__,
+                err,
+                exc_info=True,
+            )
 
     _populate_object(message, payload)
     return message
@@ -102,7 +114,8 @@ def _heartbeat_dedupe(*, data: str, payload_hash: str) -> str:
             if vehicle_id or ts:
                 return f"heartbeat:{vehicle_id}:{ts}:{payload_hash[:12]}"
     except json.JSONDecodeError:
-        pass
+        # Heartbeat payloads may be plain strings; fall back to payload-hash keying.
+        LOGGER.debug("heartbeat payload is not JSON; using hash-based dedupe key")
     return f"heartbeat:{payload_hash}"
 
 

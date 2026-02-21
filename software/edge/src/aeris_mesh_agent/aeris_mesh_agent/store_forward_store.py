@@ -82,6 +82,7 @@ class StoreForwardStore:
             self._conn.execute("PRAGMA journal_mode=WAL;")
             self._conn.execute("PRAGMA synchronous=FULL;")
             self._conn.execute("PRAGMA temp_store=MEMORY;")
+            self._conn.execute("PRAGMA wal_autocheckpoint=1000;")
 
             self._conn.executescript(
                 """
@@ -242,26 +243,32 @@ class StoreForwardStore:
     def ack_through(self, ingest_seq: int) -> None:
         """Delete all records with sequence <= ingest_seq after successful replay."""
         with self._lock:
-            self._conn.execute(
-                "DELETE FROM queue WHERE ingest_seq <= ?",
-                (int(ingest_seq),),
-            )
+            seq = int(ingest_seq)
+            cur = self._conn.cursor()
+            cur.execute("BEGIN IMMEDIATE;")
+            try:
+                cur.execute("DELETE FROM queue WHERE ingest_seq <= ?", (seq,))
+                self._prune_stale_dedupe(cur, upto_seq=seq)
+                cur.execute("COMMIT;")
+            except Exception:
+                cur.execute("ROLLBACK;")
+                raise
 
     def pending_count(self) -> int:
         with self._lock:
             row = self._conn.execute("SELECT COUNT(*) AS c FROM queue").fetchone()
             return int(row["c"]) if row is not None else 0
 
-    def metrics(self, *, now_monotonic: float | None = None) -> StoreMetrics:
+    def metrics(self, *, now_wallclock: float | None = None) -> StoreMetrics:
         """Compute queue size and dedupe/eviction counters."""
-        now = time.monotonic() if now_monotonic is None else float(now_monotonic)
+        now = time.time() if now_wallclock is None else float(now_wallclock)
         with self._lock:
             row = self._conn.execute(
                 """
                 SELECT
                   COUNT(*) AS queued_count,
                   COALESCE(SUM(payload_size), 0) AS bytes_on_disk,
-                  MIN(enqueued_mono) AS oldest_enqueued_mono
+                  MIN(event_ts) AS oldest_event_ts
                 FROM queue
                 """
             ).fetchone()
@@ -270,8 +277,11 @@ class StoreForwardStore:
 
         queued_count = int(row["queued_count"]) if row is not None else 0
         bytes_on_disk = int(row["bytes_on_disk"]) if row is not None else 0
-        oldest_mono = row["oldest_enqueued_mono"] if row is not None else None
-        oldest_age = 0.0 if oldest_mono is None else max(now - float(oldest_mono), 0.0)
+        oldest_event_ts = row["oldest_event_ts"] if row is not None else None
+        if oldest_event_ts is None:
+            oldest_age = 0.0
+        else:
+            oldest_age = max(now - float(oldest_event_ts), 0.0)
 
         return StoreMetrics(
             queued_count=queued_count,
@@ -303,9 +313,18 @@ class StoreForwardStore:
             if victim is None:
                 break
 
-            cur.execute("DELETE FROM queue WHERE ingest_seq = ?", (int(victim["ingest_seq"]),))
+            victim_seq = int(victim["ingest_seq"])
+            cur.execute("DELETE FROM queue WHERE ingest_seq = ?", (victim_seq,))
+            self._prune_stale_dedupe(cur, upto_seq=victim_seq)
             total_bytes -= int(victim["payload_size"])
             self._increment_stat(cur, "evicted_count", 1)
+
+    def _prune_stale_dedupe(self, cur: sqlite3.Cursor, *, upto_seq: int) -> None:
+        """Drop dedupe rows whose newest backing record is no longer queued."""
+        cur.execute(
+            "DELETE FROM dedupe_index WHERE last_ingest_seq <= ?",
+            (int(upto_seq),),
+        )
 
     def _increment_stat(self, cur: sqlite3.Cursor, key: str, delta: int) -> None:
         cur.execute(

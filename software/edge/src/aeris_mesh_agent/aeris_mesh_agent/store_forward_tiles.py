@@ -42,6 +42,9 @@ class StoreForwardTiles(Node):
         self._heartbeat_input_topic = str(
             self.declare_parameter("heartbeat_input_topic", "orchestrator/heartbeat").value
         )
+        self._connectivity_heartbeat_topic = str(
+            self.declare_parameter("connectivity_heartbeat_topic", "mesh/heartbeat_imp").value
+        )
         self._heartbeat_output_topic = str(
             self.declare_parameter("heartbeat_output_topic", "mesh/heartbeat_out").value
         )
@@ -95,21 +98,27 @@ class StoreForwardTiles(Node):
             "telemetry": (Telemetry, self._telemetry_publisher),
         }
 
-        self._map_subscription = self.create_subscription(  # noqa: F841
+        self._map_subscription = self.create_subscription(
             MapTile, self._map_input_topic, self._handle_map_tile, 10
         )
-        self._detection_subscription = self.create_subscription(  # noqa: F841
+        self._detection_subscription = self.create_subscription(
             FusedDetection, self._detection_input_topic, self._handle_detection, 10
         )
-        self._heartbeat_subscription = self.create_subscription(  # noqa: F841
+        self._heartbeat_subscription = self.create_subscription(
             String, self._heartbeat_input_topic, self._handle_heartbeat, 10
         )
-        self._telemetry_subscription = self.create_subscription(  # noqa: F841
+        self._telemetry_subscription = self.create_subscription(
             Telemetry, self._telemetry_input_topic, self._handle_telemetry, 10
+        )
+        self._connectivity_heartbeat_subscription = self.create_subscription(
+            String,
+            self._connectivity_heartbeat_topic,
+            self._handle_connectivity_heartbeat,
+            10,
         )
         self._pdr_subscription = None
         if self._pdr_topic:
-            self._pdr_subscription = self.create_subscription(  # noqa: F841
+            self._pdr_subscription = self.create_subscription(
                 Float32, self._pdr_topic, self._handle_pdr, 10
             )
 
@@ -124,10 +133,12 @@ class StoreForwardTiles(Node):
             "detection_input_topic",
             "detection_output_topic",
             "heartbeat_input_topic",
+            "connectivity_heartbeat_topic",
             "heartbeat_output_topic",
             "telemetry_input_topic",
             "telemetry_output_topic",
             "pdr_topic",
+            "storage_path",
         }
 
         for param in params:
@@ -177,6 +188,9 @@ class StoreForwardTiles(Node):
                 )
                 continue
 
+            self.get_logger().warning(f"unsupported parameter '{param.name}'")
+            return SetParametersResult(successful=False)
+
         return SetParametersResult(successful=True)
 
     def _handle_map_tile(self, msg: MapTile) -> None:
@@ -198,7 +212,6 @@ class StoreForwardTiles(Node):
         )
 
     def _handle_heartbeat(self, msg: String) -> None:
-        self._controller.connectivity.observe_heartbeat()
         self._handle_outbound(
             message=msg,
             input_topic=self._heartbeat_input_topic,
@@ -206,6 +219,9 @@ class StoreForwardTiles(Node):
             route_key="heartbeat",
             message_kind="heartbeat",
         )
+
+    def _handle_connectivity_heartbeat(self, _msg: String) -> None:
+        self._controller.connectivity.observe_heartbeat()
 
     def _handle_telemetry(self, msg: Telemetry) -> None:
         self._handle_outbound(

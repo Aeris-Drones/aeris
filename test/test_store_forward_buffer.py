@@ -106,8 +106,66 @@ def test_store_deduplicates_and_tracks_dedupe_hits(tmp_path: Path) -> None:
     assert first.accepted is True
     assert second.accepted is False
     assert store.pending_count() == 1
-    metrics = store.metrics(now_monotonic=20.0)
+    metrics = store.metrics(now_wallclock=20.0)
     assert metrics.dedupe_hits == 1
+
+
+def test_store_allows_reenqueue_after_ack(tmp_path: Path) -> None:
+    db_path = tmp_path / "buffer" / "store-forward.db"
+    store = StoreForwardStore(db_path=str(db_path), max_bytes=1024 * 1024)
+
+    first = store.enqueue(
+        topic="map/tiles_out",
+        event_ts=1.0,
+        dedupe_key="map:stable",
+        payload=_make_payload(12),
+        payload_hash="payload-hash",
+    )
+    assert first.accepted is True
+    assert first.ingest_seq is not None
+
+    store.ack_through(first.ingest_seq)
+
+    replay = store.enqueue(
+        topic="map/tiles_out",
+        event_ts=2.0,
+        dedupe_key="map:stable",
+        payload=_make_payload(12),
+        payload_hash="payload-hash",
+    )
+    assert replay.accepted is True
+    assert store.pending_count() == 1
+
+
+def test_store_allows_reenqueue_after_eviction(tmp_path: Path) -> None:
+    db_path = tmp_path / "buffer" / "store-forward.db"
+    store = StoreForwardStore(db_path=str(db_path), max_bytes=3)
+
+    first = store.enqueue(
+        topic="map/tiles_out",
+        event_ts=1.0,
+        dedupe_key="map:stable",
+        payload=b"aaa",
+        payload_hash="payload-hash",
+    )
+    assert first.accepted is True
+
+    store.enqueue(
+        topic="map/tiles_out",
+        event_ts=2.0,
+        dedupe_key="map:other",
+        payload=b"bbb",
+        payload_hash="payload-hash-2",
+    )
+
+    replay = store.enqueue(
+        topic="map/tiles_out",
+        event_ts=3.0,
+        dedupe_key="map:stable",
+        payload=b"aaa",
+        payload_hash="payload-hash",
+    )
+    assert replay.accepted is True
 
 
 def test_store_evicts_oldest_when_size_limit_exceeded(tmp_path: Path) -> None:
@@ -139,7 +197,7 @@ def test_store_evicts_oldest_when_size_limit_exceeded(tmp_path: Path) -> None:
     pending = store.peek_pending(limit=10)
     assert len(pending) < 3
     assert pending[-1].dedupe_key == "map:3"
-    metrics = store.metrics(now_monotonic=10.0)
+    metrics = store.metrics(now_wallclock=10.0)
     assert metrics.evicted_count >= 1
 
 
