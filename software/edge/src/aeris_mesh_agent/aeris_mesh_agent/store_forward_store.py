@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 import sqlite3
 import threading
 import time
@@ -32,6 +33,7 @@ class QueueRecord:
     payload_hash: str
     payload_size: int
     enqueued_monotonic: float
+    priority_class: str
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,7 @@ class StoreMetrics:
     evicted_count: int
     dedupe_hits: int
     oldest_buffered_age_sec: float
+    queued_count_by_class: dict[str, int]
 
 
 class StoreForwardStore:
@@ -236,6 +239,43 @@ class StoreForwardStore:
                 payload_hash=str(row["payload_hash"]),
                 payload_size=int(row["payload_size"]),
                 enqueued_monotonic=float(row["enqueued_mono"]),
+                priority_class=self.classify_priority(
+                    route_key=str(row["route_key"]),
+                    message_kind=str(row["message_kind"]),
+                ),
+            )
+            for row in rows
+        ]
+
+    def peek_pending_prioritized(self, *, limit: int = 256) -> list[QueueRecord]:
+        """Return pending records ordered by priority then ingest order."""
+        with self._lock:
+            rows = self._conn.execute(
+                f"""
+                SELECT ingest_seq, topic, route_key, message_kind, event_ts, dedupe_key,
+                       payload_bytes, payload_hash, payload_size, enqueued_mono,
+                       {self._priority_case_sql()} AS priority_class,
+                       {self._priority_rank_sql()} AS priority_rank
+                FROM queue
+                ORDER BY priority_rank ASC, ingest_seq ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+
+        return [
+            QueueRecord(
+                ingest_seq=int(row["ingest_seq"]),
+                topic=str(row["topic"]),
+                route_key=str(row["route_key"]),
+                message_kind=str(row["message_kind"]),
+                event_ts=float(row["event_ts"]),
+                dedupe_key=str(row["dedupe_key"]),
+                payload=bytes(row["payload_bytes"]),
+                payload_hash=str(row["payload_hash"]),
+                payload_size=int(row["payload_size"]),
+                enqueued_monotonic=float(row["enqueued_mono"]),
+                priority_class=str(row["priority_class"]),
             )
             for row in rows
         ]
@@ -247,9 +287,57 @@ class StoreForwardStore:
             cur = self._conn.cursor()
             cur.execute("BEGIN IMMEDIATE;")
             try:
+                dedupe_rows = cur.execute(
+                    "SELECT DISTINCT dedupe_key FROM queue WHERE ingest_seq <= ?",
+                    (seq,),
+                ).fetchall()
+                affected_dedupe_keys = {
+                    str(row["dedupe_key"]) for row in dedupe_rows if row["dedupe_key"] is not None
+                }
+
                 cur.execute("DELETE FROM queue WHERE ingest_seq <= ?", (seq,))
-                self._prune_stale_dedupe(cur, upto_seq=seq)
+                self._refresh_dedupe_for_keys(cur, affected_dedupe_keys)
                 cur.execute("COMMIT;")
+            except Exception:
+                cur.execute("ROLLBACK;")
+                raise
+
+    def ack_records(self, ingest_seqs: Sequence[int]) -> int:
+        """Delete specific records that have been replayed and committed."""
+        normalized = sorted({int(seq) for seq in ingest_seqs if int(seq) > 0})
+        if not normalized:
+            return 0
+
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute("BEGIN IMMEDIATE;")
+            try:
+                placeholders = ",".join("?" for _ in normalized)
+                dedupe_rows = cur.execute(
+                    f"""
+                    SELECT DISTINCT dedupe_key
+                    FROM queue
+                    WHERE ingest_seq IN ({placeholders})
+                    """,
+                    tuple(normalized),
+                ).fetchall()
+                affected_dedupe_keys = {
+                    str(row["dedupe_key"])
+                    for row in dedupe_rows
+                    if row["dedupe_key"] is not None
+                }
+
+                cur.execute(
+                    f"""
+                    DELETE FROM queue
+                    WHERE ingest_seq IN ({placeholders})
+                    """,
+                    tuple(normalized),
+                )
+                deleted = int(cur.rowcount)
+                self._refresh_dedupe_for_keys(cur, affected_dedupe_keys)
+                cur.execute("COMMIT;")
+                return deleted
             except Exception:
                 cur.execute("ROLLBACK;")
                 raise
@@ -274,6 +362,13 @@ class StoreForwardStore:
             ).fetchone()
             dedupe_hits = self._read_stat("dedupe_hits")
             evicted_count = self._read_stat("evicted_count")
+            class_rows = self._conn.execute(
+                f"""
+                SELECT {self._priority_case_sql()} AS priority_class, COUNT(*) AS c
+                FROM queue
+                GROUP BY priority_class
+                """
+            ).fetchall()
 
         queued_count = int(row["queued_count"]) if row is not None else 0
         bytes_on_disk = int(row["bytes_on_disk"]) if row is not None else 0
@@ -283,12 +378,22 @@ class StoreForwardStore:
         else:
             oldest_age = max(now - float(oldest_event_ts), 0.0)
 
+        queued_count_by_class: dict[str, int] = {
+            "control": 0,
+            "telemetry": 0,
+            "tiles": 0,
+            "bulk": 0,
+        }
+        for row in class_rows:
+            queued_count_by_class[str(row["priority_class"])] = int(row["c"])
+
         return StoreMetrics(
             queued_count=queued_count,
             bytes_on_disk=bytes_on_disk,
             evicted_count=evicted_count,
             dedupe_hits=dedupe_hits,
             oldest_buffered_age_sec=oldest_age,
+            queued_count_by_class=queued_count_by_class,
         )
 
     def close(self) -> None:
@@ -301,10 +406,11 @@ class StoreForwardStore:
         ).fetchone()
         total_bytes = int(row["total_bytes"]) if row is not None else 0
 
+        affected_dedupe_keys: set[str] = set()
         while total_bytes > self._max_bytes:
             victim = cur.execute(
                 """
-                SELECT ingest_seq, payload_size
+                SELECT ingest_seq, payload_size, dedupe_key
                 FROM queue
                 ORDER BY ingest_seq ASC
                 LIMIT 1
@@ -314,17 +420,51 @@ class StoreForwardStore:
                 break
 
             victim_seq = int(victim["ingest_seq"])
+            affected_dedupe_keys.add(str(victim["dedupe_key"]))
             cur.execute("DELETE FROM queue WHERE ingest_seq = ?", (victim_seq,))
-            self._prune_stale_dedupe(cur, upto_seq=victim_seq)
             total_bytes -= int(victim["payload_size"])
             self._increment_stat(cur, "evicted_count", 1)
+        self._refresh_dedupe_for_keys(cur, affected_dedupe_keys)
 
-    def _prune_stale_dedupe(self, cur: sqlite3.Cursor, *, upto_seq: int) -> None:
-        """Drop dedupe rows whose newest backing record is no longer queued."""
-        cur.execute(
-            "DELETE FROM dedupe_index WHERE last_ingest_seq <= ?",
-            (int(upto_seq),),
-        )
+    def _refresh_dedupe_for_keys(
+        self, cur: sqlite3.Cursor, dedupe_keys: set[str]
+    ) -> None:
+        """Rebuild dedupe_index rows for keys affected by replay ack/eviction."""
+        if not dedupe_keys:
+            return
+
+        for dedupe_key in dedupe_keys:
+            latest = cur.execute(
+                """
+                SELECT payload_hash, ingest_seq, event_ts
+                FROM queue
+                WHERE dedupe_key = ?
+                ORDER BY ingest_seq DESC
+                LIMIT 1
+                """,
+                (dedupe_key,),
+            ).fetchone()
+            if latest is None:
+                cur.execute("DELETE FROM dedupe_index WHERE dedupe_key = ?", (dedupe_key,))
+                continue
+
+            cur.execute(
+                """
+                INSERT INTO dedupe_index(dedupe_key, payload_hash, last_ingest_seq, last_event_ts)
+                VALUES(?, ?, ?, ?)
+                ON CONFLICT(dedupe_key)
+                DO UPDATE SET
+                  payload_hash = excluded.payload_hash,
+                  last_ingest_seq = excluded.last_ingest_seq,
+                  last_event_ts = excluded.last_event_ts
+                """,
+                (
+                    dedupe_key,
+                    str(latest["payload_hash"]),
+                    int(latest["ingest_seq"]),
+                    float(latest["event_ts"]),
+                ),
+            )
 
     def _increment_stat(self, cur: sqlite3.Cursor, key: str, delta: int) -> None:
         cur.execute(
@@ -340,3 +480,44 @@ class StoreForwardStore:
         if row is None:
             return 0
         return int(row["value"])
+
+    @staticmethod
+    def classify_priority(*, route_key: str, message_kind: str) -> str:
+        """Classify route/message into replay priority classes."""
+        route = route_key.strip().lower()
+        kind = message_kind.strip().lower()
+        if route == "heartbeat" or kind in {"heartbeat", "control", "command"}:
+            return "control"
+        if route == "telemetry" or kind == "telemetry":
+            return "telemetry"
+        if route == "map_tile" or kind == "map_tile":
+            return "tiles"
+        return "bulk"
+
+    @staticmethod
+    def _priority_case_sql() -> str:
+        return (
+            "CASE "
+            "WHEN route_key = 'heartbeat' OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
+            "THEN 'control' "
+            "WHEN route_key = 'telemetry' OR lower(message_kind) = 'telemetry' "
+            "THEN 'telemetry' "
+            "WHEN route_key = 'map_tile' OR lower(message_kind) = 'map_tile' "
+            "THEN 'tiles' "
+            "ELSE 'bulk' "
+            "END"
+        )
+
+    @staticmethod
+    def _priority_rank_sql() -> str:
+        return (
+            "CASE "
+            "WHEN route_key = 'heartbeat' OR lower(message_kind) IN ('heartbeat', 'control', 'command') "
+            "THEN 0 "
+            "WHEN route_key = 'telemetry' OR lower(message_kind) = 'telemetry' "
+            "THEN 1 "
+            "WHEN route_key = 'map_tile' OR lower(message_kind) = 'map_tile' "
+            "THEN 2 "
+            "ELSE 3 "
+            "END"
+        )

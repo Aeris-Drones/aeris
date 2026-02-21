@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Flame, AudioLines, Wind, Crosshair, Check, X, MapPin } from 'lucide-react';
+import { Flame, AudioLines, Wind, Crosshair, Check, X, MapPin, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getConfidenceTextClass } from '@/lib/detectionViewState';
 
@@ -36,6 +36,10 @@ export interface Detection {
   concentration?: number;
   sector?: string;
   signatureType?: string;
+  deliveryMode?: 'live' | 'replayed';
+  originalEventTs?: number;
+  replayedAtTs?: number;
+  isRetroactive?: boolean;
 }
 
 export interface DetectionCardProps {
@@ -123,6 +127,8 @@ export function DetectionCard({
   const isActionable = detection.status === 'new' || detection.status === 'reviewing';
   const conf = Math.round(detection.confidence * 100);
   const reading = getReading(detection);
+  const isRetroactive =
+    detection.deliveryMode === 'replayed' || detection.isRetroactive === true;
 
   // Derive sector from ENU coordinates when not explicitly provided
   const sector = detection.sector || `Zone ${detection.position[0] > 0 ? 'E' : 'W'}-${Math.abs(Math.round(detection.position[2] / 50))}`;
@@ -158,6 +164,11 @@ export function DetectionCard({
             <Check className="h-3 w-3" /> Confirmed
           </span>
         )}
+        {isRetroactive && (
+          <span className="px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 text-[10px] font-medium uppercase flex items-center gap-1">
+            <History className="h-3 w-3" /> Retroactive
+          </span>
+        )}
 
         <div className="flex-1" />
 
@@ -172,6 +183,10 @@ export function DetectionCard({
           <span>{formatTime(detection.timestamp)}</span>
           <span>·</span>
           <span>{detection.vehicleName}</span>
+          <span>·</span>
+          <span className={cn(isRetroactive ? 'text-cyan-300' : 'text-emerald-300')}>
+            {isRetroactive ? 'Replayed' : 'Live'}
+          </span>
           <span>·</span>
           <span className="font-mono">{reading}</span>
         </div>

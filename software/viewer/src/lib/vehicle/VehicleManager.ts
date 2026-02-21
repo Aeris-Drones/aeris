@@ -19,6 +19,11 @@ export interface VehicleState {
   trajectory: Vector3[];
   /** Unix timestamp (ms) of last telemetry update */
   lastUpdate: number;
+  /** Delivery provenance to distinguish live vs replayed telemetry */
+  deliveryMode?: 'live' | 'replayed';
+  isRetroactive?: boolean;
+  originalEventTsMs?: number;
+  replayedAtTsMs?: number | null;
   /** Vehicle color based on type (SCOUT=blue, RANGER=orange, UNKNOWN=gray) */
   color: Color;
 }
@@ -137,6 +142,10 @@ export class VehicleManager {
       heading: message.orientation.yaw,
       trajectory: [...buffer.positions],
       lastUpdate: now,
+      deliveryMode: message.replay?.deliveryMode ?? 'live',
+      isRetroactive: message.replay?.isRetroactive ?? false,
+      originalEventTsMs: message.replay?.originalEventTsMs ?? now,
+      replayedAtTsMs: message.replay?.replayedAtTsMs ?? null,
       color: color
     });
 

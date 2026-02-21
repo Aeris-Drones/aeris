@@ -27,6 +27,12 @@ export function useVehicleTelemetry() {
   const [manager] = useState(() => new VehicleManager());
   const originRef = useRef(origin);
   const setOriginRef = useRef(setOrigin);
+  const replayMetadataRef = useRef<Map<string, {
+    deliveryMode: 'live' | 'replayed';
+    originalEventTsMs: number;
+    replayedAtTsMs: number | null;
+    observedAtMs: number;
+  }>>(new Map());
 
   useEffect(() => {
     originRef.current = origin;
@@ -46,6 +52,11 @@ export function useVehicleTelemetry() {
       name: '/mission/progress',
       messageType: 'std_msgs/String',
     });
+    const replayTopic = new ROSLIB.Topic({
+      ros: ros,
+      name: '/mesh/replay_annotations',
+      messageType: 'std_msgs/String',
+    });
 
     const handleMessage = (message: ROSLIB.Message) => {
       let telemetry;
@@ -54,6 +65,21 @@ export function useVehicleTelemetry() {
       } catch (error) {
         console.warn('[useVehicleTelemetry] Ignoring invalid telemetry payload:', error);
         return;
+      }
+      const dedupeKey = buildTelemetryDedupeKey(message);
+      if (dedupeKey) {
+        const replayMeta = replayMetadataRef.current.get(dedupeKey);
+        if (replayMeta && Date.now() - replayMeta.observedAtMs <= 5 * 60 * 1000) {
+          telemetry = {
+            ...telemetry,
+            replay: {
+              deliveryMode: replayMeta.deliveryMode,
+              originalEventTsMs: replayMeta.originalEventTsMs,
+              replayedAtTsMs: replayMeta.replayedAtTsMs,
+              isRetroactive: replayMeta.deliveryMode === 'replayed',
+            },
+          };
+        }
       }
 
       const newOrigin = manager.processTelemetry(telemetry, originRef.current);
@@ -127,13 +153,28 @@ export function useVehicleTelemetry() {
         console.warn('[useVehicleTelemetry] Ignoring invalid mission progress payload:', error);
       }
     };
+    const handleReplayMessage = (message: ROSLIB.Message) => {
+      const parsed = parseReplayAnnotation(message);
+      if (!parsed || parsed.routeKey !== 'telemetry') {
+        return;
+      }
+      replayMetadataRef.current.set(parsed.dedupeKey, {
+        deliveryMode: parsed.deliveryMode,
+        originalEventTsMs: parsed.originalEventTsMs,
+        replayedAtTsMs: parsed.replayedAtTsMs,
+        observedAtMs: Date.now(),
+      });
+      pruneReplayMetadataCache(replayMetadataRef.current, 5 * 60 * 1000);
+    };
 
     topic.subscribe(handleMessage);
     progressTopic.subscribe(handleProgressMessage);
+    replayTopic.subscribe(handleReplayMessage);
 
     return () => {
       topic.unsubscribe();
       progressTopic.unsubscribe();
+      replayTopic.unsubscribe();
     };
   }, [ros, isConnected, manager]);
 
@@ -148,4 +189,83 @@ export function useVehicleTelemetry() {
   }, [vehicles.length, manager]);
 
   return { vehicles, manager, returnTrajectories };
+}
+
+function buildTelemetryDedupeKey(rawMessage: ROSLIB.Message): string | null {
+  const vehicleId = String((rawMessage as { vehicle_id?: unknown }).vehicle_id ?? '').trim();
+  const stamp = (rawMessage as { timestamp?: { sec?: unknown; nanosec?: unknown } }).timestamp;
+  const sec = Number(stamp?.sec);
+  const nanosec = Number(stamp?.nanosec ?? 0);
+  if (!vehicleId || !Number.isFinite(sec)) {
+    return null;
+  }
+  return `telemetry:${vehicleId}:${Math.trunc(sec)}:${Math.trunc(Number.isFinite(nanosec) ? nanosec : 0)}`;
+}
+
+function parseReplayAnnotation(rawMessage: ROSLIB.Message): {
+  dedupeKey: string;
+  routeKey: string;
+  deliveryMode: 'live' | 'replayed';
+  originalEventTsMs: number;
+  replayedAtTsMs: number | null;
+} | null {
+  const payload = (rawMessage as { data?: unknown }).data;
+  if (typeof payload !== 'string' || !payload.trim()) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(payload) as Record<string, unknown>;
+    const dedupeKey = String(parsed.dedupe_key ?? '').trim();
+    const routeKey = String(parsed.route_key ?? '').trim();
+    if (!dedupeKey || !routeKey) {
+      return null;
+    }
+    const originalEventTsMs = coerceEpochMs(parsed.original_event_ts);
+    if (originalEventTsMs === null) {
+      return null;
+    }
+    const replayedAtTsMs = coerceEpochMs(parsed.replayed_at_ts);
+    const deliveryMode =
+      typeof parsed.delivery_mode === 'string' &&
+      parsed.delivery_mode.trim().toLowerCase() === 'replayed'
+        ? 'replayed'
+        : 'live';
+    return {
+      dedupeKey,
+      routeKey,
+      deliveryMode,
+      originalEventTsMs,
+      replayedAtTsMs,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function coerceEpochMs(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? value : value * 1000;
+  }
+  if (value && typeof value === 'object') {
+    const stamp = value as { sec?: unknown; nanosec?: unknown };
+    const sec = Number(stamp.sec);
+    const nanosec = Number(stamp.nanosec ?? 0);
+    if (Number.isFinite(sec)) {
+      const safeNanosec = Number.isFinite(nanosec) ? nanosec : 0;
+      return (sec * 1000) + (safeNanosec / 1_000_000);
+    }
+  }
+  return null;
+}
+
+function pruneReplayMetadataCache(
+  cache: Map<string, { observedAtMs: number }>,
+  ttlMs: number
+): void {
+  const cutoff = Date.now() - ttlMs;
+  for (const [key, value] of cache.entries()) {
+    if (value.observedAtMs < cutoff) {
+      cache.delete(key);
+    }
+  }
 }

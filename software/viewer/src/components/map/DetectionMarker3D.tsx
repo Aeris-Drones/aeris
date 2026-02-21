@@ -17,6 +17,10 @@ export interface DetectionMarker3DProps {
   confidence: number;
   /** Review status - drives animation and visual emphasis */
   status: 'new' | 'reviewing' | 'confirmed' | 'dismissed';
+  /** Delivery mode from mesh replay metadata */
+  deliveryMode?: 'live' | 'replayed';
+  /** Whether replay backlog is still catching up */
+  isRetroactive?: boolean;
   /** Optional geometry projected from fused payloads (thermal/acoustic/gas) */
   geometry?: [number, number, number][];
   /** Whether this detection is currently selected */
@@ -68,6 +72,8 @@ export function DetectionMarker3D({
   sensorType,
   confidence,
   status,
+  deliveryMode,
+  isRetroactive,
   geometry,
   isSelected,
   onClick,
@@ -79,6 +85,7 @@ export function DetectionMarker3D({
   const color = SENSOR_COLORS[sensorType];
   const isNew = status === 'new';
   const isConfirmed = status === 'confirmed';
+  const showRetroBadge = deliveryMode === 'replayed' || isRetroactive === true;
 
   /**
    * Per-frame animation loop for pulsing effects.
@@ -171,6 +178,17 @@ export function DetectionMarker3D({
           />
         </mesh>
       )}
+      {showRetroBadge && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.35, 0]}>
+          <ringGeometry args={[17, 19, 32]} />
+          <meshBasicMaterial
+            color="#22d3ee"
+            transparent
+            opacity={isSelected ? 0.8 : 0.45}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      )}
 
       {isSelected && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.3, 0]}>
@@ -256,6 +274,7 @@ export function DetectionMarker3D({
           <span className="font-bold">{SENSOR_LABELS[sensorType]}</span>
           <span className="ml-2 text-white/70">{Math.round(confidence * 100)}%</span>
           {isConfirmed && <span className="ml-1 text-green-400">✓</span>}
+          {showRetroBadge && <span className="ml-1 text-cyan-300">R</span>}
         </div>
       </Html>
     </group>

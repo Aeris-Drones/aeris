@@ -21,6 +21,11 @@ export interface TileData {
   timestamp: number;
   /** Payload size for memory tracking */
   byteSize: number;
+  /** Delivery provenance for retroactive map indicators */
+  deliveryMode?: 'live' | 'replayed';
+  originalEventTsMs?: number;
+  replayedAtTsMs?: number | null;
+  isRetroactive?: boolean;
 }
 
 /**
@@ -144,6 +149,16 @@ export class MapTileManager {
       coordinates: coords,
       timestamp: Date.now(),
       byteSize: message.byte_size,
+      deliveryMode:
+        typeof message.delivery_mode === 'string' &&
+        message.delivery_mode.toLowerCase() === 'replayed'
+          ? 'replayed'
+          : 'live',
+      originalEventTsMs: parseEpochMs(message.original_event_ts),
+      replayedAtTsMs: parseEpochMs(message.replayed_at_ts),
+      isRetroactive:
+        typeof message.delivery_mode === 'string' &&
+        message.delivery_mode.toLowerCase() === 'replayed',
     };
 
     this.cache.set(key, tile);
@@ -259,4 +274,20 @@ function percentile(values: number[], p: number): number | null {
   const sorted = [...values].sort((a, b) => a - b);
   const index = Math.ceil((p / 100) * sorted.length) - 1;
   return sorted[Math.max(0, Math.min(index, sorted.length - 1))];
+}
+
+function parseEpochMs(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? value : value * 1000;
+  }
+  if (value && typeof value === 'object') {
+    const stamp = value as { sec?: unknown; nanosec?: unknown };
+    const sec = Number(stamp.sec);
+    const nanosec = Number(stamp.nanosec ?? 0);
+    if (Number.isFinite(sec)) {
+      const safeNanosec = Number.isFinite(nanosec) ? nanosec : 0;
+      return (sec * 1000) + (safeNanosec / 1_000_000);
+    }
+  }
+  return null;
 }
