@@ -187,14 +187,14 @@ class StoreForwardController:
             payload=payload,
             payload_hash=payload_hash,
         )
-        if result.accepted and link_up:
-            self.flush_pending(
-                publish_callback,
-                batch_size=self._replay_batch_size,
-                max_records=self._max_replay_per_cycle,
-            )
-            return "buffered-and-flushed"
         if result.accepted:
+            if self._connectivity.is_link_up():
+                self.flush_pending(
+                    publish_callback,
+                    batch_size=self._replay_batch_size,
+                    max_records=self._max_replay_per_cycle,
+                )
+                return "buffered-and-flushed"
             return "buffered"
         return "deduplicated"
 
