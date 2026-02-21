@@ -182,8 +182,12 @@ def test_validation_recipe_contains_nominal_and_impaired_checks() -> None:
     assert "replay_annotation_restored" in text
     assert "Replay annotation metadata observed on ${REPLAY_ANNOTATION_TOPIC}" in text
     assert "assert_relay_tile_latency_p95" in text
+    assert "local require_samples=$3" in text
+    assert "python3 - \"$annotation_file\" \"$target_p95\" \"$require_samples\" <<'PY'" in text
+    assert 'require_samples = str(sys.argv[3]).strip().lower() in {"1", "true", "yes", "on"}' in text
     assert "relay_tile_latency_sample_file" in text
     assert "relay_envelope|route_key|published_at_ts|replayed_at_ts" in text
+    assert "\"${RELAY_TILE_LATENCY_REQUIRED}\"" in text
     assert "preflight_runtime_checks" in text
     assert "ensure_local_ros_package_visible" in text
     assert "ensure_local_ros_package_visible aeris_msgs || true" in text

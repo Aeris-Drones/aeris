@@ -325,6 +325,18 @@ class StoreForwardTiles(Node):
             if param.name == "relay_enabled":
                 self._relay_enabled = bool(param.value)
                 self._route_selector.relay_enabled = self._relay_enabled
+                if not self._link_up_override_enabled:
+                    if self._relay_enabled:
+                        decision = self._route_selector.select_route()
+                        self._controller.set_connectivity_override(
+                            enabled=True,
+                            link_up=decision.selected_link_up,
+                        )
+                    else:
+                        self._controller.set_connectivity_override(
+                            enabled=False,
+                            link_up=self._controller.connectivity.is_link_up(),
+                        )
                 continue
 
             if param.name == "relay_activation_policy":
@@ -614,6 +626,72 @@ class StoreForwardTiles(Node):
             relay_route_key_by_route.get(route_key, route_key),
         )
 
+    @staticmethod
+    def _normalize_delivery_mode(delivery_mode: str) -> str:
+        mode = delivery_mode.strip().lower()
+        return "relay" if mode == "relay" else "direct"
+
+    def _route_binding_for_replay(
+        self, *, topic: str, route_key: str
+    ) -> tuple[str, str, str, str] | None:
+        bindings = (
+            (
+                self._map_output_topic,
+                self._map_relay_output_topic,
+                "map_tile",
+                "relay_map_tile",
+            ),
+            (
+                self._detection_output_topic,
+                self._detection_relay_output_topic,
+                "fused_detection",
+                "relay_fused_detection",
+            ),
+            (
+                self._heartbeat_output_topic,
+                self._heartbeat_relay_output_topic,
+                "heartbeat",
+                "relay_heartbeat",
+            ),
+            (
+                self._telemetry_output_topic,
+                self._telemetry_relay_output_topic,
+                "telemetry",
+                "relay_telemetry",
+            ),
+        )
+        for binding in bindings:
+            direct_topic, relay_topic, direct_route_key, relay_route_key = binding
+            if route_key in {direct_route_key, relay_route_key}:
+                return binding
+            if topic in {direct_topic, relay_topic}:
+                return binding
+        return None
+
+    def _resolve_publish_target(
+        self, *, topic: str, route_key: str, metadata: ReplayMetadata
+    ) -> tuple[str, str, str]:
+        if metadata.delivery_mode != "replayed":
+            return topic, route_key, self._normalize_delivery_mode(metadata.relay_delivery_mode)
+
+        binding = self._route_binding_for_replay(topic=topic, route_key=route_key)
+        if binding is None:
+            return topic, route_key, self._normalize_delivery_mode(metadata.relay_delivery_mode)
+
+        direct_topic, _relay_topic, direct_route_key, relay_route_key = binding
+
+        # Relay ingress records intentionally route to direct output to avoid loops.
+        if route_key == relay_route_key and topic == direct_topic:
+            return topic, route_key, "relay"
+
+        decision = self._select_route_decision()
+        target_topic, target_route_key = self._resolve_route_target(
+            delivery_mode=decision.delivery_mode,
+            output_topic=direct_topic,
+            route_key=direct_route_key,
+        )
+        return target_topic, target_route_key, decision.delivery_mode
+
     def _source_vehicle_id_from_message(
         self,
         message: Any,
@@ -672,19 +750,35 @@ class StoreForwardTiles(Node):
         payload: bytes,
         metadata: ReplayMetadata,
     ) -> None:
-        spec = self._topic_specs.get(topic) or self._route_specs.get(route_key)
+        target_topic, target_route_key, target_delivery_mode = self._resolve_publish_target(
+            topic=topic,
+            route_key=route_key,
+            metadata=metadata,
+        )
+        spec = self._topic_specs.get(target_topic) or self._route_specs.get(target_route_key)
         if spec is None:
-            self.get_logger().warning(f"no route configured for replay key '{route_key}'")
+            self.get_logger().warning(
+                f"no route configured for replay key '{target_route_key}'"
+            )
             return
+        effective_relay_hop = max(
+            metadata.relay_hop,
+            1 if target_delivery_mode == "relay" else 0,
+        )
+        effective_relay_vehicle_id = (
+            metadata.relay_vehicle_id or self._relay_vehicle_id
+            if target_delivery_mode == "relay"
+            else ""
+        )
         message_type, publisher = spec
         message = deserialize_message_payload(message_type, payload)
         publisher.publish(message)
         published_at_ts = time.time()
         relay_envelope = RelayEnvelope(
             source_vehicle_id=metadata.source_vehicle_id,
-            relay_vehicle_id=metadata.relay_vehicle_id,
-            relay_hop=metadata.relay_hop,
-            delivery_mode=metadata.relay_delivery_mode,
+            relay_vehicle_id=effective_relay_vehicle_id,
+            relay_hop=effective_relay_hop,
+            delivery_mode=target_delivery_mode,
         )
         self._relay_latency.record(
             envelope=relay_envelope,
@@ -699,8 +793,8 @@ class StoreForwardTiles(Node):
                 "replayed_at_ts": metadata.replayed_at_ts,
                 "published_at_ts": published_at_ts,
                 "ingest_seq": ingest_seq if ingest_seq > 0 else None,
-                "topic": topic,
-                "route_key": route_key,
+                "topic": target_topic,
+                "route_key": target_route_key,
                 "message_kind": message_kind,
                 "priority_class": metadata.priority_class,
                 "dedupe_key": metadata.dedupe_key,
@@ -719,17 +813,23 @@ class StoreForwardTiles(Node):
         if ingest_seq > 0:
             self.get_logger().debug(
                 "replayed buffered message "
-                f"ingest_seq={ingest_seq} route={route_key} "
+                f"ingest_seq={ingest_seq} route={target_route_key} "
                 f"priority={metadata.priority_class}"
             )
 
     def _sync_connectivity(self) -> None:
-        if self._relay_enabled and not self._link_up_override_enabled:
-            decision = self._route_selector.select_route()
-            self._controller.set_connectivity_override(
-                enabled=True,
-                link_up=decision.selected_link_up,
-            )
+        if not self._link_up_override_enabled:
+            if self._relay_enabled:
+                decision = self._route_selector.select_route()
+                self._controller.set_connectivity_override(
+                    enabled=True,
+                    link_up=decision.selected_link_up,
+                )
+            else:
+                self._controller.set_connectivity_override(
+                    enabled=False,
+                    link_up=self._controller.connectivity.is_link_up(),
+                )
         self._controller.sync_connectivity_and_flush(self._publish_record)
 
     def _log_metrics(self) -> None:

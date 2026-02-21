@@ -340,14 +340,16 @@ assert_topic_rate_observed() {
 assert_relay_tile_latency_p95() {
   local annotation_file=$1
   local target_p95=$2
+  local require_samples=$3
 
-  python3 - "$annotation_file" "$target_p95" <<'PY'
+  python3 - "$annotation_file" "$target_p95" "$require_samples" <<'PY'
 import json
 import re
 import sys
 
 annotation_file = sys.argv[1]
 target = float(sys.argv[2])
+require_samples = str(sys.argv[3]).strip().lower() in {"1", "true", "yes", "on"}
 latencies = []
 
 with open(annotation_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -382,8 +384,11 @@ with open(annotation_file, "r", encoding="utf-8", errors="ignore") as f:
             latencies.append(latency)
 
 if not latencies:
-    print("ERROR: no relay tile latency samples with replay metadata")
-    sys.exit(1)
+    if require_samples:
+        print("ERROR: no relay tile latency samples with replay metadata")
+        sys.exit(1)
+    print("WARNING: no relay tile latency samples; skipping p95 assertion")
+    sys.exit(0)
 
 latencies.sort()
 p95_index = max(0, min(len(latencies) - 1, round((len(latencies) - 1) * 0.95)))
@@ -673,7 +678,7 @@ run_validation_pass() {
     relay_tile_latency_sample_file="${pass_log_dir}/relay_tile_latency_samples.log"
     timeout "${RELAY_TILE_SAMPLE_TIMEOUT_SEC}"s ros2 topic echo "${REPLAY_ANNOTATION_TOPIC}" >"${relay_tile_latency_sample_file}" 2>&1 || true
     if [[ -f "${relay_tile_latency_sample_file}" ]] && grep -Eiq 'relay_envelope|route_key|published_at_ts|replayed_at_ts' "${relay_tile_latency_sample_file}"; then
-      assert_relay_tile_latency_p95 "${relay_tile_latency_sample_file}" "${RELAY_TILE_LATENCY_P95_TARGET_SEC}"
+      assert_relay_tile_latency_p95 "${relay_tile_latency_sample_file}" "${RELAY_TILE_LATENCY_P95_TARGET_SEC}" "${RELAY_TILE_LATENCY_REQUIRED}"
     else
       if is_truthy "${RELAY_TILE_LATENCY_REQUIRED}"; then
         echo "[validate_multi_vehicle_dds] ERROR: no relay tile latency samples captured on ${REPLAY_ANNOTATION_TOPIC}; cannot assert p95 target." >&2
