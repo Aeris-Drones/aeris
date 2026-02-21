@@ -6,6 +6,11 @@ import type { Detection } from '@/components/sheets/DetectionCard';
 import type { VehicleState } from '@/lib/vehicle/VehicleManager';
 import { normalizeFusedDetectionMessage } from '@/lib/ros/fusedDetections';
 import {
+  getFreshReplayEntry,
+  pruneReplayCacheEntries,
+  resetReplayCaches,
+} from '@/lib/ros/replayCacheLifecycle';
+import {
   findNearestVehicle,
   mergeLiveDetections,
   subscribeToFusedTopic,
@@ -75,6 +80,10 @@ export function useFusedDetections(
   }, [vehicles]);
 
   useEffect(() => {
+    const replayMetadataCache = replayMetadataRef.current;
+    const replayDetectionIndexCache = replayDetectionIndexRef.current;
+    resetReplayCaches([replayMetadataCache, replayDetectionIndexCache]);
+
     if (!ros || !isConnected) {
       return;
     }
@@ -87,12 +96,12 @@ export function useFusedDetections(
         return detection;
       }
 
-      const metadata = replayMetadataRef.current.get(dedupeKey);
+      const metadata = getFreshReplayEntry(
+        replayMetadataRef.current,
+        dedupeKey,
+        merged.replayAnnotationTtlMs
+      );
       if (!metadata) {
-        return detection;
-      }
-      if ((Date.now() - metadata.observedAtMs) > merged.replayAnnotationTtlMs) {
-        replayMetadataRef.current.delete(dedupeKey);
         return detection;
       }
       return {
@@ -138,7 +147,7 @@ export function useFusedDetections(
           detectionId: detectionWithReplay.id,
           observedAtMs: Date.now(),
         });
-        pruneReplayDetectionIndexCache(replayDetectionIndexRef.current, merged.replayAnnotationTtlMs);
+        pruneReplayCacheEntries(replayDetectionIndexRef.current, merged.replayAnnotationTtlMs);
       }
 
       setDetections((previous) => {
@@ -185,8 +194,8 @@ export function useFusedDetections(
           return changed ? next : previous;
         });
       }
-      pruneReplayMetadataCache(replayMetadataRef.current, merged.replayAnnotationTtlMs);
-      pruneReplayDetectionIndexCache(replayDetectionIndexRef.current, merged.replayAnnotationTtlMs);
+      pruneReplayCacheEntries(replayMetadataRef.current, merged.replayAnnotationTtlMs);
+      pruneReplayCacheEntries(replayDetectionIndexRef.current, merged.replayAnnotationTtlMs);
     };
 
     const unsubscribeFused = subscribeToFusedTopic({
@@ -206,6 +215,7 @@ export function useFusedDetections(
     return () => {
       unsubscribeFused();
       replayTopic.unsubscribe();
+      resetReplayCaches([replayMetadataCache, replayDetectionIndexCache]);
     };
   }, [
     fallbackVehicleName,
@@ -291,30 +301,6 @@ function coerceEpochMs(value: unknown): number | null {
     }
   }
   return null;
-}
-
-function pruneReplayMetadataCache(
-  cache: Map<string, ReplayMetadata>,
-  ttlMs: number
-): void {
-  const cutoff = Date.now() - ttlMs;
-  for (const [key, value] of cache.entries()) {
-    if (value.observedAtMs < cutoff) {
-      cache.delete(key);
-    }
-  }
-}
-
-function pruneReplayDetectionIndexCache(
-  cache: Map<string, ReplayDetectionIndexEntry>,
-  ttlMs: number
-): void {
-  const cutoff = Date.now() - ttlMs;
-  for (const [key, value] of cache.entries()) {
-    if (value.observedAtMs < cutoff) {
-      cache.delete(key);
-    }
-  }
 }
 
 function extractFusedDetectionIdFromDedupeKey(dedupeKey: string): string | null {

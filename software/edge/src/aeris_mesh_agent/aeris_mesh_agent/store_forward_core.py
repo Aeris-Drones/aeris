@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import threading
 import time
 
 from .store_forward_store import StoreForwardStore
@@ -102,6 +103,7 @@ class StoreForwardController:
         self._replayed_total = 0
         self._last_flush_count = 0
         self._last_flush_duration_sec = 0.0
+        self._flush_lock = threading.RLock()
 
     @property
     def connectivity(self) -> ConnectivityState:
@@ -145,14 +147,14 @@ class StoreForwardController:
     ) -> str:
         """Publish immediately when healthy, otherwise persist for replay."""
         link_up = self._connectivity.is_link_up()
-        has_backlog = self._store.pending_count() > 0
+        has_backlog = self._store.has_pending()
         priority_class = self._store.classify_priority(
             route_key=route_key,
             message_kind=message_kind,
         )
 
-        # Keep live control traffic flowing even while replay backlog exists.
-        if link_up and (not has_backlog or priority_class == "control"):
+        # Keep live traffic flowing while draining replay backlog opportunistically.
+        if link_up:
             publish_callback(
                 0,
                 topic,
@@ -201,7 +203,7 @@ class StoreForwardController:
         link_up = self._connectivity.is_link_up()
         reconnected = link_up and not self._last_link_up
         self._last_link_up = link_up
-        if link_up and (reconnected or self._store.pending_count() > 0):
+        if link_up and (reconnected or self._store.has_pending()):
             self.flush_pending(
                 publish_callback,
                 batch_size=self._replay_batch_size,
@@ -217,56 +219,64 @@ class StoreForwardController:
         max_records: int | None = None,
     ) -> int:
         """Replay buffered records by priority class with bounded cycle limits."""
-        effective_batch_size = (
-            self._replay_batch_size if batch_size is None else max(1, int(batch_size))
-        )
-        effective_max_records = (
-            self._max_replay_per_cycle
-            if max_records is None
-            else max(1, int(max_records))
-        )
+        with self._flush_lock:
+            effective_batch_size = (
+                self._replay_batch_size if batch_size is None else max(1, int(batch_size))
+            )
+            effective_max_records = (
+                self._max_replay_per_cycle
+                if max_records is None
+                else max(1, int(max_records))
+            )
 
-        flushed = 0
-        start_mono = time.monotonic()
-        while self._connectivity.is_link_up() and flushed < effective_max_records:
-            remaining_budget = effective_max_records - flushed
-            batch_limit = min(effective_batch_size, remaining_budget)
-            batch = self._store.peek_pending_prioritized(limit=batch_limit)
-            if not batch:
-                break
-
-            published_seqs: list[int] = []
-            for record in batch:
-                if not self._connectivity.is_link_up():
+            flushed = 0
+            start_mono = time.monotonic()
+            while self._connectivity.is_link_up() and flushed < effective_max_records:
+                remaining_budget = effective_max_records - flushed
+                batch_limit = min(effective_batch_size, remaining_budget)
+                batch = self._store.peek_pending_prioritized(limit=batch_limit)
+                if not batch:
                     break
-                publish_callback(
-                    record.ingest_seq,
-                    record.topic,
-                    record.route_key,
-                    record.message_kind,
-                    record.payload,
-                    ReplayMetadata(
-                        delivery_mode="replayed",
-                        original_event_ts=record.event_ts,
-                        replayed_at_ts=time.time(),
-                        dedupe_key=record.dedupe_key,
-                        payload_hash=record.payload_hash,
-                        priority_class=record.priority_class,
-                    ),
-                )
-                published_seqs.append(record.ingest_seq)
 
-            if published_seqs:
-                self._store.ack_records(published_seqs)
-                flushed += len(published_seqs)
+                published_seqs: list[int] = []
+                publish_failed = False
+                for record in batch:
+                    if not self._connectivity.is_link_up():
+                        break
+                    try:
+                        publish_callback(
+                            record.ingest_seq,
+                            record.topic,
+                            record.route_key,
+                            record.message_kind,
+                            record.payload,
+                            ReplayMetadata(
+                                delivery_mode="replayed",
+                                original_event_ts=record.event_ts,
+                                replayed_at_ts=time.time(),
+                                dedupe_key=record.dedupe_key,
+                                payload_hash=record.payload_hash,
+                                priority_class=record.priority_class,
+                            ),
+                        )
+                    except Exception:
+                        publish_failed = True
+                        break
+                    published_seqs.append(record.ingest_seq)
 
-            # Connectivity dropped during this batch: leave unpublished messages queued.
-            if len(published_seqs) < len(batch):
-                break
+                if published_seqs:
+                    self._store.ack_records(published_seqs)
+                    flushed += len(published_seqs)
 
-        duration = max(time.monotonic() - start_mono, 0.0)
-        self._last_flush_count = flushed
-        self._last_flush_duration_sec = duration
-        if flushed > 0:
-            self._replayed_total += flushed
-        return flushed
+                # Connectivity dropped during this batch: leave unpublished messages queued.
+                if len(published_seqs) < len(batch):
+                    break
+                if publish_failed:
+                    break
+
+            duration = max(time.monotonic() - start_mono, 0.0)
+            self._last_flush_count = flushed
+            self._last_flush_duration_sec = duration
+            if flushed > 0:
+                self._replayed_total += flushed
+            return flushed

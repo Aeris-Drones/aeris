@@ -167,6 +167,108 @@ def test_controller_flush_recovers_after_link_drop_mid_replay(tmp_path: Path) ->
     assert published == [1, 2, 3]
 
 
+def test_controller_keeps_live_telemetry_flowing_while_backlog_drains(tmp_path: Path) -> None:
+    db_path = tmp_path / "buffer" / "store-forward.db"
+    store = StoreForwardStore(db_path=str(db_path), max_bytes=1024 * 1024)
+    controller = StoreForwardController(
+        store=store,
+        heartbeat_timeout_sec=5.0,
+        replay_batch_size=8,
+        max_replay_per_cycle=8,
+    )
+
+    published: list[tuple[int, ReplayMetadata]] = []
+
+    def _publish(
+        ingest_seq: int,
+        topic: str,
+        route_key: str,
+        message_kind: str,
+        payload: bytes,
+        metadata: ReplayMetadata,
+    ) -> None:
+        del topic, route_key, message_kind, payload
+        published.append((ingest_seq, metadata))
+
+    controller.set_connectivity_override(enabled=True, link_up=False)
+    controller.handle_outbound(
+        topic="map/tiles_out",
+        route_key="map_tile",
+        message_kind="map_tile",
+        event_ts=4000.0,
+        dedupe_key="map:stale",
+        payload=_make_payload(20),
+        payload_hash="stale-hash",
+        publish_callback=_publish,
+    )
+    assert store.pending_count() == 1
+
+    controller.set_connectivity_override(enabled=True, link_up=True)
+    result = controller.handle_outbound(
+        topic="telemetry_out",
+        route_key="telemetry",
+        message_kind="telemetry",
+        event_ts=4001.0,
+        dedupe_key="telemetry:live",
+        payload=_make_payload(22),
+        payload_hash="live-hash",
+        publish_callback=_publish,
+    )
+
+    assert result == "published-live"
+    assert published[0][0] == 0
+    assert published[0][1].delivery_mode == "live"
+    assert published[0][1].priority_class == "telemetry"
+    assert any(meta.delivery_mode == "replayed" for _, meta in published[1:])
+    assert store.pending_count() == 0
+
+
+def test_controller_flush_handles_publish_exceptions_without_data_loss(tmp_path: Path) -> None:
+    db_path = tmp_path / "buffer" / "store-forward.db"
+    store = StoreForwardStore(db_path=str(db_path), max_bytes=1024 * 1024)
+    controller = StoreForwardController(store=store, heartbeat_timeout_sec=5.0)
+
+    controller.set_connectivity_override(enabled=True, link_up=False)
+    for idx in range(3):
+        controller.handle_outbound(
+            topic="telemetry_out",
+            route_key="telemetry",
+            message_kind="telemetry",
+            event_ts=5000.0 + idx,
+            dedupe_key=f"telemetry:{idx}",
+            payload=_make_payload(18 + idx),
+            payload_hash=f"hash-{idx}",
+            publish_callback=lambda *args, **kwargs: None,
+        )
+
+    published: list[int] = []
+    attempts: dict[int, int] = {}
+
+    def _publish_fail_once(
+        ingest_seq: int,
+        topic: str,
+        route_key: str,
+        message_kind: str,
+        payload: bytes,
+        metadata: ReplayMetadata,
+    ) -> None:
+        del topic, route_key, message_kind, payload, metadata
+        attempts[ingest_seq] = attempts.get(ingest_seq, 0) + 1
+        if ingest_seq == 2 and attempts[ingest_seq] == 1:
+            raise RuntimeError("transient publish failure")
+        published.append(ingest_seq)
+
+    controller.set_connectivity_override(enabled=True, link_up=True)
+    flushed_first = controller.flush_pending(_publish_fail_once, batch_size=8, max_records=8)
+    assert flushed_first == 1
+    assert store.pending_count() == 2
+
+    flushed_second = controller.flush_pending(_publish_fail_once, batch_size=8, max_records=8)
+    assert flushed_second == 2
+    assert store.pending_count() == 0
+    assert published == [1, 2, 3]
+
+
 def test_store_recovers_pending_records_after_restart(tmp_path: Path) -> None:
     db_path = tmp_path / "buffer" / "store-forward.db"
     first = StoreForwardStore(db_path=str(db_path), max_bytes=1024 * 1024)
@@ -307,6 +409,45 @@ def test_store_evicts_oldest_when_size_limit_exceeded(tmp_path: Path) -> None:
     assert pending[-1].dedupe_key == "map:3"
     metrics = store.metrics(now_wallclock=10.0)
     assert metrics.evicted_count >= 1
+
+
+def test_store_eviction_prefers_lower_priority_before_control(tmp_path: Path) -> None:
+    db_path = tmp_path / "buffer" / "store-forward.db"
+    store = StoreForwardStore(db_path=str(db_path), max_bytes=80)
+
+    store.enqueue(
+        topic="mesh/heartbeat_out",
+        route_key="heartbeat",
+        message_kind="heartbeat",
+        event_ts=1.0,
+        dedupe_key="control:1",
+        payload=_make_payload(30),
+        payload_hash="control-hash",
+    )
+    store.enqueue(
+        topic="detections/fused_out",
+        route_key="fused_detection",
+        message_kind="fused_detection",
+        event_ts=2.0,
+        dedupe_key="bulk:1",
+        payload=_make_payload(30),
+        payload_hash="bulk-hash-1",
+    )
+    store.enqueue(
+        topic="detections/fused_out",
+        route_key="fused_detection",
+        message_kind="fused_detection",
+        event_ts=3.0,
+        dedupe_key="bulk:2",
+        payload=_make_payload(30),
+        payload_hash="bulk-hash-2",
+    )
+
+    pending = store.peek_pending(limit=10)
+    dedupe_keys = {row.dedupe_key for row in pending}
+    assert "control:1" in dedupe_keys
+    assert "bulk:2" in dedupe_keys
+    assert "bulk:1" not in dedupe_keys
 
 
 def test_store_metrics_include_priority_class_counts(tmp_path: Path) -> None:

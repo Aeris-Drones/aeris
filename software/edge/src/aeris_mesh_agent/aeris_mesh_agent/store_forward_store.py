@@ -347,6 +347,14 @@ class StoreForwardStore:
             row = self._conn.execute("SELECT COUNT(*) AS c FROM queue").fetchone()
             return int(row["c"]) if row is not None else 0
 
+    def has_pending(self) -> bool:
+        """Fast path for checking whether any buffered records exist."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM queue LIMIT 1"
+            ).fetchone()
+            return row is not None
+
     def metrics(self, *, now_wallclock: float | None = None) -> StoreMetrics:
         """Compute queue size and dedupe/eviction counters."""
         now = time.time() if now_wallclock is None else float(now_wallclock)
@@ -409,10 +417,10 @@ class StoreForwardStore:
         affected_dedupe_keys: set[str] = set()
         while total_bytes > self._max_bytes:
             victim = cur.execute(
-                """
+                f"""
                 SELECT ingest_seq, payload_size, dedupe_key
                 FROM queue
-                ORDER BY ingest_seq ASC
+                ORDER BY {self._priority_rank_sql()} DESC, ingest_seq ASC
                 LIMIT 1
                 """
             ).fetchone()

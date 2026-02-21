@@ -3,6 +3,11 @@ import ROSLIB from 'roslib';
 import { useROSConnection } from './useROSConnection';
 import { VehicleManager, VehicleState } from '../lib/vehicle/VehicleManager';
 import { parseVehicleTelemetry } from '../lib/ros/telemetry';
+import {
+  getFreshReplayEntry,
+  pruneReplayCacheEntries,
+  resetReplayCaches,
+} from '../lib/ros/replayCacheLifecycle';
 import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 
 type ReturnTrajectoryMap = Record<string, [number, number, number][]>;
@@ -43,6 +48,15 @@ export function useVehicleTelemetry() {
   }, [origin, setOrigin]);
 
   useEffect(() => {
+    const replayMetadataCache = replayMetadataRef.current;
+    const replayMessageIndexCache = replayMessageIndexRef.current;
+    const latestTelemetryKeyCache = latestTelemetryKeyByVehicleRef.current;
+    resetReplayCaches([
+      replayMetadataCache,
+      replayMessageIndexCache,
+      latestTelemetryKeyCache,
+    ]);
+
     if (!ros || !isConnected) return;
 
     const topic = new ROSLIB.Topic({
@@ -76,10 +90,14 @@ export function useVehicleTelemetry() {
           observedAtMs: Date.now(),
         });
         latestTelemetryKeyByVehicleRef.current.set(telemetry.vehicle_id, dedupeKey);
-        pruneReplayMetadataCache(replayMessageIndexRef.current, REPLAY_METADATA_TTL_MS);
+        pruneReplayCacheEntries(replayMessageIndexRef.current, REPLAY_METADATA_TTL_MS);
 
-        const replayMeta = replayMetadataRef.current.get(dedupeKey);
-        if (replayMeta && Date.now() - replayMeta.observedAtMs <= REPLAY_METADATA_TTL_MS) {
+        const replayMeta = getFreshReplayEntry(
+          replayMetadataRef.current,
+          dedupeKey,
+          REPLAY_METADATA_TTL_MS
+        );
+        if (replayMeta) {
           telemetry = {
             ...telemetry,
             replay: {
@@ -187,8 +205,8 @@ export function useVehicleTelemetry() {
           setVehicles([...manager.getVehicles()]);
         }
       }
-      pruneReplayMetadataCache(replayMetadataRef.current, REPLAY_METADATA_TTL_MS);
-      pruneReplayMetadataCache(replayMessageIndexRef.current, REPLAY_METADATA_TTL_MS);
+      pruneReplayCacheEntries(replayMetadataRef.current, REPLAY_METADATA_TTL_MS);
+      pruneReplayCacheEntries(replayMessageIndexRef.current, REPLAY_METADATA_TTL_MS);
     };
 
     topic.subscribe(handleMessage);
@@ -199,6 +217,11 @@ export function useVehicleTelemetry() {
       topic.unsubscribe();
       progressTopic.unsubscribe();
       replayTopic.unsubscribe();
+      resetReplayCaches([
+        replayMetadataCache,
+        replayMessageIndexCache,
+        latestTelemetryKeyCache,
+      ]);
     };
   }, [ros, isConnected, manager]);
 
@@ -280,16 +303,4 @@ function coerceEpochMs(value: unknown): number | null {
     }
   }
   return null;
-}
-
-function pruneReplayMetadataCache(
-  cache: Map<string, { observedAtMs: number }>,
-  ttlMs: number
-): void {
-  const cutoff = Date.now() - ttlMs;
-  for (const [key, value] of cache.entries()) {
-    if (value.observedAtMs < cutoff) {
-      cache.delete(key);
-    }
-  }
 }
