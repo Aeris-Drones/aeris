@@ -36,6 +36,12 @@
 #   TELEMETRY_TOPIC                Default: /orchestrator/heartbeat
 #   DETECTION_TOPIC                Default: /detections/fused
 #   REPLAY_ANNOTATION_TOPIC        Default: /mesh/replay_annotations
+#   ABR_DECISION_TOPIC             Default: /mesh/abr_decisions
+#   ABR_DECISION_SAMPLE_TIMEOUT_SEC Default: 12
+#   ABR_REACTION_P95_TARGET_MS     Default: 1000
+#   ABR_SEVERE_DROP_PROB           Default: 1.0
+#   ABR_SEVERE_PHASE_SEC           Default: 3
+#   ABR_REQUIRED                   Default: 1 (fail validation if ABR checks cannot be asserted)
 #   VIDEO_METADATA_TOPIC           Default: /scout1/stereo/left/image_raw
 #   REQUIRED_NAMESPACES            Comma-separated namespace checks (default: scout1,scout2)
 #   MULTI_DRONE_LAUNCH_PACKAGE     Default: aeris_sim
@@ -78,6 +84,12 @@ MAP_TILE_FALLBACK_RATE_HZ=${MAP_TILE_FALLBACK_RATE_HZ:-2}
 TELEMETRY_TOPIC=${TELEMETRY_TOPIC:-/orchestrator/heartbeat}
 DETECTION_TOPIC=${DETECTION_TOPIC:-/detections/fused}
 REPLAY_ANNOTATION_TOPIC=${REPLAY_ANNOTATION_TOPIC:-/mesh/replay_annotations}
+ABR_DECISION_TOPIC=${ABR_DECISION_TOPIC:-/mesh/abr_decisions}
+ABR_DECISION_SAMPLE_TIMEOUT_SEC=${ABR_DECISION_SAMPLE_TIMEOUT_SEC:-12}
+ABR_REACTION_P95_TARGET_MS=${ABR_REACTION_P95_TARGET_MS:-1000}
+ABR_SEVERE_DROP_PROB=${ABR_SEVERE_DROP_PROB:-1.0}
+ABR_SEVERE_PHASE_SEC=${ABR_SEVERE_PHASE_SEC:-3}
+ABR_REQUIRED=${ABR_REQUIRED:-1}
 VIDEO_METADATA_TOPIC=${VIDEO_METADATA_TOPIC:-/scout1/stereo/left/image_raw}
 REQUIRED_NAMESPACES=${REQUIRED_NAMESPACES:-scout1,scout2}
 MULTI_DRONE_LAUNCH_PACKAGE=${MULTI_DRONE_LAUNCH_PACKAGE:-aeris_sim}
@@ -477,6 +489,93 @@ print(f"Relay tile latency p95={p95:.3f}s within target {target:.3f}s")
 PY
 }
 
+assert_abr_decision_behavior() {
+  local decision_file=$1
+  local reaction_target_ms=$2
+  local require_samples=$3
+
+  python3 - "$decision_file" "$reaction_target_ms" "$require_samples" <<'PY'
+import json
+import re
+import sys
+
+decision_file = sys.argv[1]
+target_ms = float(sys.argv[2])
+require_samples = str(sys.argv[3]).strip().lower() in {"1", "true", "yes", "on"}
+
+reaction_latencies = []
+first_v0_ts = None
+first_suspend_ts = None
+decision_count = 0
+
+with open(decision_file, "r", encoding="utf-8", errors="ignore") as f:
+    for line in f:
+        line = line.strip()
+        match = re.search(r"data:\s*'(.+)'", line)
+        if not match:
+            continue
+        raw = match.group(1).replace("\\'", "'")
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        decision_count += 1
+        action = str(payload.get("action", "")).strip().lower()
+        to_profile = str(payload.get("to_profile", "")).strip()
+        timestamp = payload.get("timestamp_monotonic")
+        reaction_ms = payload.get("reaction_latency_ms")
+        if reaction_ms is not None:
+            try:
+                reaction_latencies.append(float(reaction_ms))
+            except (TypeError, ValueError):
+                pass
+        if action == "switch_profile" and to_profile.upper() == "V0" and first_v0_ts is None:
+            try:
+                first_v0_ts = float(timestamp)
+            except (TypeError, ValueError):
+                first_v0_ts = None
+        if action == "suspend_video" and first_suspend_ts is None:
+            try:
+                first_suspend_ts = float(timestamp)
+            except (TypeError, ValueError):
+                first_suspend_ts = None
+
+if decision_count == 0:
+    if require_samples:
+        print("ERROR: no ABR decision samples captured")
+        sys.exit(1)
+    print("WARNING: no ABR decision samples; skipping ABR assertions")
+    sys.exit(0)
+
+if not reaction_latencies:
+    if require_samples:
+        print("ERROR: ABR decisions captured but reaction_latency_ms samples missing")
+        sys.exit(1)
+    print("WARNING: ABR reaction latency samples missing; skipping p95 check")
+else:
+    reaction_latencies.sort()
+    p95_index = max(0, min(len(reaction_latencies) - 1, round((len(reaction_latencies) - 1) * 0.95)))
+    p95 = reaction_latencies[p95_index]
+    if p95 > target_ms:
+        print(f"ERROR: ABR reaction latency p95 {p95:.1f}ms exceeded target {target_ms:.1f}ms")
+        sys.exit(1)
+    print(f"ABR reaction latency p95={p95:.1f}ms within target {target_ms:.1f}ms")
+
+if first_suspend_ts is not None:
+    if first_v0_ts is None:
+        print("ERROR: suspend_video observed before V0 transition")
+        sys.exit(1)
+    if first_v0_ts > first_suspend_ts:
+        print("ERROR: V0 transition timestamp occurs after suspend_video")
+        sys.exit(1)
+    print("ABR severe fallback ordering verified: V0 transition before suspend_video")
+else:
+    print("ABR severe fallback ordering check: suspend_video not observed (acceptable if policy stayed at V0)")
+PY
+}
+
 is_truthy() {
   local value="${1:-}"
   case "${value,,}" in
@@ -562,6 +661,8 @@ run_validation_pass() {
   local replay_annotation_restored_hz_file=""
   local replay_annotation_sample_file=""
   local relay_tile_latency_sample_file=""
+  local abr_decision_hz_file=""
+  local abr_decision_sample_file=""
   local restored_mesh_hz_file=""
   local restored_telemetry_hz_file=""
   local restored_map_hz_file=""
@@ -633,6 +734,11 @@ run_validation_pass() {
     -p relay_activation_policy:=force-relay \
     -p relay_heartbeat_topic:="${TELEMETRY_TOPIC#/}" \
     -p replay_annotation_topic:="${REPLAY_ANNOTATION_TOPIC#/}" \
+    -p abr_enabled:=true \
+    -p abr_decision_topic:="${ABR_DECISION_TOPIC#/}" \
+    -p abr_heartbeat_severe_age_sec:=0.8 \
+    -p abr_severe_hold_sec:=1.5 \
+    -p abr_allow_video_suspend:=true \
     -p storage_path:="${pass_log_dir}/store-forward.db" \
     -p publish_live_annotations:=true >"${store_forward_log}" 2>&1 &
   STORE_FORWARD_PID=$!
@@ -744,6 +850,40 @@ run_validation_pass() {
     echo "[validate_multi_vehicle_dds] WARNING: replay annotation topic not discovered (skipping impaired replay metadata checks): ${REPLAY_ANNOTATION_TOPIC}" >&2
   fi
 
+  if ros2 topic list 2>/dev/null | grep -Fxq "${ABR_DECISION_TOPIC}"; then
+    abr_decision_hz_file=$(sample_topic_hz "${ABR_DECISION_TOPIC}" "${pass_log_dir}" "abr_decisions_impaired")
+    if ! assert_topic_rate_observed "${ABR_DECISION_TOPIC}" "impaired" "${abr_decision_hz_file}"; then
+      echo "[validate_multi_vehicle_dds] WARNING: no ABR decision rate observed during initial impairment window: ${ABR_DECISION_TOPIC}" >&2
+    fi
+  else
+    echo "[validate_multi_vehicle_dds] WARNING: ABR decision topic not discovered during initial impairment window: ${ABR_DECISION_TOPIC}" >&2
+  fi
+
+  echo "[validate_multi_vehicle_dds] Escalating impairment for ABR severe fallback checks (drop_prob=${ABR_SEVERE_DROP_PROB}, phase=${ABR_SEVERE_PHASE_SEC}s)"
+  ros2 param set /impairment_relay drop_prob "${ABR_SEVERE_DROP_PROB}" >"${pass_log_dir}/param_set_drop_prob_severe.log"
+  sleep 1
+
+  if ros2 topic list 2>/dev/null | grep -Fxq "${ABR_DECISION_TOPIC}"; then
+    abr_decision_sample_file="${pass_log_dir}/abr_decision_samples.log"
+    timeout "${ABR_DECISION_SAMPLE_TIMEOUT_SEC}"s ros2 topic echo --full-length "${ABR_DECISION_TOPIC}" >"${abr_decision_sample_file}" 2>&1 || true
+    if [[ -f "${abr_decision_sample_file}" ]] && grep -Eiq 'action|to_profile|reaction_latency_ms' "${abr_decision_sample_file}"; then
+      assert_abr_decision_behavior "${abr_decision_sample_file}" "${ABR_REACTION_P95_TARGET_MS}" "${ABR_REQUIRED}"
+    else
+      if is_truthy "${ABR_REQUIRED}"; then
+        echo "[validate_multi_vehicle_dds] ERROR: ABR decision samples missing required fields on ${ABR_DECISION_TOPIC}" >&2
+        return 1
+      fi
+      echo "[validate_multi_vehicle_dds] WARNING: ABR decision samples missing expected fields on ${ABR_DECISION_TOPIC}; skipping strict ABR assertions." >&2
+    fi
+  else
+    if is_truthy "${ABR_REQUIRED}"; then
+      echo "[validate_multi_vehicle_dds] ERROR: ABR decision topic not discovered and ABR validation is required: ${ABR_DECISION_TOPIC}" >&2
+      return 1
+    fi
+    echo "[validate_multi_vehicle_dds] WARNING: ABR decision topic not discovered (skipping ABR checks): ${ABR_DECISION_TOPIC}" >&2
+  fi
+  sleep "${ABR_SEVERE_PHASE_SEC}"
+
   echo "[validate_multi_vehicle_dds] Disabling impairment"
   ros2 param set /impairment_relay drop_prob 0.0 >"${pass_log_dir}/param_set_drop_prob_off.log"
   ros2 param set /impairment_relay delay_ms 0 >"${pass_log_dir}/param_set_delay_ms_off.log"
@@ -852,6 +992,11 @@ echo "[validate_multi_vehicle_dds] RMW_VALIDATION_SET=${RMW_VALIDATION_SET}"
 echo "[validate_multi_vehicle_dds] RMW_FASTRTPS_USE_QOS_FROM_XML=${RMW_FASTRTPS_USE_QOS_FROM_XML}"
 echo "[validate_multi_vehicle_dds] RELAY_TILE_LATENCY_P95_TARGET_SEC=${RELAY_TILE_LATENCY_P95_TARGET_SEC}"
 echo "[validate_multi_vehicle_dds] RELAY_TILE_LATENCY_REQUIRED=${RELAY_TILE_LATENCY_REQUIRED}"
+echo "[validate_multi_vehicle_dds] ABR_DECISION_TOPIC=${ABR_DECISION_TOPIC}"
+echo "[validate_multi_vehicle_dds] ABR_REACTION_P95_TARGET_MS=${ABR_REACTION_P95_TARGET_MS}"
+echo "[validate_multi_vehicle_dds] ABR_REQUIRED=${ABR_REQUIRED}"
+echo "[validate_multi_vehicle_dds] ABR_SEVERE_DROP_PROB=${ABR_SEVERE_DROP_PROB}"
+echo "[validate_multi_vehicle_dds] ABR_SEVERE_PHASE_SEC=${ABR_SEVERE_PHASE_SEC}"
 echo "[validate_multi_vehicle_dds] MAP_TILE_FALLBACK_ENABLE=${MAP_TILE_FALLBACK_ENABLE}"
 echo "[validate_multi_vehicle_dds] MAP_TILE_FALLBACK_RATE_HZ=${MAP_TILE_FALLBACK_RATE_HZ}"
 echo "[validate_multi_vehicle_dds] MULTI_DRONE_LAUNCH_PACKAGE=${MULTI_DRONE_LAUNCH_PACKAGE}"

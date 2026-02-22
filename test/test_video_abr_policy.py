@@ -1,0 +1,281 @@
+"""ABR policy/controller tests for adaptive mesh video streaming behavior."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+MESH_AGENT_SRC = REPO_ROOT / "software" / "edge" / "src" / "aeris_mesh_agent"
+if str(MESH_AGENT_SRC) not in sys.path:
+    sys.path.insert(0, str(MESH_AGENT_SRC))
+
+from aeris_mesh_agent.abr_policy import AbrPolicy, AbrPolicyConfig, AbrTier, LinkHealthSample
+from aeris_mesh_agent.video_abr_controller import (
+    EncoderCommand,
+    EncoderTransport,
+    VideoAbrController,
+    VideoAbrControllerConfig,
+)
+
+
+class _CaptureTransport(EncoderTransport):
+    def __init__(self) -> None:
+        self.sent: list[EncoderCommand] = []
+
+    def send_command(self, command: EncoderCommand) -> None:
+        self.sent.append(command)
+
+
+def _ladder_tiers() -> list[AbrTier]:
+    return [
+        AbrTier(
+            name="base_360p",
+            resolution="640x360",
+            target_bitrate_kbps=900,
+            max_bitrate_kbps=1200,
+            gop=60,
+            fps=30,
+        ),
+        AbrTier(
+            name="perf_540p",
+            resolution="960x540",
+            target_bitrate_kbps=1800,
+            max_bitrate_kbps=2400,
+            gop=60,
+            fps=30,
+        ),
+        AbrTier(
+            name="detail_720p",
+            resolution="1280x720",
+            target_bitrate_kbps=3200,
+            max_bitrate_kbps=4200,
+            gop=60,
+            fps=30,
+        ),
+    ]
+
+
+def _write_ladder(path: Path) -> Path:
+    ladder_path = path / "abr_ladder.yaml"
+    ladder_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "ladder:",
+                "  - name: base_360p",
+                "    resolution: 640x360",
+                "    target_bitrate_kbps: 900",
+                "    max_bitrate_kbps: 1200",
+                "    gop: 60",
+                "    fps: 30",
+                "  - name: perf_540p",
+                "    resolution: 960x540",
+                "    target_bitrate_kbps: 1800",
+                "    max_bitrate_kbps: 2400",
+                "    gop: 60",
+                "    fps: 30",
+                "  - name: detail_720p",
+                "    resolution: 1280x720",
+                "    target_bitrate_kbps: 3200",
+                "    max_bitrate_kbps: 4200",
+                "    gop: 60",
+                "    fps: 30",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return ladder_path
+
+
+def test_policy_threshold_crossing_hysteresis_and_dwell() -> None:
+    now = {"value": 100.2}
+    policy = AbrPolicy(
+        tiers=_ladder_tiers(),
+        config=AbrPolicyConfig(
+            pdr_degrade_threshold=0.80,
+            pdr_severe_threshold=0.35,
+            pdr_hysteresis=0.10,
+            min_dwell_sec=2.0,
+            min_downgrade_interval_sec=0.10,
+            severe_hold_sec=2.0,
+        ),
+        now_fn=lambda: now["value"],
+    )
+    now["value"] = 100.4
+
+    # First impairment triggers one-step downgrade.
+    first = policy.evaluate(
+        LinkHealthSample(timestamp_monotonic=100.4, pdr=0.70, rtt_ms=200.0, heartbeat_age_sec=0.1)
+    )
+    assert first is not None
+    assert first.action == "switch_profile"
+    assert first.from_profile == "detail_720p"
+    assert first.to_profile == "perf_540p"
+
+    # Dwell prevents immediate rebound.
+    now["value"] = 100.6
+    rebound_too_early = policy.evaluate(
+        LinkHealthSample(timestamp_monotonic=100.6, pdr=0.96, rtt_ms=120.0, heartbeat_age_sec=0.1)
+    )
+    assert rebound_too_early is None
+
+    # After dwell window, healthy link steps up.
+    now["value"] = 103.0
+    recovered = policy.evaluate(
+        LinkHealthSample(timestamp_monotonic=103.0, pdr=0.97, rtt_ms=110.0, heartbeat_age_sec=0.1)
+    )
+    assert recovered is not None
+    assert recovered.action == "switch_profile"
+    assert recovered.from_profile == "perf_540p"
+    assert recovered.to_profile == "detail_720p"
+
+
+def test_policy_enforces_v0_before_optional_suspend() -> None:
+    now = {"value": 10.0}
+    policy = AbrPolicy(
+        tiers=_ladder_tiers(),
+        config=AbrPolicyConfig(
+            heartbeat_severe_age_sec=0.8,
+            severe_hold_sec=1.5,
+            allow_video_suspend=True,
+            severe_floor_profile="V0",
+        ),
+        now_fn=lambda: now["value"],
+    )
+
+    first = policy.evaluate(
+        LinkHealthSample(timestamp_monotonic=10.0, heartbeat_age_sec=1.1, pdr=0.95)
+    )
+    assert first is not None
+    assert first.action == "switch_profile"
+    assert first.to_profile == "V0"
+
+    now["value"] = 11.0
+    hold = policy.evaluate(
+        LinkHealthSample(timestamp_monotonic=11.0, heartbeat_age_sec=1.2, pdr=0.95)
+    )
+    assert hold is None
+
+    now["value"] = 11.7
+    suspended = policy.evaluate(
+        LinkHealthSample(timestamp_monotonic=11.7, heartbeat_age_sec=1.3, pdr=0.95)
+    )
+    assert suspended is not None
+    assert suspended.action == "suspend_video"
+    assert suspended.from_profile == "V0"
+
+
+def test_controller_retries_timed_out_encoder_commands(tmp_path: Path) -> None:
+    ladder_path = _write_ladder(tmp_path)
+    now = {"mono": 50.0, "wall": 1000.0}
+    transport = _CaptureTransport()
+    controller = VideoAbrController(
+        ladder_path=str(ladder_path),
+        config=VideoAbrControllerConfig(
+            ack_timeout_sec=0.5,
+            ack_max_retries=2,
+            policy=AbrPolicyConfig(
+                heartbeat_severe_age_sec=0.7,
+                severe_hold_sec=3.0,
+                allow_video_suspend=False,
+            ),
+        ),
+        transport=transport,
+        now_mono_fn=lambda: now["mono"],
+        now_wall_fn=lambda: now["wall"],
+    )
+
+    decision = controller.evaluate(
+        LinkHealthSample(timestamp_monotonic=50.0, heartbeat_age_sec=1.0, pdr=0.95)
+    )
+    assert decision is not None
+    assert len(transport.sent) == 1
+    assert transport.sent[0].profile_name == "V0"
+    assert transport.sent[0].retry_count == 0
+
+    now["mono"] = 50.6
+    controller.tick()
+    assert len(transport.sent) == 2
+    assert transport.sent[1].command_id == transport.sent[0].command_id
+    assert transport.sent[1].retry_count == 1
+
+    now["mono"] = 51.2
+    controller.tick()
+    assert len(transport.sent) == 3
+    assert transport.sent[2].retry_count == 2
+
+    now["mono"] = 51.8
+    controller.tick()
+    assert len(transport.sent) == 3
+    assert controller.snapshot().command_failures == 1
+
+
+def test_controller_ack_prevents_retries(tmp_path: Path) -> None:
+    ladder_path = _write_ladder(tmp_path)
+    now = {"mono": 10.0, "wall": 20.0}
+    transport = _CaptureTransport()
+    controller = VideoAbrController(
+        ladder_path=str(ladder_path),
+        config=VideoAbrControllerConfig(
+            ack_timeout_sec=0.3,
+            ack_max_retries=2,
+            policy=AbrPolicyConfig(heartbeat_severe_age_sec=0.7),
+        ),
+        transport=transport,
+        now_mono_fn=lambda: now["mono"],
+        now_wall_fn=lambda: now["wall"],
+    )
+
+    decision = controller.evaluate(
+        LinkHealthSample(timestamp_monotonic=10.0, heartbeat_age_sec=0.9, pdr=0.95)
+    )
+    assert decision is not None
+    assert len(transport.sent) == 1
+    command_id = transport.sent[0].command_id
+    assert controller.observe_encoder_ack(
+        {
+            "command_id": command_id,
+            "profile_name": transport.sent[0].profile_name,
+            "applied_at_ts": 20.1,
+            "status": "ok",
+        }
+    )
+
+    now["mono"] = 10.6
+    controller.tick()
+    assert len(transport.sent) == 1
+    assert controller.snapshot().pending_command_id is None
+
+
+def test_ladder_parser_fails_on_unsorted_target_bitrate(tmp_path: Path) -> None:
+    ladder_path = tmp_path / "abr_bad.yaml"
+    ladder_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "ladder:",
+                "  - name: high",
+                "    resolution: 1280x720",
+                "    target_bitrate_kbps: 2200",
+                "    max_bitrate_kbps: 2600",
+                "    gop: 60",
+                "    fps: 30",
+                "  - name: low",
+                "    resolution: 640x360",
+                "    target_bitrate_kbps: 900",
+                "    max_bitrate_kbps: 1200",
+                "    gop: 60",
+                "    fps: 30",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        VideoAbrController.load_ladder_tiers(str(ladder_path))
+    except ValueError as exc:
+        assert "strictly increasing" in str(exc)
+    else:
+        raise AssertionError("expected ValueError for unsorted ladder bitrate values")

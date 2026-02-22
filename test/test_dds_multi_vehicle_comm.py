@@ -146,6 +146,12 @@ def test_validation_recipe_contains_nominal_and_impaired_checks() -> None:
     assert "wait_for_topic \"${MAP_TILE_TOPIC}\"" in text
     assert "wait_for_topic \"${VIDEO_METADATA_TOPIC}\"" in text
     assert "REPLAY_ANNOTATION_TOPIC=${REPLAY_ANNOTATION_TOPIC:-/mesh/replay_annotations}" in text
+    assert "ABR_DECISION_TOPIC=${ABR_DECISION_TOPIC:-/mesh/abr_decisions}" in text
+    assert "ABR_DECISION_SAMPLE_TIMEOUT_SEC=${ABR_DECISION_SAMPLE_TIMEOUT_SEC:-12}" in text
+    assert "ABR_REACTION_P95_TARGET_MS=${ABR_REACTION_P95_TARGET_MS:-1000}" in text
+    assert "ABR_SEVERE_DROP_PROB=${ABR_SEVERE_DROP_PROB:-1.0}" in text
+    assert "ABR_SEVERE_PHASE_SEC=${ABR_SEVERE_PHASE_SEC:-3}" in text
+    assert "ABR_REQUIRED=${ABR_REQUIRED:-1}" in text
     assert "RELAY_TILE_LATENCY_P95_TARGET_SEC=${RELAY_TILE_LATENCY_P95_TARGET_SEC:-2.0}" in text
     assert "RELAY_TILE_SAMPLE_TIMEOUT_SEC=${RELAY_TILE_SAMPLE_TIMEOUT_SEC:-20}" in text
     assert "RELAY_TILE_LATENCY_REQUIRED=${RELAY_TILE_LATENCY_REQUIRED:-1}" in text
@@ -171,6 +177,7 @@ def test_validation_recipe_contains_nominal_and_impaired_checks() -> None:
     assert "ros2 run aeris_mesh_agent impairment_relay" in text
     assert "ros2 param set /impairment_relay drop_prob" in text
     assert "ros2 param set /impairment_relay delay_ms" in text
+    assert "ros2 param set /impairment_relay drop_prob \"${ABR_SEVERE_DROP_PROB}\"" in text
 
     assert "sample_topic_hz \"/mesh/heartbeat_imp\" \"${pass_log_dir}\" \"impaired\"" in text
     assert "sample_topic_hz \"/mesh/heartbeat_imp\" \"${pass_log_dir}\" \"restored\"" in text
@@ -180,8 +187,11 @@ def test_validation_recipe_contains_nominal_and_impaired_checks() -> None:
     assert "\"detection_restored\"" in text
     assert "replay_annotation_impaired" in text
     assert "replay_annotation_restored" in text
+    assert "abr_decisions_impaired" in text
+    assert "Escalating impairment for ABR severe fallback checks" in text
     assert "Replay annotation metadata observed on ${REPLAY_ANNOTATION_TOPIC}" in text
     assert "assert_relay_tile_latency_p95" in text
+    assert "assert_abr_decision_behavior" in text
     assert "local require_samples=$3" in text
     assert "python3 - \"$annotation_file\" \"$target_p95\" \"$require_samples\" <<'PY'" in text
     assert 'require_samples = str(sys.argv[3]).strip().lower() in {"1", "true", "yes", "on"}' in text
