@@ -31,6 +31,8 @@
 #   FLOOD_PAYLOAD_BYTES            Default: 512
 #   RELAY_TILE_LATENCY_REQUIRED    Default: 1 (fail validation if relay tile latency cannot be asserted)
 #   MAP_TILE_TOPIC                 Default: /map/tiles
+#   MAP_TILE_FALLBACK_ENABLE       Default: 1 (publish synthetic map tiles when nominal stream is unavailable)
+#   MAP_TILE_FALLBACK_RATE_HZ      Default: 2 (synthetic map tile publish rate)
 #   TELEMETRY_TOPIC                Default: /orchestrator/heartbeat
 #   DETECTION_TOPIC                Default: /detections/fused
 #   REPLAY_ANNOTATION_TOPIC        Default: /mesh/replay_annotations
@@ -71,6 +73,8 @@ RELAY_TILE_LATENCY_REQUIRED=${RELAY_TILE_LATENCY_REQUIRED:-1}
 FLOOD_RATE_HZ=${FLOOD_RATE_HZ:-200}
 FLOOD_PAYLOAD_BYTES=${FLOOD_PAYLOAD_BYTES:-512}
 MAP_TILE_TOPIC=${MAP_TILE_TOPIC:-/map/tiles}
+MAP_TILE_FALLBACK_ENABLE=${MAP_TILE_FALLBACK_ENABLE:-1}
+MAP_TILE_FALLBACK_RATE_HZ=${MAP_TILE_FALLBACK_RATE_HZ:-2}
 TELEMETRY_TOPIC=${TELEMETRY_TOPIC:-/orchestrator/heartbeat}
 DETECTION_TOPIC=${DETECTION_TOPIC:-/detections/fused}
 REPLAY_ANNOTATION_TOPIC=${REPLAY_ANNOTATION_TOPIC:-/mesh/replay_annotations}
@@ -84,6 +88,8 @@ SIM_PID=""
 RELAY_PID=""
 FLOOD_PID=""
 MAP_PUBLISHER_PID=""
+SYNTH_MAP_PUBLISHER_PID=""
+STORE_FORWARD_PID=""
 LAUNCH_CMD=()
 
 mkdir -p "${LOG_DIR}"
@@ -234,6 +240,14 @@ cleanup() {
     kill "${MAP_PUBLISHER_PID}" >/dev/null 2>&1
     wait "${MAP_PUBLISHER_PID}" >/dev/null 2>&1 || true
   fi
+  if [[ -n "${SYNTH_MAP_PUBLISHER_PID}" ]] && kill -0 "${SYNTH_MAP_PUBLISHER_PID}" >/dev/null 2>&1; then
+    kill "${SYNTH_MAP_PUBLISHER_PID}" >/dev/null 2>&1
+    wait "${SYNTH_MAP_PUBLISHER_PID}" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${STORE_FORWARD_PID}" ]] && kill -0 "${STORE_FORWARD_PID}" >/dev/null 2>&1; then
+    kill "${STORE_FORWARD_PID}" >/dev/null 2>&1
+    wait "${STORE_FORWARD_PID}" >/dev/null 2>&1 || true
+  fi
   if [[ -n "${RELAY_PID}" ]] && kill -0 "${RELAY_PID}" >/dev/null 2>&1; then
     kill "${RELAY_PID}" >/dev/null 2>&1
     wait "${RELAY_PID}" >/dev/null 2>&1 || true
@@ -322,6 +336,48 @@ capture_topic_info() {
   out_file="${pass_log_dir}/topic_info_${label}_${sanitized_topic}.log"
   ros2 topic info -v "${topic}" >"${out_file}"
   echo "${out_file}"
+}
+
+start_synthetic_map_tile_publisher() {
+  local pass_log_dir=$1
+  local log_file="${pass_log_dir}/map_tile_publisher.synthetic.log"
+  local payload="{tile_id: '18/0/0', format: 'png', layer_ids: ['synthetic'], hash_sha256: 'dds-fallback', byte_size: 1}"
+
+  if [[ -n "${SYNTH_MAP_PUBLISHER_PID}" ]] && kill -0 "${SYNTH_MAP_PUBLISHER_PID}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  ros2 topic pub -r "${MAP_TILE_FALLBACK_RATE_HZ}" \
+    "${MAP_TILE_TOPIC}" aeris_msgs/msg/MapTile "${payload}" >"${log_file}" 2>&1 &
+  SYNTH_MAP_PUBLISHER_PID=$!
+  sleep 1
+
+  if ! kill -0 "${SYNTH_MAP_PUBLISHER_PID}" >/dev/null 2>&1; then
+    echo "[validate_multi_vehicle_dds] ERROR: synthetic map tile publisher failed to start." >&2
+    echo "[validate_multi_vehicle_dds] Synthetic publisher log: ${log_file}" >&2
+    return 1
+  fi
+
+  echo "[validate_multi_vehicle_dds] WARNING: enabling synthetic map tile fallback at ${MAP_TILE_TOPIC} (${MAP_TILE_FALLBACK_RATE_HZ} Hz)." >&2
+  echo "[validate_multi_vehicle_dds] Synthetic publisher log: ${log_file}" >&2
+  return 0
+}
+
+ensure_map_tile_samples() {
+  local pass_log_dir=$1
+
+  if capture_topic_once "${MAP_TILE_TOPIC}" "${pass_log_dir}" "nominal"; then
+    return 0
+  fi
+
+  if ! is_truthy "${MAP_TILE_FALLBACK_ENABLE}"; then
+    echo "[validate_multi_vehicle_dds] ERROR: no nominal map tile samples observed and fallback is disabled." >&2
+    echo "[validate_multi_vehicle_dds] Set MAP_TILE_FALLBACK_ENABLE=1 to allow synthetic fallback for DDS transport validation." >&2
+    return 1
+  fi
+
+  start_synthetic_map_tile_publisher "${pass_log_dir}" || return 1
+  capture_topic_once "${MAP_TILE_TOPIC}" "${pass_log_dir}" "nominal_fallback"
 }
 
 assert_topic_info_reliability() {
@@ -511,6 +567,7 @@ run_validation_pass() {
   local restored_map_hz_file=""
   local restored_detection_probe_log=""
   local map_publisher_log=""
+  local store_forward_log=""
 
   if [[ -n "${RMW_IMPLEMENTATION+x}" ]]; then
     prev_rmw_impl_set=1
@@ -567,6 +624,25 @@ run_validation_pass() {
     return 1
   fi
 
+  store_forward_log="${pass_log_dir}/store_forward_tiles.log"
+  ros2 run aeris_mesh_agent store_forward_tiles --ros-args \
+    -p map_input_topic:="${MAP_TILE_TOPIC#/}" \
+    -p detection_input_topic:="${DETECTION_TOPIC#/}" \
+    -p heartbeat_input_topic:="${TELEMETRY_TOPIC#/}" \
+    -p relay_enabled:=true \
+    -p relay_activation_policy:=force-relay \
+    -p relay_heartbeat_topic:="${TELEMETRY_TOPIC#/}" \
+    -p replay_annotation_topic:="${REPLAY_ANNOTATION_TOPIC#/}" \
+    -p storage_path:="${pass_log_dir}/store-forward.db" \
+    -p publish_live_annotations:=true >"${store_forward_log}" 2>&1 &
+  STORE_FORWARD_PID=$!
+  sleep 1
+  if ! kill -0 "${STORE_FORWARD_PID}" >/dev/null 2>&1; then
+    echo "[validate_multi_vehicle_dds] ERROR: store_forward_tiles failed to start for ${rmw_impl}" >&2
+    echo "[validate_multi_vehicle_dds] Store-forward log: ${store_forward_log}" >&2
+    return 1
+  fi
+
   echo "[validate_multi_vehicle_dds] Waiting for nominal topic discovery (${rmw_impl})..."
   wait_for_topic "${MAP_TILE_TOPIC}"
   wait_for_topic "${TELEMETRY_TOPIC}"
@@ -590,6 +666,7 @@ run_validation_pass() {
     "{}" \
     "${pass_log_dir}" \
     "detection"
+  ensure_map_tile_samples "${pass_log_dir}"
 
   map_info_file=$(capture_topic_info "${MAP_TILE_TOPIC}" "${pass_log_dir}" "map_tiles")
   telemetry_info_file=$(capture_topic_info "${TELEMETRY_TOPIC}" "${pass_log_dir}" "telemetry")
@@ -700,7 +777,7 @@ run_validation_pass() {
     fi
 
     replay_annotation_sample_file="${pass_log_dir}/replay_annotation_sample.log"
-    timeout "${PROBE_TIMEOUT_SEC}"s ros2 topic echo "${REPLAY_ANNOTATION_TOPIC}" --once >"${replay_annotation_sample_file}" 2>&1 || true
+    timeout "${PROBE_TIMEOUT_SEC}"s ros2 topic echo --full-length "${REPLAY_ANNOTATION_TOPIC}" --once >"${replay_annotation_sample_file}" 2>&1 || true
     if [[ -f "${replay_annotation_sample_file}" ]] && grep -Eiq 'delivery_mode|original_event_ts|replayed_at_ts' "${replay_annotation_sample_file}"; then
       echo "[validate_multi_vehicle_dds] Replay annotation metadata observed on ${REPLAY_ANNOTATION_TOPIC}"
     else
@@ -708,7 +785,7 @@ run_validation_pass() {
     fi
 
     relay_tile_latency_sample_file="${pass_log_dir}/relay_tile_latency_samples.log"
-    timeout "${RELAY_TILE_SAMPLE_TIMEOUT_SEC}"s ros2 topic echo "${REPLAY_ANNOTATION_TOPIC}" >"${relay_tile_latency_sample_file}" 2>&1 || true
+    timeout "${RELAY_TILE_SAMPLE_TIMEOUT_SEC}"s ros2 topic echo --full-length "${REPLAY_ANNOTATION_TOPIC}" >"${relay_tile_latency_sample_file}" 2>&1 || true
     if [[ -f "${relay_tile_latency_sample_file}" ]] && grep -Eiq 'relay_envelope|route_key|published_at_ts|replayed_at_ts' "${relay_tile_latency_sample_file}"; then
       assert_relay_tile_latency_p95 "${relay_tile_latency_sample_file}" "${RELAY_TILE_LATENCY_P95_TARGET_SEC}" "${RELAY_TILE_LATENCY_REQUIRED}"
     else
@@ -735,6 +812,8 @@ run_validation_pass() {
   RELAY_PID=""
   FLOOD_PID=""
   MAP_PUBLISHER_PID=""
+  SYNTH_MAP_PUBLISHER_PID=""
+  STORE_FORWARD_PID=""
 
   if (( prev_rmw_impl_set )); then
     export RMW_IMPLEMENTATION="${prev_rmw_impl}"
@@ -773,6 +852,8 @@ echo "[validate_multi_vehicle_dds] RMW_VALIDATION_SET=${RMW_VALIDATION_SET}"
 echo "[validate_multi_vehicle_dds] RMW_FASTRTPS_USE_QOS_FROM_XML=${RMW_FASTRTPS_USE_QOS_FROM_XML}"
 echo "[validate_multi_vehicle_dds] RELAY_TILE_LATENCY_P95_TARGET_SEC=${RELAY_TILE_LATENCY_P95_TARGET_SEC}"
 echo "[validate_multi_vehicle_dds] RELAY_TILE_LATENCY_REQUIRED=${RELAY_TILE_LATENCY_REQUIRED}"
+echo "[validate_multi_vehicle_dds] MAP_TILE_FALLBACK_ENABLE=${MAP_TILE_FALLBACK_ENABLE}"
+echo "[validate_multi_vehicle_dds] MAP_TILE_FALLBACK_RATE_HZ=${MAP_TILE_FALLBACK_RATE_HZ}"
 echo "[validate_multi_vehicle_dds] MULTI_DRONE_LAUNCH_PACKAGE=${MULTI_DRONE_LAUNCH_PACKAGE}"
 echo "[validate_multi_vehicle_dds] MULTI_DRONE_LAUNCH_FILE=${MULTI_DRONE_LAUNCH_FILE}"
 
