@@ -1,4 +1,4 @@
-FROM osrf/ros:humble-desktop
+FROM ros:humble
 
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-lc"]
@@ -40,11 +40,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libbenchmark-dev \
     protobuf-compiler \
     libprotobuf-dev \
+    ros-humble-desktop \
     ros-humble-ros-gz \
     ros-humble-ros-gz-bridge \
     ros-humble-ros-gz-sim \
     ros-humble-ros-gz-image \
-    ros-humble-gazebo-ros-pkgs \
     ros-humble-rmw-cyclonedds-cpp \
  && rm -rf /var/lib/apt/lists/*
 
