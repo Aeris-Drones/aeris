@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import time
 from typing import Any
 
@@ -21,8 +22,25 @@ from .message_envelope import (
     serialize_message_payload,
 )
 from .relay_routing import RelayEnvelope, RelayLatencyTracker, RelayRouteDecision, RelayRouteSelector
+from .abr_policy import AbrPolicyConfig, LinkHealthSample
 from .store_forward_core import ReplayMetadata, StoreForwardController
 from .store_forward_store import StoreForwardStore
+from .video_abr_controller import (
+    EncoderCommand,
+    EncoderTransport,
+    VideoAbrController,
+    VideoAbrControllerConfig,
+)
+
+
+class _RosEncoderTransport(EncoderTransport):
+    """ROS transport adapter for encoder control commands."""
+
+    def __init__(self, *, publisher: Any) -> None:
+        self._publisher = publisher
+
+    def send_command(self, command: EncoderCommand) -> None:
+        self._publisher.publish(String(data=command.to_json()))
 
 
 class StoreForwardTiles(Node):
@@ -58,6 +76,8 @@ class StoreForwardTiles(Node):
             self.declare_parameter("telemetry_output_topic", "telemetry_out").value
         )
         self._pdr_topic = str(self.declare_parameter("pdr_topic", "").value)
+        self._rtt_topic = str(self.declare_parameter("rtt_topic", "").value)
+        self._packet_loss_topic = str(self.declare_parameter("packet_loss_topic", "").value)
         self._vehicle_id = str(self.declare_parameter("vehicle_id", "").value)
         self._source_vehicle_id = str(
             self.declare_parameter("source_vehicle_id", self._vehicle_id).value
@@ -71,6 +91,10 @@ class StoreForwardTiles(Node):
             self.declare_parameter("relay_heartbeat_topic", "").value
         )
         self._relay_pdr_topic = str(self.declare_parameter("relay_pdr_topic", "").value)
+        self._relay_rtt_topic = str(self.declare_parameter("relay_rtt_topic", "").value)
+        self._relay_packet_loss_topic = str(
+            self.declare_parameter("relay_packet_loss_topic", "").value
+        )
         self._relay_heartbeat_timeout_sec = float(
             self.declare_parameter("relay_heartbeat_timeout_sec", 2.0).value
         )
@@ -127,6 +151,70 @@ class StoreForwardTiles(Node):
         self._link_up_override_enabled = bool(
             self.declare_parameter("link_up_override", False).value
         )
+        self._abr_enabled = bool(self.declare_parameter("abr_enabled", True).value)
+        self._abr_ladder_config = str(
+            self.declare_parameter(
+                "abr_ladder_config", "software/edge/config/srt/abr_ladder.yaml"
+            ).value
+        )
+        self._abr_command_topic = str(
+            self.declare_parameter("abr_command_topic", "mesh/video/encoder_profile_cmd").value
+        )
+        self._abr_ack_topic = str(
+            self.declare_parameter("abr_ack_topic", "mesh/video/encoder_profile_ack").value
+        )
+        self._abr_decision_topic = str(
+            self.declare_parameter("abr_decision_topic", "mesh/abr_decisions").value
+        )
+        self._abr_eval_period_sec = float(self.declare_parameter("abr_eval_period_sec", 0.25).value)
+        self._abr_ack_timeout_sec = float(self.declare_parameter("abr_ack_timeout_sec", 0.5).value)
+        self._abr_ack_max_retries = int(self.declare_parameter("abr_ack_max_retries", 2).value)
+        self._abr_reaction_window_sec = float(
+            self.declare_parameter("abr_reaction_window_sec", 1.0).value
+        )
+        self._abr_min_dwell_sec = float(self.declare_parameter("abr_min_dwell_sec", 2.0).value)
+        self._abr_min_downgrade_interval_sec = float(
+            self.declare_parameter("abr_min_downgrade_interval_sec", 0.25).value
+        )
+        self._abr_severe_hold_sec = float(self.declare_parameter("abr_severe_hold_sec", 2.0).value)
+        self._abr_allow_video_suspend = bool(
+            self.declare_parameter("abr_allow_video_suspend", True).value
+        )
+        self._abr_pdr_degrade_threshold = float(
+            self.declare_parameter("abr_pdr_degrade_threshold", 0.75).value
+        )
+        self._abr_pdr_severe_threshold = float(
+            self.declare_parameter("abr_pdr_severe_threshold", 0.35).value
+        )
+        self._abr_pdr_hysteresis = float(self.declare_parameter("abr_pdr_hysteresis", 0.08).value)
+        self._abr_rtt_degrade_threshold_ms = float(
+            self.declare_parameter("abr_rtt_degrade_threshold_ms", 250.0).value
+        )
+        self._abr_rtt_severe_threshold_ms = float(
+            self.declare_parameter("abr_rtt_severe_threshold_ms", 600.0).value
+        )
+        self._abr_rtt_hysteresis_ms = float(
+            self.declare_parameter("abr_rtt_hysteresis_ms", 40.0).value
+        )
+        self._abr_packet_loss_degrade_threshold = float(
+            self.declare_parameter("abr_packet_loss_degrade_threshold", 0.10).value
+        )
+        self._abr_packet_loss_severe_threshold = float(
+            self.declare_parameter("abr_packet_loss_severe_threshold", 0.35).value
+        )
+        self._abr_heartbeat_severe_age_sec = float(
+            self.declare_parameter("abr_heartbeat_severe_age_sec", 0.90).value
+        )
+        self._abr_v0_profile_name = str(self.declare_parameter("abr_v0_profile_name", "V0").value)
+        self._abr_v0_resolution = str(self.declare_parameter("abr_v0_resolution", "320x180").value)
+        self._abr_v0_target_bitrate_kbps = int(
+            self.declare_parameter("abr_v0_target_bitrate_kbps", 220).value
+        )
+        self._abr_v0_max_bitrate_kbps = int(
+            self.declare_parameter("abr_v0_max_bitrate_kbps", 320).value
+        )
+        self._abr_v0_fps = int(self.declare_parameter("abr_v0_fps", 10).value)
+        self._abr_v0_gop = int(self.declare_parameter("abr_v0_gop", 30).value)
 
         self._store = StoreForwardStore(db_path=self._storage_path, max_bytes=self._max_bytes)
         self._controller = StoreForwardController(
@@ -149,6 +237,15 @@ class StoreForwardTiles(Node):
             enabled=self._link_up_override_enabled,
             link_up=self._link_up_override_value,
         )
+        self._latest_direct_pdr: float | None = None
+        self._latest_direct_rtt_ms: float | None = None
+        self._latest_direct_packet_loss: float | None = None
+        self._latest_relay_pdr: float | None = None
+        self._latest_relay_rtt_ms: float | None = None
+        self._latest_relay_packet_loss: float | None = None
+        self._last_direct_heartbeat_monotonic: float | None = None
+        self._last_relay_heartbeat_monotonic: float | None = None
+        self._abr_controller: VideoAbrController | None = None
 
         self._map_publisher = self.create_publisher(MapTile, self._map_output_topic, 10)
         self._detection_publisher = self.create_publisher(
@@ -173,6 +270,8 @@ class StoreForwardTiles(Node):
         self._replay_annotation_publisher = self.create_publisher(
             String, self._replay_annotation_topic, 10
         )
+        self._abr_command_publisher = self.create_publisher(String, self._abr_command_topic, 10)
+        self._abr_decision_publisher = self.create_publisher(String, self._abr_decision_topic, 10)
         self._route_specs: dict[str, tuple[type[Any], Any]] = {
             "map_tile": (MapTile, self._map_publisher),
             "relay_map_tile": (MapTile, self._map_relay_publisher),
@@ -196,6 +295,8 @@ class StoreForwardTiles(Node):
             self._heartbeat_relay_output_topic: (String, self._heartbeat_relay_publisher),
             self._telemetry_relay_output_topic: (Telemetry, self._telemetry_relay_publisher),
         }
+        if self._abr_enabled:
+            self._abr_controller = self._create_abr_controller()
 
         self._map_subscription = self.create_subscription(
             MapTile, self._map_input_topic, self._handle_map_tile, 10
@@ -220,6 +321,16 @@ class StoreForwardTiles(Node):
             self._pdr_subscription = self.create_subscription(
                 Float32, self._pdr_topic, self._handle_pdr, 10
             )
+        self._rtt_subscription = None
+        if self._rtt_topic:
+            self._rtt_subscription = self.create_subscription(
+                Float32, self._rtt_topic, self._handle_rtt, 10
+            )
+        self._packet_loss_subscription = None
+        if self._packet_loss_topic:
+            self._packet_loss_subscription = self.create_subscription(
+                Float32, self._packet_loss_topic, self._handle_packet_loss, 10
+            )
         self._relay_heartbeat_subscription = None
         if self._relay_heartbeat_topic:
             self._relay_heartbeat_subscription = self.create_subscription(
@@ -229,6 +340,21 @@ class StoreForwardTiles(Node):
         if self._relay_pdr_topic:
             self._relay_pdr_subscription = self.create_subscription(
                 Float32, self._relay_pdr_topic, self._handle_relay_pdr, 10
+            )
+        self._relay_rtt_subscription = None
+        if self._relay_rtt_topic:
+            self._relay_rtt_subscription = self.create_subscription(
+                Float32, self._relay_rtt_topic, self._handle_relay_rtt, 10
+            )
+        self._relay_packet_loss_subscription = None
+        if self._relay_packet_loss_topic:
+            self._relay_packet_loss_subscription = self.create_subscription(
+                Float32, self._relay_packet_loss_topic, self._handle_relay_packet_loss, 10
+            )
+        self._abr_ack_subscription = None
+        if self._abr_enabled and self._abr_ack_topic:
+            self._abr_ack_subscription = self.create_subscription(
+                String, self._abr_ack_topic, self._handle_abr_ack, 10
             )
 
         self._relay_map_subscription = None
@@ -262,6 +388,9 @@ class StoreForwardTiles(Node):
             )
 
         self._link_monitor_timer = self.create_timer(0.25, self._sync_connectivity)
+        self._abr_timer = None
+        if self._abr_enabled and self._abr_controller is not None:
+            self._abr_timer = self.create_timer(self._abr_eval_period_sec, self._evaluate_abr)
         self._metrics_timer = self.create_timer(5.0, self._log_metrics)
         self.add_on_set_parameters_callback(self._handle_param_update)
 
@@ -286,9 +415,17 @@ class StoreForwardTiles(Node):
             "relay_telemetry_input_topic",
             "relay_heartbeat_topic",
             "relay_pdr_topic",
+            "rtt_topic",
+            "packet_loss_topic",
+            "relay_rtt_topic",
+            "relay_packet_loss_topic",
             "replay_annotation_topic",
             "pdr_topic",
             "storage_path",
+            "abr_ladder_config",
+            "abr_command_topic",
+            "abr_ack_topic",
+            "abr_decision_topic",
         }
 
         for param in params:
@@ -416,10 +553,430 @@ class StoreForwardTiles(Node):
                 )
                 continue
 
+            if param.name == "abr_enabled":
+                desired = bool(param.value)
+                if desired == self._abr_enabled:
+                    continue
+                if desired:
+                    try:
+                        self._enable_abr_runtime()
+                    except RuntimeError as exc:
+                        self.get_logger().error(str(exc))
+                        return SetParametersResult(successful=False)
+                else:
+                    self._disable_abr_runtime()
+                self._abr_enabled = desired
+                continue
+
+            if param.name == "abr_eval_period_sec":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_eval_period_sec = value
+                if self._abr_controller is not None:
+                    if self._abr_timer is not None:
+                        self._abr_timer.cancel()
+                    self._abr_timer = self.create_timer(
+                        self._abr_eval_period_sec, self._evaluate_abr
+                    )
+                continue
+
+            if param.name == "abr_ack_timeout_sec":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_ack_timeout_sec = value
+                if self._abr_controller is not None:
+                    self._abr_controller.update_ack_timeout(value)
+                continue
+
+            if param.name == "abr_ack_max_retries":
+                value = int(param.value)
+                if value < 0:
+                    return SetParametersResult(successful=False)
+                self._abr_ack_max_retries = value
+                if self._abr_controller is not None:
+                    self._abr_controller.config.ack_max_retries = value
+                continue
+
+            if param.name == "abr_reaction_window_sec":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_reaction_window_sec = value
+                if self._abr_controller is not None:
+                    self._abr_controller.config.reaction_window_sec = value
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_min_dwell_sec":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_min_dwell_sec = value
+                if self._abr_controller is not None:
+                    policy = self._current_abr_policy_config()
+                    self._abr_controller.reconfigure_policy(policy)
+                continue
+
+            if param.name == "abr_min_downgrade_interval_sec":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_min_downgrade_interval_sec = value
+                if self._abr_controller is not None:
+                    policy = self._current_abr_policy_config()
+                    self._abr_controller.reconfigure_policy(policy)
+                continue
+
+            if param.name == "abr_severe_hold_sec":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_severe_hold_sec = value
+                if self._abr_controller is not None:
+                    policy = self._current_abr_policy_config()
+                    self._abr_controller.reconfigure_policy(policy)
+                continue
+
+            if param.name == "abr_allow_video_suspend":
+                self._abr_allow_video_suspend = bool(param.value)
+                if self._abr_controller is not None:
+                    policy = self._current_abr_policy_config()
+                    self._abr_controller.reconfigure_policy(policy)
+                continue
+
+            if param.name == "abr_pdr_degrade_threshold":
+                value = float(param.value)
+                if value < 0.0 or value > 1.0:
+                    return SetParametersResult(successful=False)
+                self._abr_pdr_degrade_threshold = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_pdr_severe_threshold":
+                value = float(param.value)
+                if value < 0.0 or value > 1.0:
+                    return SetParametersResult(successful=False)
+                self._abr_pdr_severe_threshold = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_pdr_hysteresis":
+                value = float(param.value)
+                if value < 0.0 or value > 1.0:
+                    return SetParametersResult(successful=False)
+                self._abr_pdr_hysteresis = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_rtt_degrade_threshold_ms":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_rtt_degrade_threshold_ms = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_rtt_severe_threshold_ms":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_rtt_severe_threshold_ms = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_rtt_hysteresis_ms":
+                value = float(param.value)
+                if value < 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_rtt_hysteresis_ms = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_packet_loss_degrade_threshold":
+                value = float(param.value)
+                if value < 0.0 or value > 1.0:
+                    return SetParametersResult(successful=False)
+                self._abr_packet_loss_degrade_threshold = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_packet_loss_severe_threshold":
+                value = float(param.value)
+                if value < 0.0 or value > 1.0:
+                    return SetParametersResult(successful=False)
+                self._abr_packet_loss_severe_threshold = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_heartbeat_severe_age_sec":
+                value = float(param.value)
+                if value <= 0.0:
+                    return SetParametersResult(successful=False)
+                self._abr_heartbeat_severe_age_sec = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
+                continue
+
+            if param.name == "abr_v0_profile_name":
+                value = str(param.value).strip()
+                if not value:
+                    return SetParametersResult(successful=False)
+                self._abr_v0_profile_name = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_v0_profile(
+                        profile_name=self._abr_v0_profile_name,
+                        resolution=self._abr_v0_resolution,
+                        target_bitrate_kbps=self._abr_v0_target_bitrate_kbps,
+                        max_bitrate_kbps=self._abr_v0_max_bitrate_kbps,
+                        fps=self._abr_v0_fps,
+                        gop=self._abr_v0_gop,
+                    )
+                continue
+
+            if param.name == "abr_v0_resolution":
+                value = str(param.value).strip()
+                if not value:
+                    return SetParametersResult(successful=False)
+                self._abr_v0_resolution = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_v0_profile(
+                        profile_name=self._abr_v0_profile_name,
+                        resolution=self._abr_v0_resolution,
+                        target_bitrate_kbps=self._abr_v0_target_bitrate_kbps,
+                        max_bitrate_kbps=self._abr_v0_max_bitrate_kbps,
+                        fps=self._abr_v0_fps,
+                        gop=self._abr_v0_gop,
+                    )
+                continue
+
+            if param.name == "abr_v0_target_bitrate_kbps":
+                value = int(param.value)
+                if value <= 0:
+                    return SetParametersResult(successful=False)
+                self._abr_v0_target_bitrate_kbps = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_v0_profile(
+                        profile_name=self._abr_v0_profile_name,
+                        resolution=self._abr_v0_resolution,
+                        target_bitrate_kbps=self._abr_v0_target_bitrate_kbps,
+                        max_bitrate_kbps=self._abr_v0_max_bitrate_kbps,
+                        fps=self._abr_v0_fps,
+                        gop=self._abr_v0_gop,
+                    )
+                continue
+
+            if param.name == "abr_v0_max_bitrate_kbps":
+                value = int(param.value)
+                if value <= 0:
+                    return SetParametersResult(successful=False)
+                self._abr_v0_max_bitrate_kbps = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_v0_profile(
+                        profile_name=self._abr_v0_profile_name,
+                        resolution=self._abr_v0_resolution,
+                        target_bitrate_kbps=self._abr_v0_target_bitrate_kbps,
+                        max_bitrate_kbps=self._abr_v0_max_bitrate_kbps,
+                        fps=self._abr_v0_fps,
+                        gop=self._abr_v0_gop,
+                    )
+                continue
+
+            if param.name == "abr_v0_fps":
+                value = int(param.value)
+                if value <= 0:
+                    return SetParametersResult(successful=False)
+                self._abr_v0_fps = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_v0_profile(
+                        profile_name=self._abr_v0_profile_name,
+                        resolution=self._abr_v0_resolution,
+                        target_bitrate_kbps=self._abr_v0_target_bitrate_kbps,
+                        max_bitrate_kbps=self._abr_v0_max_bitrate_kbps,
+                        fps=self._abr_v0_fps,
+                        gop=self._abr_v0_gop,
+                    )
+                continue
+
+            if param.name == "abr_v0_gop":
+                value = int(param.value)
+                if value <= 0:
+                    return SetParametersResult(successful=False)
+                self._abr_v0_gop = value
+                if self._abr_controller is not None:
+                    self._abr_controller.reconfigure_v0_profile(
+                        profile_name=self._abr_v0_profile_name,
+                        resolution=self._abr_v0_resolution,
+                        target_bitrate_kbps=self._abr_v0_target_bitrate_kbps,
+                        max_bitrate_kbps=self._abr_v0_max_bitrate_kbps,
+                        fps=self._abr_v0_fps,
+                        gop=self._abr_v0_gop,
+                    )
+                continue
+
             self.get_logger().warning(f"unsupported parameter '{param.name}'")
             return SetParametersResult(successful=False)
 
         return SetParametersResult(successful=True)
+
+    def _current_abr_policy_config(self) -> AbrPolicyConfig:
+        return AbrPolicyConfig(
+            pdr_degrade_threshold=self._abr_pdr_degrade_threshold,
+            pdr_severe_threshold=self._abr_pdr_severe_threshold,
+            pdr_hysteresis=self._abr_pdr_hysteresis,
+            rtt_degrade_threshold_ms=self._abr_rtt_degrade_threshold_ms,
+            rtt_severe_threshold_ms=self._abr_rtt_severe_threshold_ms,
+            rtt_hysteresis_ms=self._abr_rtt_hysteresis_ms,
+            packet_loss_degrade_threshold=self._abr_packet_loss_degrade_threshold,
+            packet_loss_severe_threshold=self._abr_packet_loss_severe_threshold,
+            heartbeat_severe_age_sec=self._abr_heartbeat_severe_age_sec,
+            min_dwell_sec=self._abr_min_dwell_sec,
+            min_downgrade_interval_sec=self._abr_min_downgrade_interval_sec,
+            severe_hold_sec=self._abr_severe_hold_sec,
+            reaction_window_sec=self._abr_reaction_window_sec,
+            allow_video_suspend=self._abr_allow_video_suspend,
+            severe_floor_profile=self._abr_v0_profile_name,
+        )
+
+    def _resolve_abr_ladder_path(self, configured_path: str) -> str:
+        configured = Path(configured_path).expanduser()
+        candidates: list[Path] = []
+        if configured.is_absolute():
+            candidates.append(configured)
+        else:
+            candidates.append(Path.cwd() / configured)
+            # Source-tree fallback for local development.
+            edge_root = Path(__file__).resolve().parents[3]
+            candidates.append(edge_root / "config" / "srt" / configured.name)
+
+        # Installed-package fallback for ROS deployments.
+        try:
+            from ament_index_python.packages import get_package_share_directory
+        except ImportError:
+            get_package_share_directory = None
+
+        if get_package_share_directory is not None:
+            try:
+                share_dir = Path(get_package_share_directory("aeris_mesh_agent"))
+                candidates.append(share_dir / "config" / "srt" / configured.name)
+            except Exception as exc:
+                self.get_logger().debug(
+                    "skipping aeris_mesh_agent share-dir ladder fallback: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+        seen: set[str] = set()
+        unique_candidates: list[Path] = []
+        for candidate in candidates:
+            normalized = str(candidate.resolve(strict=False))
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            unique_candidates.append(candidate)
+
+        for candidate in unique_candidates:
+            if candidate.is_file():
+                return str(candidate.resolve())
+
+        tried = ", ".join(str(path.resolve(strict=False)) for path in unique_candidates)
+        raise RuntimeError(
+            "ABR ladder config not found. Configure 'abr_ladder_config' with an absolute path. "
+            f"Tried: {tried}"
+        )
+
+    def _create_abr_controller(self) -> VideoAbrController:
+        ladder_path = self._resolve_abr_ladder_path(self._abr_ladder_config)
+        config = VideoAbrControllerConfig(
+            ack_timeout_sec=self._abr_ack_timeout_sec,
+            ack_max_retries=self._abr_ack_max_retries,
+            reaction_window_sec=self._abr_reaction_window_sec,
+            v0_profile_name=self._abr_v0_profile_name,
+            v0_resolution=self._abr_v0_resolution,
+            v0_target_bitrate_kbps=self._abr_v0_target_bitrate_kbps,
+            v0_max_bitrate_kbps=self._abr_v0_max_bitrate_kbps,
+            v0_fps=self._abr_v0_fps,
+            v0_gop=self._abr_v0_gop,
+            policy=self._current_abr_policy_config(),
+        )
+        try:
+            controller = VideoAbrController(
+                ladder_path=ladder_path,
+                config=config,
+                transport=_RosEncoderTransport(publisher=self._abr_command_publisher),
+            )
+        except Exception as exc:
+            raise RuntimeError(f"failed to initialize ABR ladder/controller: {exc}") from exc
+        return controller
+
+    def _enable_abr_runtime(self) -> None:
+        if self._abr_controller is None:
+            self._abr_controller = self._create_abr_controller()
+        if self._abr_ack_subscription is None and self._abr_ack_topic:
+            self._abr_ack_subscription = self.create_subscription(
+                String, self._abr_ack_topic, self._handle_abr_ack, 10
+            )
+        if self._abr_timer is None:
+            self._abr_timer = self.create_timer(self._abr_eval_period_sec, self._evaluate_abr)
+
+    def _disable_abr_runtime(self) -> None:
+        if self._abr_timer is not None:
+            self._abr_timer.cancel()
+            self.destroy_timer(self._abr_timer)
+            self._abr_timer = None
+        if self._abr_ack_subscription is not None:
+            self.destroy_subscription(self._abr_ack_subscription)
+            self._abr_ack_subscription = None
+        self._abr_controller = None
+
+    def _active_link_health_sample(self) -> tuple[LinkHealthSample, RelayRouteDecision]:
+        decision = self._select_route_decision()
+        now = time.monotonic()
+        use_relay = decision.delivery_mode == "relay"
+        pdr = self._latest_relay_pdr if use_relay else self._latest_direct_pdr
+        rtt_ms = self._latest_relay_rtt_ms if use_relay else self._latest_direct_rtt_ms
+        packet_loss = (
+            self._latest_relay_packet_loss if use_relay else self._latest_direct_packet_loss
+        )
+        heartbeat_ts = (
+            self._last_relay_heartbeat_monotonic if use_relay else self._last_direct_heartbeat_monotonic
+        )
+        heartbeat_age_sec = None
+        if heartbeat_ts is not None:
+            heartbeat_age_sec = max(0.0, now - heartbeat_ts)
+        sample = LinkHealthSample(
+            timestamp_monotonic=now,
+            pdr=pdr,
+            rtt_ms=rtt_ms,
+            packet_loss=packet_loss,
+            throughput_kbps=None,
+            heartbeat_age_sec=heartbeat_age_sec,
+        )
+        return sample, decision
+
+    def _evaluate_abr(self) -> None:
+        if self._abr_controller is None:
+            return
+        sample, route = self._active_link_health_sample()
+        decision_payload = self._abr_controller.evaluate(sample)
+        self._abr_controller.tick()
+        if decision_payload is None:
+            return
+
+        decision_payload["active_route"] = route.delivery_mode
+        decision_payload["active_route_reason"] = route.reason
+        decision_payload["active_link_up"] = route.selected_link_up
+        self._abr_decision_publisher.publish(
+            String(data=json.dumps(decision_payload, separators=(",", ":")))
+        )
 
     def _handle_map_tile(self, msg: MapTile) -> None:
         self._handle_outbound(
@@ -449,10 +1006,12 @@ class StoreForwardTiles(Node):
         )
 
     def _handle_connectivity_heartbeat(self, _msg: String) -> None:
+        self._last_direct_heartbeat_monotonic = time.monotonic()
         self._controller.connectivity.observe_heartbeat()
         self._route_selector.observe_direct_heartbeat()
 
     def _handle_relay_connectivity_heartbeat(self, _msg: String) -> None:
+        self._last_relay_heartbeat_monotonic = time.monotonic()
         self._route_selector.observe_relay_heartbeat()
 
     def _handle_telemetry(self, msg: Telemetry) -> None:
@@ -465,11 +1024,46 @@ class StoreForwardTiles(Node):
         )
 
     def _handle_pdr(self, msg: Float32) -> None:
-        self._controller.connectivity.observe_pdr(float(msg.data))
-        self._route_selector.observe_direct_pdr(float(msg.data))
+        value = float(msg.data)
+        self._latest_direct_pdr = value
+        self._controller.connectivity.observe_pdr(value)
+        self._route_selector.observe_direct_pdr(value)
 
     def _handle_relay_pdr(self, msg: Float32) -> None:
-        self._route_selector.observe_relay_pdr(float(msg.data))
+        value = float(msg.data)
+        self._latest_relay_pdr = value
+        self._route_selector.observe_relay_pdr(value)
+
+    def _handle_rtt(self, msg: Float32) -> None:
+        self._latest_direct_rtt_ms = float(msg.data)
+
+    def _handle_relay_rtt(self, msg: Float32) -> None:
+        self._latest_relay_rtt_ms = float(msg.data)
+
+    def _handle_packet_loss(self, msg: Float32) -> None:
+        self._latest_direct_packet_loss = float(msg.data)
+
+    def _handle_relay_packet_loss(self, msg: Float32) -> None:
+        self._latest_relay_packet_loss = float(msg.data)
+
+    def _handle_abr_ack(self, msg: String) -> None:
+        if self._abr_controller is None:
+            return
+        try:
+            accepted = self._abr_controller.observe_encoder_ack(msg.data)
+        except ValueError:
+            self.get_logger().warning("invalid ABR ack payload; ignoring")
+            return
+        if accepted:
+            return
+        ack_command_id, ack_status, matched_pending = self._abr_controller.last_ack_details()
+        if matched_pending and ack_status and ack_status != "ok":
+            self.get_logger().warning(
+                "encoder rejected ABR command "
+                f"(command_id={ack_command_id}, status={ack_status}); retrying"
+            )
+            return
+        self.get_logger().debug("received ABR ack for unknown/stale command")
 
     def _handle_map_tile_relay_ingress(self, msg: MapTile) -> None:
         self._handle_outbound(
@@ -838,6 +1432,21 @@ class StoreForwardTiles(Node):
         relay_snapshot = self._relay_latency.snapshot()
         current_route = self._select_route_decision()
         link_state = "up" if self._controller.connectivity.is_link_up() else "down"
+        abr_snapshot = self._abr_controller.snapshot() if self._abr_controller is not None else None
+        abr_summary = "abr=disabled"
+        if abr_snapshot is not None:
+            abr_summary = (
+                f"abr_profile={abr_snapshot.current_profile} "
+                f"abr_suspended={abr_snapshot.video_suspended} "
+                f"abr_transitions={abr_snapshot.transition_count} "
+                f"abr_down={abr_snapshot.downgrade_count} "
+                f"abr_up={abr_snapshot.upgrade_count} "
+                f"abr_v0={abr_snapshot.severe_floor_entries} "
+                f"abr_suspend={abr_snapshot.suspend_count} "
+                f"abr_cmd_failures={abr_snapshot.command_failures} "
+                f"abr_reaction_p50_ms={abr_snapshot.reaction_latency_p50_ms:.1f} "
+                f"abr_reaction_p95_ms={abr_snapshot.reaction_latency_p95_ms:.1f}"
+            )
         self.get_logger().info(
             "store-forward metrics "
             f"link={link_state} queued={metrics.queued_count} "
@@ -858,7 +1467,8 @@ class StoreForwardTiles(Node):
             f"relay_latency_p50={relay_snapshot.relay_latency_p50_sec:.3f}s "
             f"relay_latency_p95={relay_snapshot.relay_latency_p95_sec:.3f}s "
             f"replay_lag_p50={relay_snapshot.replay_lag_p50_sec:.3f}s "
-            f"replay_lag_p95={relay_snapshot.replay_lag_p95_sec:.3f}s"
+            f"replay_lag_p95={relay_snapshot.replay_lag_p95_sec:.3f}s "
+            f"{abr_summary}"
         )
 
     def destroy_node(self) -> bool:

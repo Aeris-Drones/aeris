@@ -14,12 +14,13 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
+        (f"share/{package_name}/config/srt", ["../../config/srt/abr_ladder.yaml"]),
     ],
-    install_requires=["setuptools"],
+    install_requires=["setuptools", "PyYAML"],
     zip_safe=True,
     maintainer="Aeris Developers",
     maintainer_email="dev@aeris.local",
-    description="Mesh impairment helpers and durable store-forward buffering for Aeris simulation.",
+    description="Mesh impairment helpers, durable store-forward buffering, and ABR control for Aeris simulation.",
     license="proprietary",
     tests_require=["pytest"],
     entry_points={
