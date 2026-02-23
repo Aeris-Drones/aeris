@@ -868,8 +868,11 @@ class StoreForwardTiles(Node):
             try:
                 share_dir = Path(get_package_share_directory("aeris_mesh_agent"))
                 candidates.append(share_dir / "config" / "srt" / configured.name)
-            except Exception:
-                pass
+            except Exception as exc:
+                self.get_logger().debug(
+                    "skipping aeris_mesh_agent share-dir ladder fallback: "
+                    f"{type(exc).__name__}: {exc}"
+                )
 
         seen: set[str] = set()
         unique_candidates: list[Path] = []
