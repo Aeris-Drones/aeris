@@ -147,8 +147,13 @@ def test_validation_recipe_contains_nominal_and_impaired_checks() -> None:
     assert "wait_for_topic \"${VIDEO_METADATA_TOPIC}\"" in text
     assert "REPLAY_ANNOTATION_TOPIC=${REPLAY_ANNOTATION_TOPIC:-/mesh/replay_annotations}" in text
     assert "ABR_DECISION_TOPIC=${ABR_DECISION_TOPIC:-/mesh/abr_decisions}" in text
+    assert "ABR_COMMAND_TOPIC=${ABR_COMMAND_TOPIC:-/mesh/video/encoder_profile_cmd}" in text
+    assert "ABR_ACK_TOPIC=${ABR_ACK_TOPIC:-/mesh/video/encoder_profile_ack}" in text
     assert "ABR_DECISION_SAMPLE_TIMEOUT_SEC=${ABR_DECISION_SAMPLE_TIMEOUT_SEC:-12}" in text
     assert "ABR_REACTION_P95_TARGET_MS=${ABR_REACTION_P95_TARGET_MS:-1000}" in text
+    assert "ABR_MODERATE_DROP_PROB=${ABR_MODERATE_DROP_PROB:-0.50}" in text
+    assert "ABR_MODERATE_DELAY_MS=${ABR_MODERATE_DELAY_MS:-150}" in text
+    assert "ABR_MODERATE_PHASE_SEC=${ABR_MODERATE_PHASE_SEC:-3}" in text
     assert "ABR_SEVERE_DROP_PROB=${ABR_SEVERE_DROP_PROB:-1.0}" in text
     assert "ABR_SEVERE_PHASE_SEC=${ABR_SEVERE_PHASE_SEC:-3}" in text
     assert "ABR_REQUIRED=${ABR_REQUIRED:-1}" in text
@@ -192,12 +197,19 @@ def test_validation_recipe_contains_nominal_and_impaired_checks() -> None:
     assert "Replay annotation metadata observed on ${REPLAY_ANNOTATION_TOPIC}" in text
     assert "assert_relay_tile_latency_p95" in text
     assert "assert_abr_decision_behavior" in text
+    assert "assert_abr_moderate_behavior" in text
+    assert "Applying ABR moderate impairment checks" in text
     assert "local require_samples=$3" in text
     assert "python3 - \"$annotation_file\" \"$target_p95\" \"$require_samples\" <<'PY'" in text
     assert 'require_samples = str(sys.argv[3]).strip().lower() in {"1", "true", "yes", "on"}' in text
     assert "relay_tile_latency_sample_file" in text
     assert "relay_envelope|route_key|published_at_ts|replayed_at_ts" in text
     assert "\"${RELAY_TILE_LATENCY_REQUIRED}\"" in text
+    assert "abr_decision_moderate_samples.log" in text
+    assert "abr_command_sample.log" in text
+    assert "abr_ack_sample.log" in text
+    assert "ABR encoder command sample observed on ${ABR_COMMAND_TOPIC}" in text
+    assert "ABR ack topic discovered but no samples observed (encoder may be absent): ${ABR_ACK_TOPIC}" in text
     assert "preflight_runtime_checks" in text
     assert "ensure_local_ros_package_visible" in text
     assert "ensure_local_ros_package_visible aeris_msgs || true" in text

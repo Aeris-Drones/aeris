@@ -110,7 +110,13 @@ class EncoderAck:
         raw = json.loads(payload) if isinstance(payload, str) else payload
         if not isinstance(raw, dict):
             raise ValueError("encoder ack payload must be a JSON object")
-        command_id = int(raw.get("command_id"))
+        command_id_raw = raw.get("command_id")
+        if command_id_raw is None:
+            raise ValueError("encoder ack is missing command_id")
+        try:
+            command_id = int(command_id_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("encoder ack command_id is invalid") from exc
         profile_name = str(raw.get("profile_name", "")).strip()
         applied_at_ts = float(raw.get("applied_at_ts", time.time()))
         status = str(raw.get("status", "ok")).strip().lower() or "ok"
@@ -148,7 +154,7 @@ class EncoderTransport(Protocol):
     """Encoder command transport contract."""
 
     def send_command(self, command: EncoderCommand) -> None:
-        ...
+        pass
 
 
 @dataclass
@@ -178,6 +184,7 @@ class VideoAbrController:
         self._tier_by_name, tiers = self.load_ladder_tiers(ladder_path)
         if self._config.policy.severe_floor_profile != self._config.v0_profile_name:
             self._config.policy.severe_floor_profile = self._config.v0_profile_name
+        self._config.policy.reaction_window_sec = self._config.reaction_window_sec
 
         self._policy = AbrPolicy(tiers=tiers, config=self._config.policy, now_fn=self._now_mono_fn)
         self._pending_command: _PendingCommand | None = None
@@ -185,6 +192,9 @@ class VideoAbrController:
         self._command_failures = 0
         self._decision_latencies_ms: list[float] = []
         self._reaction_latencies_ms: list[float] = []
+        self._last_ack_command_id: int | None = None
+        self._last_ack_status: str | None = None
+        self._last_ack_matched_pending = False
 
     @property
     def config(self) -> VideoAbrControllerConfig:
@@ -255,8 +265,26 @@ class VideoAbrController:
     def reconfigure_policy(self, config: AbrPolicyConfig) -> None:
         if config.severe_floor_profile != self._config.v0_profile_name:
             config.severe_floor_profile = self._config.v0_profile_name
+        self._config.reaction_window_sec = float(config.reaction_window_sec)
         self._config.policy = config
         self._policy.reconfigure(config)
+
+    def update_ack_timeout(self, timeout_sec: float) -> None:
+        self._config.ack_timeout_sec = timeout_sec
+        if self._pending_command is None:
+            return
+        self._pending_command = _PendingCommand(
+            command=self._pending_command.command,
+            retries=self._pending_command.retries,
+            deadline_monotonic=self._next_ack_deadline(),
+        )
+
+    def last_ack_details(self) -> tuple[int | None, str | None, bool]:
+        return (
+            self._last_ack_command_id,
+            self._last_ack_status,
+            self._last_ack_matched_pending,
+        )
 
     def reconfigure_v0_profile(
         self,
@@ -289,12 +317,27 @@ class VideoAbrController:
 
     def observe_encoder_ack(self, payload: str | dict[str, object]) -> bool:
         ack = EncoderAck.from_payload(payload)
-        if self._pending_command is None:
+        self._last_ack_command_id = ack.command_id
+        self._last_ack_status = ack.status
+        pending = self._pending_command
+        if pending is None:
+            self._last_ack_matched_pending = False
             return False
-        if ack.command_id != self._pending_command.command.command_id:
+        if ack.command_id != pending.command.command_id:
+            self._last_ack_matched_pending = False
             return False
-        self._pending_command = None
-        return ack.status == "ok"
+        self._last_ack_matched_pending = True
+        if ack.status == "ok":
+            self._pending_command = None
+            return True
+        # Rejected acks are actionable failures: keep the command pending and
+        # trigger immediate retry processing on the next tick/evaluate cycle.
+        self._pending_command = _PendingCommand(
+            command=pending.command,
+            retries=pending.retries,
+            deadline_monotonic=self._now_mono_fn(),
+        )
+        return False
 
     def tick(self) -> None:
         self._process_pending_timeout()
@@ -392,7 +435,7 @@ class VideoAbrController:
         self._pending_command = _PendingCommand(
             command=command,
             retries=0,
-            deadline_monotonic=self._now_mono_fn() + max(0.05, self._config.ack_timeout_sec),
+            deadline_monotonic=self._next_ack_deadline(),
         )
 
     def _process_pending_timeout(self) -> None:
@@ -404,7 +447,28 @@ class VideoAbrController:
 
         if pending.retries >= max(0, int(self._config.ack_max_retries)):
             self._command_failures += 1
-            self._pending_command = None
+            # Do not abandon adaptation after retry exhaustion; keep retrying in
+            # bounded cycles so severe-floor commands eventually apply.
+            retried = EncoderCommand(
+                command_id=pending.command.command_id,
+                action=pending.command.action,
+                profile_name=pending.command.profile_name,
+                request_ts=pending.command.request_ts,
+                reason=pending.command.reason,
+                width=pending.command.width,
+                height=pending.command.height,
+                fps=pending.command.fps,
+                gop=pending.command.gop,
+                target_bitrate_kbps=pending.command.target_bitrate_kbps,
+                max_bitrate_kbps=pending.command.max_bitrate_kbps,
+                retry_count=pending.command.retry_count + 1,
+            )
+            self._transport.send_command(retried)
+            self._pending_command = _PendingCommand(
+                command=retried,
+                retries=0,
+                deadline_monotonic=self._next_ack_deadline(),
+            )
             return
 
         retried = EncoderCommand(
@@ -425,8 +489,11 @@ class VideoAbrController:
         self._pending_command = _PendingCommand(
             command=retried,
             retries=pending.retries + 1,
-            deadline_monotonic=self._now_mono_fn() + max(0.05, self._config.ack_timeout_sec),
+            deadline_monotonic=self._next_ack_deadline(),
         )
+
+    def _next_ack_deadline(self) -> float:
+        return self._now_mono_fn() + max(0.05, self._config.ack_timeout_sec)
 
     @staticmethod
     def _percentile(values: list[float], percentile: int) -> float:
@@ -437,5 +504,5 @@ class VideoAbrController:
         clipped = max(0.0, min(100.0, float(percentile))) / 100.0
         # Deterministic quantile estimate for short windows.
         sorted_values = sorted(float(v) for v in values)
-        index = int(round((len(sorted_values) - 1) * clipped))
+        index = round((len(sorted_values) - 1) * clipped)
         return float(sorted_values[index])

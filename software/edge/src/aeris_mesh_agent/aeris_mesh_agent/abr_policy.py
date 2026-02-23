@@ -47,6 +47,7 @@ class AbrPolicyConfig:
     min_dwell_sec: float = 2.0
     min_downgrade_interval_sec: float = 0.25
     severe_hold_sec: float = 2.0
+    reaction_window_sec: float = 1.0
     allow_video_suspend: bool = True
     severe_floor_profile: str = "V0"
     downgrade_step: int = 1
@@ -139,11 +140,19 @@ class AbrPolicy:
 
     def evaluate(self, sample: LinkHealthSample) -> AbrDecision | None:
         now = float(sample.timestamp_monotonic)
-        severe = self._is_severe(sample)
+        severe_threshold = self._is_severe(sample)
+        severe = severe_threshold
         degraded = severe or self._is_degraded(sample)
-        healthy_for_upgrade = self._is_upgrade_healthy(sample)
-
         self._track_impairment_window(now=now, degraded=degraded)
+        reaction_window_escalation = self._reaction_window_exceeded(
+            now=now,
+            degraded=degraded,
+            severe=severe_threshold,
+        )
+        if reaction_window_escalation:
+            severe = True
+            degraded = True
+        healthy_for_upgrade = self._is_upgrade_healthy(sample)
 
         if self._video_suspended:
             if severe:
@@ -167,11 +176,15 @@ class AbrPolicy:
                     sample=sample,
                     action="switch_profile",
                     to_profile=self._config.severe_floor_profile,
-                    reason="severe-impairment-force-v0",
+                    reason=(
+                        "reaction-window-force-v0"
+                        if reaction_window_escalation
+                        else "severe-impairment-force-v0"
+                    ),
                     degraded=degraded,
                     severe=severe,
                 )
-            if self._config.allow_video_suspend:
+            if self._config.allow_video_suspend and not reaction_window_escalation:
                 severe_elapsed = now - self._severe_started_monotonic
                 if severe_elapsed >= self._config.severe_hold_sec:
                     return self._transition(
@@ -245,6 +258,16 @@ class AbrPolicy:
             return
         self._impairment_started_monotonic = None
         self._impairment_reaction_recorded = True
+
+    def _reaction_window_exceeded(self, *, now: float, degraded: bool, severe: bool) -> bool:
+        if severe or not degraded:
+            return False
+        if self._impairment_started_monotonic is None:
+            return False
+        reaction_window_sec = max(0.0, float(self._config.reaction_window_sec))
+        if reaction_window_sec <= 0.0:
+            return False
+        return (now - self._impairment_started_monotonic) >= reaction_window_sec
 
     def _is_degraded(self, sample: LinkHealthSample) -> bool:
         cfg = self._config

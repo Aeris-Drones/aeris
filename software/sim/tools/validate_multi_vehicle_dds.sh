@@ -37,8 +37,13 @@
 #   DETECTION_TOPIC                Default: /detections/fused
 #   REPLAY_ANNOTATION_TOPIC        Default: /mesh/replay_annotations
 #   ABR_DECISION_TOPIC             Default: /mesh/abr_decisions
+#   ABR_COMMAND_TOPIC              Default: /mesh/video/encoder_profile_cmd
+#   ABR_ACK_TOPIC                  Default: /mesh/video/encoder_profile_ack
 #   ABR_DECISION_SAMPLE_TIMEOUT_SEC Default: 12
 #   ABR_REACTION_P95_TARGET_MS     Default: 1000
+#   ABR_MODERATE_DROP_PROB         Default: 0.50
+#   ABR_MODERATE_DELAY_MS          Default: 150
+#   ABR_MODERATE_PHASE_SEC         Default: 3
 #   ABR_SEVERE_DROP_PROB           Default: 1.0
 #   ABR_SEVERE_PHASE_SEC           Default: 3
 #   ABR_REQUIRED                   Default: 1 (fail validation if ABR checks cannot be asserted)
@@ -85,8 +90,13 @@ TELEMETRY_TOPIC=${TELEMETRY_TOPIC:-/orchestrator/heartbeat}
 DETECTION_TOPIC=${DETECTION_TOPIC:-/detections/fused}
 REPLAY_ANNOTATION_TOPIC=${REPLAY_ANNOTATION_TOPIC:-/mesh/replay_annotations}
 ABR_DECISION_TOPIC=${ABR_DECISION_TOPIC:-/mesh/abr_decisions}
+ABR_COMMAND_TOPIC=${ABR_COMMAND_TOPIC:-/mesh/video/encoder_profile_cmd}
+ABR_ACK_TOPIC=${ABR_ACK_TOPIC:-/mesh/video/encoder_profile_ack}
 ABR_DECISION_SAMPLE_TIMEOUT_SEC=${ABR_DECISION_SAMPLE_TIMEOUT_SEC:-12}
 ABR_REACTION_P95_TARGET_MS=${ABR_REACTION_P95_TARGET_MS:-1000}
+ABR_MODERATE_DROP_PROB=${ABR_MODERATE_DROP_PROB:-0.50}
+ABR_MODERATE_DELAY_MS=${ABR_MODERATE_DELAY_MS:-150}
+ABR_MODERATE_PHASE_SEC=${ABR_MODERATE_PHASE_SEC:-3}
 ABR_SEVERE_DROP_PROB=${ABR_SEVERE_DROP_PROB:-1.0}
 ABR_SEVERE_PHASE_SEC=${ABR_SEVERE_PHASE_SEC:-3}
 ABR_REQUIRED=${ABR_REQUIRED:-1}
@@ -576,6 +586,71 @@ else:
 PY
 }
 
+assert_abr_moderate_behavior() {
+  local decision_file=$1
+  local require_samples=$2
+
+  python3 - "$decision_file" "$require_samples" <<'PY'
+import json
+import re
+import sys
+
+decision_file = sys.argv[1]
+require_samples = str(sys.argv[2]).strip().lower() in {"1", "true", "yes", "on"}
+
+decision_count = 0
+moderate_step_down_found = False
+forbidden_actions_found = []
+
+with open(decision_file, "r", encoding="utf-8", errors="ignore") as f:
+    for line in f:
+        line = line.strip()
+        match = re.search(r"data:\s*'(.+)'", line)
+        if not match:
+            continue
+        raw = match.group(1).replace("\\'", "'")
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        decision_count += 1
+        action = str(payload.get("action", "")).strip().lower()
+        reason = str(payload.get("reason", "")).strip().lower()
+        to_profile = str(payload.get("to_profile", "")).strip().upper()
+        if action == "switch_profile" and reason == "link-degraded-step-down" and to_profile != "V0":
+            moderate_step_down_found = True
+        if action == "suspend_video":
+            forbidden_actions_found.append("suspend_video")
+        if action == "switch_profile" and to_profile == "V0":
+            forbidden_actions_found.append("switch_to_v0")
+
+if decision_count == 0:
+    if require_samples:
+        print("ERROR: no ABR decision samples captured during moderate impairment phase")
+        sys.exit(1)
+    print("WARNING: no ABR decision samples during moderate impairment; skipping moderate assertions")
+    sys.exit(0)
+
+if not moderate_step_down_found:
+    if require_samples:
+        print("ERROR: moderate impairment phase did not produce non-V0 link-degraded-step-down decision")
+        sys.exit(1)
+    print("WARNING: moderate impairment phase lacked non-V0 step-down decision")
+    sys.exit(0)
+
+if forbidden_actions_found:
+    print(
+        "ERROR: moderate impairment phase triggered severe fallback actions: "
+        + ",".join(sorted(set(forbidden_actions_found)))
+    )
+    sys.exit(1)
+
+print("ABR moderate impairment behavior verified: non-V0 step-down observed without severe fallback")
+PY
+}
+
 is_truthy() {
   local value="${1:-}"
   case "${value,,}" in
@@ -662,7 +737,11 @@ run_validation_pass() {
   local replay_annotation_sample_file=""
   local relay_tile_latency_sample_file=""
   local abr_decision_hz_file=""
+  local abr_decision_moderate_hz_file=""
+  local abr_decision_moderate_sample_file=""
   local abr_decision_sample_file=""
+  local abr_command_sample_file=""
+  local abr_ack_sample_file=""
   local restored_mesh_hz_file=""
   local restored_telemetry_hz_file=""
   local restored_map_hz_file=""
@@ -736,6 +815,8 @@ run_validation_pass() {
     -p replay_annotation_topic:="${REPLAY_ANNOTATION_TOPIC#/}" \
     -p abr_enabled:=true \
     -p abr_decision_topic:="${ABR_DECISION_TOPIC#/}" \
+    -p abr_command_topic:="${ABR_COMMAND_TOPIC#/}" \
+    -p abr_ack_topic:="${ABR_ACK_TOPIC#/}" \
     -p abr_heartbeat_severe_age_sec:=0.8 \
     -p abr_severe_hold_sec:=1.5 \
     -p abr_allow_video_suspend:=true \
@@ -859,9 +940,38 @@ run_validation_pass() {
     echo "[validate_multi_vehicle_dds] WARNING: ABR decision topic not discovered during initial impairment window: ${ABR_DECISION_TOPIC}" >&2
   fi
 
+  echo "[validate_multi_vehicle_dds] Applying ABR moderate impairment checks (drop_prob=${ABR_MODERATE_DROP_PROB}, delay_ms=${ABR_MODERATE_DELAY_MS}, phase=${ABR_MODERATE_PHASE_SEC}s)"
+  ros2 param set /impairment_relay drop_prob "${ABR_MODERATE_DROP_PROB}" >"${pass_log_dir}/param_set_drop_prob_moderate.log"
+  ros2 param set /impairment_relay delay_ms "${ABR_MODERATE_DELAY_MS}" >"${pass_log_dir}/param_set_delay_ms_moderate.log"
+  sleep "${ABR_MODERATE_PHASE_SEC}"
+
+  if ros2 topic list 2>/dev/null | grep -Fxq "${ABR_DECISION_TOPIC}"; then
+    abr_decision_moderate_hz_file=$(sample_topic_hz "${ABR_DECISION_TOPIC}" "${pass_log_dir}" "abr_decisions_moderate")
+    if ! assert_topic_rate_observed "${ABR_DECISION_TOPIC}" "moderate" "${abr_decision_moderate_hz_file}"; then
+      echo "[validate_multi_vehicle_dds] WARNING: no ABR decision rate observed during moderate impairment window: ${ABR_DECISION_TOPIC}" >&2
+    fi
+    abr_decision_moderate_sample_file="${pass_log_dir}/abr_decision_moderate_samples.log"
+    timeout "${ABR_DECISION_SAMPLE_TIMEOUT_SEC}"s ros2 topic echo --full-length "${ABR_DECISION_TOPIC}" >"${abr_decision_moderate_sample_file}" 2>&1 || true
+    if [[ -f "${abr_decision_moderate_sample_file}" ]] && grep -Eiq 'action|to_profile|reason' "${abr_decision_moderate_sample_file}"; then
+      assert_abr_moderate_behavior "${abr_decision_moderate_sample_file}" "${ABR_REQUIRED}"
+    else
+      if is_truthy "${ABR_REQUIRED}"; then
+        echo "[validate_multi_vehicle_dds] ERROR: ABR moderate samples missing required fields on ${ABR_DECISION_TOPIC}" >&2
+        return 1
+      fi
+      echo "[validate_multi_vehicle_dds] WARNING: ABR moderate samples missing expected fields on ${ABR_DECISION_TOPIC}; skipping strict moderate assertions." >&2
+    fi
+  else
+    if is_truthy "${ABR_REQUIRED}"; then
+      echo "[validate_multi_vehicle_dds] ERROR: ABR decision topic missing for moderate checks: ${ABR_DECISION_TOPIC}" >&2
+      return 1
+    fi
+    echo "[validate_multi_vehicle_dds] WARNING: ABR decision topic missing for moderate checks: ${ABR_DECISION_TOPIC}" >&2
+  fi
+
   echo "[validate_multi_vehicle_dds] Escalating impairment for ABR severe fallback checks (drop_prob=${ABR_SEVERE_DROP_PROB}, phase=${ABR_SEVERE_PHASE_SEC}s)"
   ros2 param set /impairment_relay drop_prob "${ABR_SEVERE_DROP_PROB}" >"${pass_log_dir}/param_set_drop_prob_severe.log"
-  sleep 1
+  ros2 param set /impairment_relay delay_ms "${ABR_MODERATE_DELAY_MS}" >"${pass_log_dir}/param_set_delay_ms_severe.log"
 
   if ros2 topic list 2>/dev/null | grep -Fxq "${ABR_DECISION_TOPIC}"; then
     abr_decision_sample_file="${pass_log_dir}/abr_decision_samples.log"
@@ -881,6 +991,38 @@ run_validation_pass() {
       return 1
     fi
     echo "[validate_multi_vehicle_dds] WARNING: ABR decision topic not discovered (skipping ABR checks): ${ABR_DECISION_TOPIC}" >&2
+  fi
+
+  if ros2 topic list 2>/dev/null | grep -Fxq "${ABR_COMMAND_TOPIC}"; then
+    abr_command_sample_file="${pass_log_dir}/abr_command_sample.log"
+    timeout "${PROBE_TIMEOUT_SEC}"s ros2 topic echo --full-length "${ABR_COMMAND_TOPIC}" --once >"${abr_command_sample_file}" 2>&1 || true
+    if [[ -s "${abr_command_sample_file}" ]]; then
+      echo "[validate_multi_vehicle_dds] ABR encoder command sample observed on ${ABR_COMMAND_TOPIC}"
+    else
+      if is_truthy "${ABR_REQUIRED}"; then
+        echo "[validate_multi_vehicle_dds] ERROR: ABR command topic had no samples during severe phase: ${ABR_COMMAND_TOPIC}" >&2
+        return 1
+      fi
+      echo "[validate_multi_vehicle_dds] WARNING: ABR command topic had no samples during severe phase: ${ABR_COMMAND_TOPIC}" >&2
+    fi
+  else
+    if is_truthy "${ABR_REQUIRED}"; then
+      echo "[validate_multi_vehicle_dds] ERROR: ABR command topic not discovered: ${ABR_COMMAND_TOPIC}" >&2
+      return 1
+    fi
+    echo "[validate_multi_vehicle_dds] WARNING: ABR command topic not discovered: ${ABR_COMMAND_TOPIC}" >&2
+  fi
+
+  if ros2 topic list 2>/dev/null | grep -Fxq "${ABR_ACK_TOPIC}"; then
+    abr_ack_sample_file="${pass_log_dir}/abr_ack_sample.log"
+    timeout "${PROBE_TIMEOUT_SEC}"s ros2 topic echo --full-length "${ABR_ACK_TOPIC}" --once >"${abr_ack_sample_file}" 2>&1 || true
+    if [[ -s "${abr_ack_sample_file}" ]]; then
+      echo "[validate_multi_vehicle_dds] ABR encoder ack sample observed on ${ABR_ACK_TOPIC}"
+    else
+      echo "[validate_multi_vehicle_dds] WARNING: ABR ack topic discovered but no samples observed (encoder may be absent): ${ABR_ACK_TOPIC}" >&2
+    fi
+  else
+    echo "[validate_multi_vehicle_dds] WARNING: ABR ack topic not discovered: ${ABR_ACK_TOPIC}" >&2
   fi
   sleep "${ABR_SEVERE_PHASE_SEC}"
 
@@ -993,8 +1135,13 @@ echo "[validate_multi_vehicle_dds] RMW_FASTRTPS_USE_QOS_FROM_XML=${RMW_FASTRTPS_
 echo "[validate_multi_vehicle_dds] RELAY_TILE_LATENCY_P95_TARGET_SEC=${RELAY_TILE_LATENCY_P95_TARGET_SEC}"
 echo "[validate_multi_vehicle_dds] RELAY_TILE_LATENCY_REQUIRED=${RELAY_TILE_LATENCY_REQUIRED}"
 echo "[validate_multi_vehicle_dds] ABR_DECISION_TOPIC=${ABR_DECISION_TOPIC}"
+echo "[validate_multi_vehicle_dds] ABR_COMMAND_TOPIC=${ABR_COMMAND_TOPIC}"
+echo "[validate_multi_vehicle_dds] ABR_ACK_TOPIC=${ABR_ACK_TOPIC}"
 echo "[validate_multi_vehicle_dds] ABR_REACTION_P95_TARGET_MS=${ABR_REACTION_P95_TARGET_MS}"
 echo "[validate_multi_vehicle_dds] ABR_REQUIRED=${ABR_REQUIRED}"
+echo "[validate_multi_vehicle_dds] ABR_MODERATE_DROP_PROB=${ABR_MODERATE_DROP_PROB}"
+echo "[validate_multi_vehicle_dds] ABR_MODERATE_DELAY_MS=${ABR_MODERATE_DELAY_MS}"
+echo "[validate_multi_vehicle_dds] ABR_MODERATE_PHASE_SEC=${ABR_MODERATE_PHASE_SEC}"
 echo "[validate_multi_vehicle_dds] ABR_SEVERE_DROP_PROB=${ABR_SEVERE_DROP_PROB}"
 echo "[validate_multi_vehicle_dds] ABR_SEVERE_PHASE_SEC=${ABR_SEVERE_PHASE_SEC}"
 echo "[validate_multi_vehicle_dds] MAP_TILE_FALLBACK_ENABLE=${MAP_TILE_FALLBACK_ENABLE}"

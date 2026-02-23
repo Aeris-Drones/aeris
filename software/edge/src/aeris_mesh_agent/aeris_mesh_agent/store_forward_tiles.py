@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import time
 from typing import Any
 
@@ -152,7 +153,9 @@ class StoreForwardTiles(Node):
         )
         self._abr_enabled = bool(self.declare_parameter("abr_enabled", True).value)
         self._abr_ladder_config = str(
-            self.declare_parameter("abr_ladder_config", "software/edge/config/srt/abr_ladder.yaml").value
+            self.declare_parameter(
+                "abr_ladder_config", "software/edge/config/srt/abr_ladder.yaml"
+            ).value
         )
         self._abr_command_topic = str(
             self.declare_parameter("abr_command_topic", "mesh/video/encoder_profile_cmd").value
@@ -419,7 +422,6 @@ class StoreForwardTiles(Node):
             "replay_annotation_topic",
             "pdr_topic",
             "storage_path",
-            "abr_enabled",
             "abr_ladder_config",
             "abr_command_topic",
             "abr_ack_topic",
@@ -551,6 +553,21 @@ class StoreForwardTiles(Node):
                 )
                 continue
 
+            if param.name == "abr_enabled":
+                desired = bool(param.value)
+                if desired == self._abr_enabled:
+                    continue
+                if desired:
+                    try:
+                        self._enable_abr_runtime()
+                    except RuntimeError as exc:
+                        self.get_logger().error(str(exc))
+                        return SetParametersResult(successful=False)
+                else:
+                    self._disable_abr_runtime()
+                self._abr_enabled = desired
+                continue
+
             if param.name == "abr_eval_period_sec":
                 value = float(param.value)
                 if value <= 0.0:
@@ -570,7 +587,7 @@ class StoreForwardTiles(Node):
                     return SetParametersResult(successful=False)
                 self._abr_ack_timeout_sec = value
                 if self._abr_controller is not None:
-                    self._abr_controller.config.ack_timeout_sec = value
+                    self._abr_controller.update_ack_timeout(value)
                 continue
 
             if param.name == "abr_ack_max_retries":
@@ -589,6 +606,7 @@ class StoreForwardTiles(Node):
                 self._abr_reaction_window_sec = value
                 if self._abr_controller is not None:
                     self._abr_controller.config.reaction_window_sec = value
+                    self._abr_controller.reconfigure_policy(self._current_abr_policy_config())
                 continue
 
             if param.name == "abr_min_dwell_sec":
@@ -824,11 +842,56 @@ class StoreForwardTiles(Node):
             min_dwell_sec=self._abr_min_dwell_sec,
             min_downgrade_interval_sec=self._abr_min_downgrade_interval_sec,
             severe_hold_sec=self._abr_severe_hold_sec,
+            reaction_window_sec=self._abr_reaction_window_sec,
             allow_video_suspend=self._abr_allow_video_suspend,
             severe_floor_profile=self._abr_v0_profile_name,
         )
 
+    def _resolve_abr_ladder_path(self, configured_path: str) -> str:
+        configured = Path(configured_path).expanduser()
+        candidates: list[Path] = []
+        if configured.is_absolute():
+            candidates.append(configured)
+        else:
+            candidates.append(Path.cwd() / configured)
+            # Source-tree fallback for local development.
+            edge_root = Path(__file__).resolve().parents[3]
+            candidates.append(edge_root / "config" / "srt" / configured.name)
+
+        # Installed-package fallback for ROS deployments.
+        try:
+            from ament_index_python.packages import get_package_share_directory
+        except ImportError:
+            get_package_share_directory = None
+
+        if get_package_share_directory is not None:
+            try:
+                share_dir = Path(get_package_share_directory("aeris_mesh_agent"))
+                candidates.append(share_dir / "config" / "srt" / configured.name)
+            except Exception:
+                pass
+
+        seen: set[str] = set()
+        unique_candidates: list[Path] = []
+        for candidate in candidates:
+            normalized = str(candidate.resolve(strict=False))
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            unique_candidates.append(candidate)
+
+        for candidate in unique_candidates:
+            if candidate.is_file():
+                return str(candidate.resolve())
+
+        tried = ", ".join(str(path.resolve(strict=False)) for path in unique_candidates)
+        raise RuntimeError(
+            "ABR ladder config not found. Configure 'abr_ladder_config' with an absolute path. "
+            f"Tried: {tried}"
+        )
+
     def _create_abr_controller(self) -> VideoAbrController:
+        ladder_path = self._resolve_abr_ladder_path(self._abr_ladder_config)
         config = VideoAbrControllerConfig(
             ack_timeout_sec=self._abr_ack_timeout_sec,
             ack_max_retries=self._abr_ack_max_retries,
@@ -843,13 +906,33 @@ class StoreForwardTiles(Node):
         )
         try:
             controller = VideoAbrController(
-                ladder_path=self._abr_ladder_config,
+                ladder_path=ladder_path,
                 config=config,
                 transport=_RosEncoderTransport(publisher=self._abr_command_publisher),
             )
         except Exception as exc:
             raise RuntimeError(f"failed to initialize ABR ladder/controller: {exc}") from exc
         return controller
+
+    def _enable_abr_runtime(self) -> None:
+        if self._abr_controller is None:
+            self._abr_controller = self._create_abr_controller()
+        if self._abr_ack_subscription is None and self._abr_ack_topic:
+            self._abr_ack_subscription = self.create_subscription(
+                String, self._abr_ack_topic, self._handle_abr_ack, 10
+            )
+        if self._abr_timer is None:
+            self._abr_timer = self.create_timer(self._abr_eval_period_sec, self._evaluate_abr)
+
+    def _disable_abr_runtime(self) -> None:
+        if self._abr_timer is not None:
+            self._abr_timer.cancel()
+            self.destroy_timer(self._abr_timer)
+            self._abr_timer = None
+        if self._abr_ack_subscription is not None:
+            self.destroy_subscription(self._abr_ack_subscription)
+            self._abr_ack_subscription = None
+        self._abr_controller = None
 
     def _active_link_health_sample(self) -> tuple[LinkHealthSample, RelayRouteDecision]:
         decision = self._select_route_decision()
@@ -968,8 +1051,16 @@ class StoreForwardTiles(Node):
         except ValueError:
             self.get_logger().warning("invalid ABR ack payload; ignoring")
             return
-        if not accepted:
-            self.get_logger().debug("received ABR ack for unknown/stale command")
+        if accepted:
+            return
+        ack_command_id, ack_status, matched_pending = self._abr_controller.last_ack_details()
+        if matched_pending and ack_status and ack_status != "ok":
+            self.get_logger().warning(
+                "encoder rejected ABR command "
+                f"(command_id={ack_command_id}, status={ack_status}); retrying"
+            )
+            return
+        self.get_logger().debug("received ABR ack for unknown/stale command")
 
     def _handle_map_tile_relay_ingress(self, msg: MapTile) -> None:
         self._handle_outbound(
