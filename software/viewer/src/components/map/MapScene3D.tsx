@@ -10,10 +10,10 @@ import { FlightTrail3D } from './FlightTrail3D';
 import { ZoneOverlay3D, ZoneDrawingPreview } from './ZoneOverlay3D';
 import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
 import type { Detection } from '@/components/sheets/DetectionCard';
-import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useMapTiles } from '@/hooks/useMapTiles';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 import type { TileData } from '@/lib/map/MapTileManager';
+import type { VehicleState } from '@/lib/vehicle/VehicleManager';
 
 /**
  * Imperative handle interface exposed by MapScene3D.
@@ -32,6 +32,10 @@ export interface MapScene3DHandle {
  * Props for the MapScene3D component.
  */
 interface MapScene3DProps {
+  /** Vehicle telemetry snapshots to render in the scene */
+  vehicles?: VehicleState[];
+  /** Optional return trajectory overlays by vehicle ID */
+  returnTrajectories?: Record<string, [number, number, number][]>;
   /** Sensor detections to render in the scene */
   detections?: Detection[];
   /** Currently selected drone ID for highlighting */
@@ -78,6 +82,8 @@ interface MapScene3DProps {
  */
 export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
   ({
+    vehicles = [],
+    returnTrajectories = {},
     detections = [],
     selectedDroneId,
     selectedDetectionId,
@@ -91,7 +97,6 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     drawingPriority = 1,
     onAddZonePoint,
   }, ref) => {
-    const { vehicles, returnTrajectories } = useVehicleTelemetry();
     const { tiles: mapTiles } = useMapTiles();
     const visibility = useLayerVisibility();
     const cameraControlsRef = useRef<CameraControls>(null);

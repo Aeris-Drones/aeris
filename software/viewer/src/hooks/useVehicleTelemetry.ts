@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import ROSLIB from 'roslib';
-import { useROSConnection } from './useROSConnection';
+import { useSharedROSConnection } from '@/context/ROSConnectionContext';
 import { VehicleManager, VehicleState } from '../lib/vehicle/VehicleManager';
 import { parseVehicleTelemetry } from '../lib/ros/telemetry';
 import {
@@ -25,7 +25,7 @@ const REPLAY_METADATA_TTL_MS = 5 * 60 * 1000;
  * - /mission/progress: Return-to-launch trajectories (std_msgs/String JSON)
  */
 export function useVehicleTelemetry() {
-  const { ros, isConnected } = useROSConnection();
+  const { ros, isConnected } = useSharedROSConnection();
   const { origin, setOrigin } = useCoordinateOrigin();
   const [vehicles, setVehicles] = useState<VehicleState[]>([]);
   const [returnTrajectories, setReturnTrajectories] = useState<ReturnTrajectoryMap>({});
@@ -57,7 +57,10 @@ export function useVehicleTelemetry() {
       latestTelemetryKeyCache,
     ]);
 
-    if (!ros || !isConnected) return;
+    if (!ros || !isConnected) {
+      manager.clear();
+      return;
+    }
 
     const topic = new ROSLIB.Topic({
       ros: ros,
@@ -235,7 +238,11 @@ export function useVehicleTelemetry() {
       return () => clearInterval(interval);
   }, [vehicles.length, manager]);
 
-  return { vehicles, manager, returnTrajectories };
+  return {
+    vehicles: isConnected ? vehicles : [],
+    manager,
+    returnTrajectories: isConnected ? returnTrajectories : {},
+  };
 }
 
 function buildTelemetryDedupeKey(rawMessage: ROSLIB.Message): string | null {

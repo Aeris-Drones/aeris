@@ -24,6 +24,9 @@ export interface VehicleState {
   isRetroactive?: boolean;
   originalEventTsMs?: number;
   replayedAtTsMs?: number | null;
+  batteryPercent?: number;
+  linkQualityPercent?: number;
+  coveragePercent?: number;
   /** Vehicle color based on type (SCOUT=blue, RANGER=orange, UNKNOWN=gray) */
   color: Color;
 }
@@ -147,6 +150,9 @@ export class VehicleManager {
       isRetroactive: message.replay?.isRetroactive ?? false,
       originalEventTsMs: message.replay?.originalEventTsMs ?? messageTimestampMs,
       replayedAtTsMs: message.replay?.replayedAtTsMs ?? null,
+      batteryPercent: message.battery_percent,
+      linkQualityPercent: message.link_quality,
+      coveragePercent: message.coverage_percent,
       color: color
     });
 
@@ -202,5 +208,11 @@ export class VehicleManager {
       if (!vehicle) return null;
 
       return { position: vehicle.position, heading: vehicle.heading };
+  }
+
+  public clear(): void {
+    this.vehicles.clear();
+    this.trajectoryBuffers.clear();
+    this.lastTelemetry.clear();
   }
 }

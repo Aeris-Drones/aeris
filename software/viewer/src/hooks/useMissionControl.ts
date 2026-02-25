@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useCallback, useState } from 'react';
 import { useMissionContext } from '@/context/MissionContext';
 import { useZoneContext } from '@/context/ZoneContext';
-import { useROSConnection } from './useROSConnection';
+import { useSharedROSConnection } from '@/context/ROSConnectionContext';
 import {
   generateMissionId,
   type MissionPhase,
@@ -94,7 +94,7 @@ export function useMissionControl(): MissionControlState {
   } = useMissionContext();
   const { selectedZone } = useZoneContext();
 
-  const { ros, isConnected: rosConnected } = useROSConnection();
+  const { ros, isConnected: rosConnected } = useSharedROSConnection();
   const [selectedPattern, setSelectedPattern] = useState<SearchPattern>('lawnmower');
   const [startMissionError, setStartMissionError] = useState<string | null>(null);
   const [abortMissionError, setAbortMissionError] = useState<string | null>(null);

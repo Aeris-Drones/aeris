@@ -25,7 +25,7 @@ export interface VehicleInfo {
   id: string;
   name: string;
   status: VehicleStatus;
-  battery: number;
+  battery: number | null;
   altitude: number;
   linkQuality?: number;
   coverage?: number;
@@ -98,7 +98,8 @@ const statusConfig: Record<VehicleStatus, {
  * Thresholds align with operator training: <20% requires immediate RTH
  * per flight safety protocols. Colors match statusConfig for consistency.
  */
-function getBatteryColor(battery: number): string {
+function getBatteryColor(battery: number | null): string {
+  if (battery === null) return 'text-white/40';
   if (battery > 50) return 'text-emerald-400';
   if (battery > 20) return 'text-amber-400';
   return 'text-red-400';
@@ -108,7 +109,8 @@ function getBatteryColor(battery: number): string {
  * Returns the SVG stroke color class for the battery arc indicator.
  * Mirrors getBatteryColor logic for visual consistency.
  */
-function getBatteryStroke(battery: number): string {
+function getBatteryStroke(battery: number | null): string {
+  if (battery === null) return 'stroke-white/40';
   if (battery > 50) return 'stroke-emerald-400';
   if (battery > 20) return 'stroke-amber-400';
   return 'stroke-red-400';
@@ -120,10 +122,11 @@ function getBatteryStroke(battery: number): string {
  * Renders a progress arc that depletes counter-clockwise as battery drains.
  * The -90deg rotation ensures the arc starts at 12 o'clock position.
  */
-function BatteryArc({ battery }: { battery: number }) {
+function BatteryArc({ battery }: { battery: number | null }) {
   const radius = 26;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference * (1 - battery / 100);
+  const value = battery ?? 0;
+  const strokeDashoffset = circumference * (1 - value / 100);
 
   return (
     <svg className="h-16 w-16 -rotate-90" viewBox="0 0 60 60">
@@ -197,9 +200,9 @@ export function VehicleCard({
           <BatteryArc battery={vehicle.battery} />
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span className={cn('font-mono text-base font-light tabular-nums', getBatteryColor(vehicle.battery))}>
-              {vehicle.battery}
+              {vehicle.battery ?? '--'}
             </span>
-            <span className="text-[8px] text-white/30">%</span>
+            <span className="text-[8px] text-white/30">{vehicle.battery === null ? '' : '%'}</span>
           </div>
         </div>
       </div>

@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import ROSLIB from 'roslib';
 import { useCoordinateOrigin } from '@/context/CoordinateOriginContext';
 import { MapStats, MapTileManager, TileData } from '@/lib/map/MapTileManager';
-import type { MapTileMessage } from '@/lib/ros/mapTile';
-import { useROSConnection } from './useROSConnection';
+import { useSharedROSConnection } from '@/context/ROSConnectionContext';
+import { normalizeMapTileMessage } from '@/lib/ros/mapTilePayload';
 
 interface UseMapTilesOptions {
   topicName?: string;
@@ -36,7 +36,7 @@ export function useMapTiles(
   options: UseMapTilesOptions = {}
 ): UseMapTilesResult {
   const merged = { ...DEFAULT_OPTIONS, ...options };
-  const { ros, isConnected } = useROSConnection();
+  const { ros, isConnected } = useSharedROSConnection();
   const { origin, setOrigin } = useCoordinateOrigin();
   const [manager] = useState(() => new MapTileManager(merged.maxTiles));
   const [tiles, setTiles] = useState<TileData[]>([]);
@@ -57,6 +57,7 @@ export function useMapTiles(
 
   useEffect(() => {
     if (!ros || !isConnected) {
+      manager.clear();
       return;
     }
 
@@ -67,12 +68,13 @@ export function useMapTiles(
     });
 
     const handleMessage = (rawMessage: ROSLIB.Message) => {
-      if (!isValidMapTileMessage(rawMessage)) {
+      const normalizedMessage = normalizeMapTileMessage(rawMessage);
+      if (!normalizedMessage) {
         console.warn('[useMapTiles] Ignoring invalid map tile payload');
         return;
       }
 
-      const ingestResult = manager.ingest(rawMessage, originRef.current);
+      const ingestResult = manager.ingest(normalizedMessage, originRef.current);
       if (!ingestResult) {
         return;
       }
@@ -91,19 +93,9 @@ export function useMapTiles(
     };
   }, [isConnected, manager, merged.messageType, merged.topicName, ros]);
 
-  return { tiles, stats, isConnected };
-}
-
-function isValidMapTileMessage(value: unknown): value is MapTileMessage {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const message = value as Partial<MapTileMessage>;
-  return (
-    typeof message.tile_id === 'string' &&
-    message.tile_id.trim().length > 0 &&
-    typeof message.format === 'string' &&
-    Number.isFinite(Number(message.byte_size)) &&
-    Number(message.byte_size) >= 0
-  );
+  return {
+    tiles: isConnected ? tiles : [],
+    stats: isConnected ? stats : EMPTY_STATS,
+    isConnected,
+  };
 }

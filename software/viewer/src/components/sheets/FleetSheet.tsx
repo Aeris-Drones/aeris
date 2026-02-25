@@ -76,7 +76,12 @@ export function FleetSheet({
   // Fleet-wide aggregations for the header summary
   const activeCount = vehicles.filter(v => v.status === 'active' || v.status === 'warning').length;
   const warningCount = vehicles.filter(v => v.status === 'warning' || v.status === 'error').length;
-  const avgBattery = Math.round(vehicles.reduce((sum, v) => sum + v.battery, 0) / (vehicles.length || 1));
+  const batteryReadings = vehicles
+    .map(v => v.battery)
+    .filter((battery): battery is number => typeof battery === 'number');
+  const avgBattery = batteryReadings.length > 0
+    ? Math.round(batteryReadings.reduce((sum, battery) => sum + battery, 0) / batteryReadings.length)
+    : null;
 
   // Fleet status bar provides immediate visual health assessment
 
@@ -110,7 +115,7 @@ export function FleetSheet({
                 )}
                 <span className="flex items-center gap-1.5 text-white/50">
                   <Battery className="h-3.5 w-3.5" />
-                  <span className="font-mono text-sm">{avgBattery}%</span>
+                  <span className="font-mono text-sm">{avgBattery === null ? '--' : `${avgBattery}%`}</span>
                   <span className="text-white/30">avg</span>
                 </span>
               </div>

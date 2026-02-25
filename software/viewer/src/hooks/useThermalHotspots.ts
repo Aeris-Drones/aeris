@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import ROSLIB from 'roslib';
 import type { Detection } from '@/components/sheets/DetectionCard';
 import type { VehicleState } from '@/lib/vehicle/VehicleManager';
-import { useROSConnection } from './useROSConnection';
+import { useSharedROSConnection } from '@/context/ROSConnectionContext';
 
 interface ThermalHotspotMessage {
   stamp?: { sec?: number; nanosec?: number };
@@ -91,7 +91,7 @@ export function useThermalHotspots(
   options: UseThermalHotspotsOptions = {}
 ): UseThermalHotspotsResult {
   const merged = { ...DEFAULT_OPTIONS, ...options };
-  const { ros, isConnected } = useROSConnection();
+  const { ros, isConnected } = useSharedROSConnection();
   const [detections, setDetections] = useState<Detection[]>([]);
 
   const vehicleByKey = useMemo(() => {
