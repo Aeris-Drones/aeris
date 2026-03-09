@@ -464,6 +464,35 @@ def test_start_mission_rejects_non_finite_polygon_coordinates(mission_harness) -
     assert "invalid zone polygon" in response.message
 
 
+def test_start_mission_rejects_extreme_polygon_coordinates(mission_harness) -> None:
+    _, observer = mission_harness
+
+    request = MissionCommand.Request()
+    request.command = "START"
+    request.mission_id = "extreme-coordinates"
+    request.zone_geometry = json.dumps(
+        {
+            "pattern": "lawnmower",
+            "zone": {
+                "id": "zone-extreme-coordinates",
+                "polygon": [
+                    {"x": 0.0, "z": 0.0},
+                    {"x": 1_500_000.0, "z": 0.0},
+                    {"x": 1_500_000.0, "z": 10.0},
+                    {"x": 0.0, "z": 10.0},
+                ],
+            },
+        }
+    )
+    result_future = observer.start_client.call_async(request)
+
+    assert _wait_until(lambda: result_future.done())
+    response = result_future.result()
+    assert response is not None
+    assert not response.success
+    assert "invalid zone polygon" in response.message
+
+
 def test_start_mission_prefers_recently_seen_scout_endpoint(mission_harness) -> None:
     mission_node, observer = mission_harness
 

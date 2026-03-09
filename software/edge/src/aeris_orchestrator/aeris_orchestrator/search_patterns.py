@@ -16,6 +16,9 @@ from .vehicle_ids import normalize_vehicle_id
 Waypoint = dict[str, float]
 
 _EPSILON = 1e-6
+_MAX_POLYGON_POINTS = 512
+_MAX_COORDINATE_ABS_M = 1_000_000.0
+_MAX_LAWNMOWER_ROWS = 10_000
 
 
 def validate_polygon(polygon: Iterable[dict[str, float]]) -> tuple[bool, str]:
@@ -35,6 +38,18 @@ def validate_polygon(polygon: Iterable[dict[str, float]]) -> tuple[bool, str]:
     normalized = _normalize_polygon(polygon)
     if len(normalized) < 3:
         return False, "polygon must contain at least 3 points"
+    if len(normalized) > _MAX_POLYGON_POINTS:
+        return (
+            False,
+            f"polygon contains too many points (max {_MAX_POLYGON_POINTS})",
+        )
+
+    min_x, max_x, min_z, max_z = _bounding_box(normalized)
+    if max(abs(min_x), abs(max_x), abs(min_z), abs(max_z)) > _MAX_COORDINATE_ABS_M:
+        return (
+            False,
+            "polygon coordinates exceed supported magnitude",
+        )
 
     area = _polygon_area(normalized)
     if area <= _EPSILON:
@@ -201,6 +216,8 @@ def generate_lawnmower_waypoints(
     row_index = 0
     waypoints: list[Waypoint] = []
     row_limit = math.ceil((max_z - min_z) / track_spacing_m) + 2
+    if row_limit > _MAX_LAWNMOWER_ROWS:
+        return []
 
     for _ in range(max(row_limit, 1)):
         intersections = _line_intersections_with_polygon(

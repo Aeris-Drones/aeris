@@ -57,11 +57,46 @@ def test_validate_polygon_rejects_non_finite_points() -> None:
     assert "at least 3 points" in reason
 
 
+def test_validate_polygon_rejects_too_many_points() -> None:
+    polygon = [{"x": float(index), "z": float(index % 3)} for index in range(513)]
+    valid, reason = validate_polygon(polygon)
+
+    assert not valid
+    assert "too many points" in reason
+
+
+def test_validate_polygon_rejects_extreme_coordinate_magnitude() -> None:
+    valid, reason = validate_polygon(
+        [
+            {"x": 0.0, "z": 0.0},
+            {"x": 1_500_000.0, "z": 0.0},
+            {"x": 1_500_000.0, "z": 10.0},
+            {"x": 0.0, "z": 10.0},
+        ]
+    )
+
+    assert not valid
+    assert "exceed supported magnitude" in reason
+
+
 def test_lawnmower_waypoints_stay_inside_polygon() -> None:
     polygon = _rectangle_polygon()
     waypoints = generate_waypoints("lawnmower", polygon, lawnmower_track_spacing_m=2.5)
     assert len(waypoints) > 2
     assert all(point_in_polygon(point, polygon) for point in waypoints)
+
+
+def test_lawnmower_waypoint_generation_limits_excessive_rows() -> None:
+    polygon = [
+        {"x": 0.0, "z": 0.0},
+        {"x": 5.0, "z": 0.0},
+        {"x": 5.0, "z": 60_000.0},
+        {"x": 0.0, "z": 60_000.0},
+    ]
+
+    waypoints = generate_waypoints("lawnmower", polygon, lawnmower_track_spacing_m=5.0)
+
+    assert waypoints == []
 
 
 def test_spiral_waypoints_stay_inside_polygon() -> None:
