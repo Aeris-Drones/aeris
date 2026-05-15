@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useCallback, useState } from 'react';
 import { useMissionContext } from '@/context/MissionContext';
 import { useZoneContext } from '@/context/ZoneContext';
-import { useROSConnection } from './useROSConnection';
+import { useSharedROSConnection } from '@/context/ROSConnectionContext';
 import {
   generateMissionId,
   type MissionPhase,
@@ -15,6 +15,7 @@ import {
   getAbortMissionValidationError,
   withServiceTimeout,
 } from '@/lib/missionControlBehavior';
+import { extractVehicleMissionMetaFromProgressPayload } from '@/lib/missionProgressVehicleMeta';
 import ROSLIB from 'roslib';
 
 type SearchPattern = 'lawnmower' | 'spiral';
@@ -59,6 +60,7 @@ export interface MissionControlState {
   abortMission: () => void;
   completeMission: () => void;
   rosConnected: boolean;
+  vehicleSlamModes: Record<string, string>;
 }
 
 /**
@@ -94,10 +96,11 @@ export function useMissionControl(): MissionControlState {
   } = useMissionContext();
   const { selectedZone } = useZoneContext();
 
-  const { ros, isConnected: rosConnected } = useROSConnection();
+  const { ros, isConnected: rosConnected } = useSharedROSConnection();
   const [selectedPattern, setSelectedPattern] = useState<SearchPattern>('lawnmower');
   const [startMissionError, setStartMissionError] = useState<string | null>(null);
   const [abortMissionError, setAbortMissionError] = useState<string | null>(null);
+  const [vehicleSlamModes, setVehicleSlamModes] = useState<Record<string, string>>({});
 
   const hasValidStartZone =
     !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
@@ -183,7 +186,10 @@ export function useMissionControl(): MissionControlState {
   );
 
   useEffect(() => {
-    if (!ros || !rosConnected) return;
+    if (!ros || !rosConnected) {
+      setVehicleSlamModes({});
+      return;
+    }
 
     const stateTopic = new ROSLIB.Topic({
       ros: ros,
@@ -238,7 +244,12 @@ export function useMissionControl(): MissionControlState {
 
     const handleProgressMessage = (message: ROSLIB.Message) => {
       try {
-        const data = JSON.parse((message as { data: string }).data) as {
+        const rawData = (message as { data: string }).data;
+        setVehicleSlamModes(
+          extractVehicleMissionMetaFromProgressPayload(rawData).slamModes
+        );
+
+        const data = JSON.parse(rawData) as {
           coveragePercent?: number;
           coverage_percent?: number;
           searchAreaKm2?: number;
@@ -491,6 +502,7 @@ export function useMissionControl(): MissionControlState {
     startMissionError: effectiveStartMissionError,
     abortMissionError,
     rosConnected,
+    vehicleSlamModes,
   };
 }
 
