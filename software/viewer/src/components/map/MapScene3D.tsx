@@ -14,6 +14,7 @@ import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useMapTiles } from '@/hooks/useMapTiles';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 import type { TileData } from '@/lib/map/MapTileManager';
+import type { VehicleState } from '@/lib/vehicle/VehicleManager';
 
 /**
  * Imperative handle interface exposed by MapScene3D.
@@ -32,6 +33,10 @@ export interface MapScene3DHandle {
  * Props for the MapScene3D component.
  */
 interface MapScene3DProps {
+  /** Optional vehicle telemetry snapshot from the parent */
+  vehicles?: VehicleState[];
+  /** Optional return trajectories from the parent */
+  returnTrajectories?: Record<string, [number, number, number][]>;
   /** Sensor detections to render in the scene */
   detections?: Detection[];
   /** Currently selected drone ID for highlighting */
@@ -78,6 +83,8 @@ interface MapScene3DProps {
  */
 export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
   ({
+    vehicles: vehiclesProp,
+    returnTrajectories: returnTrajectoriesProp,
     detections = [],
     selectedDroneId,
     selectedDetectionId,
@@ -91,10 +98,13 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     drawingPriority = 1,
     onAddZonePoint,
   }, ref) => {
-    const { vehicles, returnTrajectories } = useVehicleTelemetry();
+    const { vehicles: liveVehicles, returnTrajectories: liveReturnTrajectories } =
+      useVehicleTelemetry();
     const { tiles: mapTiles } = useMapTiles();
     const visibility = useLayerVisibility();
     const cameraControlsRef = useRef<CameraControls>(null);
+    const vehicles = vehiclesProp ?? liveVehicles;
+    const returnTrajectories = returnTrajectoriesProp ?? liveReturnTrajectories;
 
     const telemetryDrones: Omit<DroneMarker3DProps, 'isSelected' | 'onClick'>[] = vehicles.map((vehicle) => {
       const trailPoints: [number, number, number][] = vehicle.trajectory.map((point) => [

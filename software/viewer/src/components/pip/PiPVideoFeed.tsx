@@ -24,7 +24,7 @@ interface PiPVideoFeedProps {
   vehicleId: string;
   vehicleName: string;
   streamUrl?: string;
-  batteryPercent: number;
+  batteryPercent: number | null;
   altitude: number;
   isLive: boolean;
   allVehicles: Vehicle[];
@@ -33,7 +33,8 @@ interface PiPVideoFeedProps {
   onExpand: () => void;
 }
 
-function getBatteryColor(percent: number): string {
+function getBatteryColor(percent: number | null): string {
+  if (percent === null) return 'text-white/40';
   if (percent > 60) return 'text-emerald-400';
   if (percent > 30) return 'text-amber-400';
   return 'text-red-400';
@@ -153,7 +154,7 @@ export function PiPVideoFeed({
                 <div className="flex items-center gap-6">
                   <div className={cn('flex items-center gap-2', getBatteryColor(batteryPercent))}>
                     <Battery className="h-4 w-4" />
-                    <span>{batteryPercent}%</span>
+                    <span>{batteryPercent === null ? '--' : `${batteryPercent}%`}</span>
                   </div>
                   <div className="flex items-center gap-2 text-white/60">
                     <ArrowUp className="h-4 w-4" />
@@ -266,7 +267,7 @@ export function PiPVideoFeed({
             <div className="flex items-center gap-3">
               <div className={cn('flex items-center gap-1', getBatteryColor(batteryPercent))}>
                 <Battery className="h-3 w-3" />
-                <span>{batteryPercent}%</span>
+                <span>{batteryPercent === null ? '--' : `${batteryPercent}%`}</span>
               </div>
               <div className="flex items-center gap-1 text-white/60">
                 <ArrowUp className="h-3 w-3" />

@@ -54,6 +54,10 @@ export interface VehicleTelemetryMessage {
     y: number;
     z: number;
   };
+  /** Optional telemetry fields for UI summaries */
+  batteryPercent?: number;
+  linkQualityPercent?: number;
+  coveragePercent?: number;
   /** Optional replay provenance from store-forward transport */
   replay?: ReplayDeliveryMetadata;
 }
@@ -146,6 +150,15 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
 
   const messageTimestampMs = (timestamp.sec as number) * 1000 + ((timestamp.nanosec as number) / 1_000_000);
   const replay = parseReplayDeliveryMetadata(data, messageTimestampMs);
+  const batteryPercent = getOptionalFiniteNumber(data, ['batteryPercent', 'battery_percent']);
+  const linkQualityPercent = getOptionalFiniteNumber(data, [
+    'linkQualityPercent',
+    'link_quality_percent',
+  ]);
+  const coveragePercent = getOptionalFiniteNumber(data, [
+    'coveragePercent',
+    'coverage_percent',
+  ]);
 
   return {
     vehicle_id: data.vehicle_id as string,
@@ -169,6 +182,9 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
       y: velocity.y as number,
       z: velocity.z as number,
     },
+    batteryPercent,
+    linkQualityPercent,
+    coveragePercent,
     replay: replay ?? undefined,
   };
 }
@@ -221,4 +237,17 @@ function parseEpochMs(value: unknown, fallback: number | null): number | null {
     }
   }
   return fallback;
+}
+
+function getOptionalFiniteNumber(
+  data: Record<string, unknown>,
+  keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
 }

@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
 import ROSLIB from 'roslib';
-import { useROSConnection } from './useROSConnection';
 import { VehicleManager, VehicleState } from '../lib/vehicle/VehicleManager';
 import { parseVehicleTelemetry } from '../lib/ros/telemetry';
 import {
@@ -8,6 +7,7 @@ import {
   pruneReplayCacheEntries,
   resetReplayCaches,
 } from '../lib/ros/replayCacheLifecycle';
+import { useSharedROSConnection } from '../context/ROSConnectionContext';
 import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 
 type ReturnTrajectoryMap = Record<string, [number, number, number][]>;
@@ -25,7 +25,7 @@ const REPLAY_METADATA_TTL_MS = 5 * 60 * 1000;
  * - /mission/progress: Return-to-launch trajectories (std_msgs/String JSON)
  */
 export function useVehicleTelemetry() {
-  const { ros, isConnected } = useROSConnection();
+  const { ros, isConnected } = useSharedROSConnection();
   const { origin, setOrigin } = useCoordinateOrigin();
   const [vehicles, setVehicles] = useState<VehicleState[]>([]);
   const [returnTrajectories, setReturnTrajectories] = useState<ReturnTrajectoryMap>({});
