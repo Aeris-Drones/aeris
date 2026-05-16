@@ -16,7 +16,7 @@ import {
   subscribeToFusedTopic,
   toVehicleName,
 } from '@/lib/ros/fusedDetectionsFeed';
-import { useROSConnection } from './useROSConnection';
+import { useSharedROSConnection } from '@/context/ROSConnectionContext';
 
 interface UseFusedDetectionsOptions {
   topicName?: string;
@@ -64,7 +64,7 @@ export function useFusedDetections(
   options: UseFusedDetectionsOptions = {}
 ): UseFusedDetectionsResult {
   const merged = { ...DEFAULT_OPTIONS, ...options };
-  const { ros, isConnected } = useROSConnection();
+  const { ros, isConnected } = useSharedROSConnection();
   const [detections, setDetections] = useState<Detection[]>([]);
   const vehiclesRef = useRef<VehicleState[]>(vehicles);
   const replayMetadataRef = useRef<Map<string, ReplayMetadata>>(new Map());

@@ -151,7 +151,7 @@ export class MapTileManager {
       timestamp: Date.now(),
       byteSize: message.byte_size,
       deliveryMode: normalizedDeliveryMode,
-      originalEventTsMs: parseEpochMs(message.original_event_ts),
+      originalEventTsMs: parseEpochMs(message.original_event_ts) ?? undefined,
       replayedAtTsMs: parseEpochMs(message.replayed_at_ts),
       isRetroactive: normalizedDeliveryMode === 'replayed',
     };

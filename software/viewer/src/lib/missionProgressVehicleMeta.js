@@ -3,6 +3,16 @@
  * /mission/progress legacy JSON payloads.
  */
 
+function createEmptyMeta() {
+  return {
+    assignments: {},
+    assignmentLabels: {},
+    progress: {},
+    online: {},
+    slamModes: {},
+  };
+}
+
 export function normalizeVehicleId(value) {
   if (typeof value !== "string") {
     return "";
@@ -15,28 +25,21 @@ export function normalizeVehicleId(value) {
   return `${match[1]}_${match[2]}`;
 }
 
-export function extractVehicleMissionMetaFromProgressPayload(rawData) {
-  if (typeof rawData !== "string" || !rawData.trim().startsWith("{")) {
-    return {
-      assignments: {},
-      assignmentLabels: {},
-      progress: {},
-      online: {},
-      slamModes: {},
-    };
-  }
-
+export function extractVehicleMissionMetaFromProgressPayload(rawDataOrParsed) {
   let parsed;
-  try {
-    parsed = JSON.parse(rawData);
-  } catch {
-    return {
-      assignments: {},
-      assignmentLabels: {},
-      progress: {},
-      online: {},
-      slamModes: {},
-    };
+  if (typeof rawDataOrParsed === "string") {
+    if (!rawDataOrParsed.trim().startsWith("{")) {
+      return createEmptyMeta();
+    }
+    try {
+      parsed = JSON.parse(rawDataOrParsed);
+    } catch {
+      return createEmptyMeta();
+    }
+  } else if (rawDataOrParsed && typeof rawDataOrParsed === "object") {
+    parsed = rawDataOrParsed;
+  } else {
+    return createEmptyMeta();
   }
 
   const assignments = {};

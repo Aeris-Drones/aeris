@@ -16,15 +16,17 @@ import { LayersPanel } from '@/components/layers/LayersPanel';
 import { LayerVisibilityProvider } from '@/context/LayerVisibilityContext';
 import { ZoneProvider, useZoneContext } from '@/context/ZoneContext';
 import { CoordinateOriginProvider } from '@/context/CoordinateOriginContext';
+import { ROSConnectionProvider } from '@/context/ROSConnectionContext';
 import { MissionProvider } from '@/context/MissionContext';
 import { ZoneToolbar } from '@/components/zones/ZoneToolbar';
 import { PiPVideoFeed } from '@/components/pip/PiPVideoFeed';
-import { AlertToaster, showAlert, dismissAllAlerts, type Alert } from '@/components/alerts';
+import { AlertToaster, showAlert, dismissAlert, type Alert } from '@/components/alerts';
 import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useFusedDetections } from '@/hooks/useFusedDetections';
 import { applyDetectionStatusOverrides, computeDetectionCounts } from '@/lib/detectionViewState';
+import { normalizeVehicleId } from '@/lib/missionProgressVehicleMeta';
 
 /**
  * Mock detections for UI demonstration when ROS telemetry is unavailable.
@@ -63,6 +65,7 @@ const mockDetections: Detection[] = [
  *
  * Provider hierarchy (outer to inner):
  * - CoordinateOriginProvider: Global lat/lon origin for local ENU coordinate transforms
+ * - ROSConnectionProvider: Shared rosbridge connection state for downstream telemetry hooks
  * - LayerVisibilityProvider: Map layer toggle state (thermal, gas, acoustic, trajectories)
  * - ZoneProvider: Search zone CRUD and polygon drawing state
  * - MissionProvider: Mission lifecycle state and command history
@@ -73,15 +76,17 @@ const mockDetections: Detection[] = [
 export default function V2Page() {
   return (
     <CoordinateOriginProvider>
-      <LayerVisibilityProvider>
-        <ZoneProvider>
-          <MissionProvider>
-            <V2PageContent />
-            <AlertToaster visibleToasts={5} />
-            <KeyboardShortcutsOverlay />
-          </MissionProvider>
-        </ZoneProvider>
-      </LayerVisibilityProvider>
+      <ROSConnectionProvider>
+        <LayerVisibilityProvider>
+          <ZoneProvider>
+            <MissionProvider>
+              <V2PageContent />
+              <AlertToaster visibleToasts={5} />
+              <KeyboardShortcutsOverlay />
+            </MissionProvider>
+          </ZoneProvider>
+        </LayerVisibilityProvider>
+      </ROSConnectionProvider>
     </CoordinateOriginProvider>
   );
 }
@@ -116,8 +121,12 @@ function V2PageContent() {
     resumeMission,
     abortMission,
     rosConnected,
+    vehicleSlamModes,
   } = useMissionControl();
-  const { vehicles: telemetryVehicles } = useVehicleTelemetry();
+  const {
+    vehicles: telemetryVehicles,
+    returnTrajectories,
+  } = useVehicleTelemetry();
 
   const [detectionStatusOverrides, setDetectionStatusOverrides] = useState<Record<string, Detection['status']>>({});
   const [pipVehicleId, setPipVehicleId] = useState<string | null>(null);
@@ -126,10 +135,17 @@ function V2PageContent() {
     detections: liveFusedDetections,
     isConnected: fusedFeedConnected,
   } = useFusedDetections(telemetryVehicles);
+  const allowMockFallback =
+    process.env.NODE_ENV !== 'production' && !rosConnected;
 
   const baseDetections = useMemo<Detection[]>(
-    () => (fusedFeedConnected ? liveFusedDetections : mockDetections),
-    [fusedFeedConnected, liveFusedDetections]
+    () => {
+      if (fusedFeedConnected) {
+        return liveFusedDetections;
+      }
+      return allowMockFallback ? mockDetections : [];
+    },
+    [allowMockFallback, fusedFeedConnected, liveFusedDetections]
   );
   const detections = useMemo<Detection[]>(
     () => applyDetectionStatusOverrides(baseDetections, detectionStatusOverrides),
@@ -144,15 +160,24 @@ function V2PageContent() {
    */
   const fleetVehicles = useMemo<VehicleInfo[]>(() => {
     return telemetryVehicles.map((vehicle) => ({
+      status: vehicle.deliveryMode === 'replayed' || vehicle.isRetroactive
+        ? 'warning'
+        : 'active',
       id: vehicle.id,
       name: vehicle.id.replace(/[_-]/g, ' ').toUpperCase(),
-      status: 'active',
-      battery: 100,
+      battery: typeof vehicle.batteryPercent === 'number'
+        ? Math.round(vehicle.batteryPercent)
+        : null,
       altitude: Math.round(vehicle.position.y),
-      linkQuality: 100,
-      coverage: 0,
+      linkQuality: typeof vehicle.linkQualityPercent === 'number'
+        ? Math.round(vehicle.linkQualityPercent)
+        : undefined,
+      coverage: typeof vehicle.coveragePercent === 'number'
+        ? Math.round(vehicle.coveragePercent)
+        : undefined,
+      slamMode: vehicleSlamModes[normalizeVehicleId(vehicle.id)],
     }));
-  }, [telemetryVehicles]);
+  }, [telemetryVehicles, vehicleSlamModes]);
 
   /**
    * Map of vehicle IDs to their ground-plane (X, Z) positions for camera teleport.
@@ -174,12 +199,12 @@ function V2PageContent() {
   const fleetWarnings = useMemo<VehicleWarning[]>(
     () =>
       fleetVehicles
-        .filter((vehicle) => vehicle.battery <= 50)
+        .filter((vehicle) => vehicle.battery !== null && vehicle.battery <= 50)
         .map((vehicle) => ({
           vehicleId: vehicle.id,
           message:
-            vehicle.battery <= 25 ? 'Battery critical' : 'Battery below 50%',
-          severity: vehicle.battery <= 25 ? 'critical' : 'warning',
+            (vehicle.battery ?? 0) <= 25 ? 'Battery critical' : 'Battery below 50%',
+          severity: (vehicle.battery ?? 0) <= 25 ? 'critical' : 'warning',
         })),
     [fleetVehicles]
   );
@@ -202,33 +227,51 @@ function V2PageContent() {
    * Static alerts for demonstration. In production, these are fed from
    * the ROS /alerts topic via the centralized alert management system.
    */
-  const storedAlerts = useMemo<Alert[]>(() => [
-    {
-      id: 'demo-critical',
-      severity: 'critical',
-      title: 'Scout-2 COMMS LOST',
-      description: 'Last contact: 45 seconds ago - Initiating recovery',
-      dismissible: false,
-      timestamp: new Date(),
-      action: { label: 'LOCATE', onClick: () => handleLocateVehicle('scout_2') },
+  const storedAlerts = useMemo<Alert[]>(
+    () => {
+      if (!allowMockFallback) {
+        return [];
+      }
+      return [
+        {
+          id: 'demo-critical',
+          severity: 'critical',
+          title: 'Scout-2 COMMS LOST',
+          description: 'Last contact: 45 seconds ago - Initiating recovery',
+          dismissible: false,
+          timestamp: new Date(),
+          action: { label: 'LOCATE', onClick: () => handleLocateVehicle('scout_2') },
+        },
+        {
+          id: 'demo-warning',
+          severity: 'warning',
+          title: 'Ranger-1 low battery',
+          description: '22% remaining - Auto RTH initiated',
+          dismissible: true,
+          timestamp: new Date(),
+          action: { label: 'VIEW', onClick: () => handleViewFeed('ranger_1') },
+        },
+      ];
     },
-    {
-      id: 'demo-warning',
-      severity: 'warning',
-      title: 'Ranger-1 low battery',
-      description: '22% remaining - Auto RTH initiated',
-      dismissible: true,
-      timestamp: new Date(),
-      action: { label: 'VIEW', onClick: () => handleViewFeed('ranger_1') },
-    },
-  ], [handleLocateVehicle, handleViewFeed]);
+    [allowMockFallback, handleLocateVehicle, handleViewFeed]
+  );
   const hasAddedInitialAlerts = useRef(false);
   const areAlertsOpenRef = useRef(false);
+  const dismissStoredAlerts = useCallback(() => {
+    storedAlerts.forEach((alert) => dismissAlert(alert.id));
+  }, [storedAlerts]);
+
   useEffect(() => {
+    if (!allowMockFallback) {
+      hasAddedInitialAlerts.current = false;
+      areAlertsOpenRef.current = false;
+      dismissStoredAlerts();
+      return;
+    }
     if (hasAddedInitialAlerts.current) return;
     hasAddedInitialAlerts.current = true;
     storedAlerts.forEach((alert) => showAlert(alert));
-  }, [storedAlerts]);
+  }, [allowMockFallback, dismissStoredAlerts, storedAlerts]);
 
   const handleDroneSelect = (id: string) => {
     setSelectedDroneId(id || null);
@@ -288,13 +331,16 @@ function V2PageContent() {
   }, []);
 
   const handleAlertClick = useCallback(() => {
+    if (!allowMockFallback || storedAlerts.length === 0) {
+      return;
+    }
     areAlertsOpenRef.current = !areAlertsOpenRef.current;
     if (areAlertsOpenRef.current) {
       storedAlerts.forEach((alert) => showAlert(alert, { playSound: false }));
       return;
     }
-    dismissAllAlerts();
-  }, [storedAlerts]);
+    dismissStoredAlerts();
+  }, [allowMockFallback, dismissStoredAlerts, storedAlerts]);
 
   /**
    * Global keyboard shortcuts for mission control.
@@ -351,9 +397,12 @@ function V2PageContent() {
   }, [missionPhase, isPaused, pauseMission, resumeMission, handleLocateVehicle, fleetVehicles]);
 
   const activeVehicles = fleetVehicles.filter(v => v.status === 'active' || v.status === 'warning');
-  const avgBattery = Math.round(
-    fleetVehicles.reduce((sum, v) => sum + v.battery, 0) / (fleetVehicles.length || 1)
-  );
+  const batteryReadings = fleetVehicles
+    .map(v => v.battery)
+    .filter((battery): battery is number => typeof battery === 'number');
+  const avgBattery = batteryReadings.length > 0
+    ? Math.round(batteryReadings.reduce((sum, battery) => sum + battery, 0) / batteryReadings.length)
+    : null;
   const avgAltitude = Math.round(
     activeVehicles.reduce((sum, v) => sum + v.altitude, 0) / (activeVehicles.length || 1)
   );
@@ -368,6 +417,8 @@ function V2PageContent() {
     <GCSLayout
       map={
         <MapScene3D
+          vehicles={telemetryVehicles}
+          returnTrajectories={returnTrajectories}
           ref={mapRef}
           detections={detections}
           selectedDroneId={selectedDroneId}
