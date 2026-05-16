@@ -33,6 +33,8 @@ export interface VehicleInfo {
   slamMode?: string;
   lastContactAgeMs?: number | null;
   isLastKnown?: boolean;
+  deliveryMode?: 'live' | 'replayed';
+  isRetroactive?: boolean;
 }
 
 /**

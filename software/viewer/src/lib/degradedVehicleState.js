@@ -31,9 +31,11 @@ export function deriveVehicleDegradedState({
   staleTimeoutMs = DEFAULT_TELEMETRY_STALE_TIMEOUT_MS,
   retentionMs = DEFAULT_LAST_KNOWN_RETENTION_MS,
 } = {}) {
-  const ageMs = Number.isFinite(lastUpdate) ? Math.max(0, now - lastUpdate) : Infinity;
+  const hasTelemetry = Number.isFinite(lastUpdate);
+  const ageMs = hasTelemetry ? Math.max(0, now - lastUpdate) : Infinity;
   const telemetryStale = ageMs > staleTimeoutMs;
-  const missionOffline = missionOnline === false;
+  const telemetryFresh = hasTelemetry && ageMs <= staleTimeoutMs;
+  const missionOffline = missionOnline === false && !telemetryFresh;
   const offline = telemetryStale || missionOffline;
   const retained = ageMs <= retentionMs;
   const replayed = deliveryMode === "replayed" || isRetroactive === true;
@@ -43,8 +45,8 @@ export function deriveVehicleDegradedState({
     offline,
     retained,
     replayed,
-    lastContactAgeMs: Number.isFinite(ageMs) ? ageMs : null,
-    staleSinceMs: offline && Number.isFinite(lastUpdate) ? lastUpdate + staleTimeoutMs : null,
+    lastContactAgeMs: hasTelemetry ? ageMs : null,
+    staleSinceMs: offline && hasTelemetry ? lastUpdate + staleTimeoutMs : null,
   };
 }
 

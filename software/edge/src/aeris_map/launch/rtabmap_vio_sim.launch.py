@@ -51,6 +51,7 @@ def generate_launch_description() -> LaunchDescription:
     mbtiles_path = LaunchConfiguration('mbtiles_path')
     map_source = LaunchConfiguration('map_source')
     slam_mode = LaunchConfiguration('slam_mode')
+    source_vehicle_id = LaunchConfiguration('source_vehicle_id')
     rtabmap_database_path = LaunchConfiguration('rtabmap_database_path')
     openvins_log_directory = LaunchConfiguration('openvins_log_directory')
 
@@ -126,6 +127,7 @@ def generate_launch_description() -> LaunchDescription:
                 'mbtiles_path': mbtiles_path,
                 'map_source': map_source,
                 'slam_mode': slam_mode,
+                'source_vehicle_id': source_vehicle_id,
             },
         ],
     )
@@ -186,6 +188,10 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('mbtiles_path', default_value=mbtiles_default),
         DeclareLaunchArgument('map_source', default_value='occupancy'),
         DeclareLaunchArgument('slam_mode', default_value='vio'),
+        DeclareLaunchArgument(
+            'source_vehicle_id',
+            default_value=LaunchConfiguration('scout_model_name'),
+        ),
         DeclareLaunchArgument('map_frame', default_value='map'),
         DeclareLaunchArgument('odom_frame', default_value='odom'),
         DeclareLaunchArgument('base_frame', default_value='base_link'),

@@ -48,6 +48,20 @@ test("deriveVehicleDegradedState keeps last-known state through retention window
   );
 });
 
+test("deriveVehicleDegradedState treats fresh telemetry as authoritative over stale mission offline hints", () => {
+  const now = 300_000;
+  const degraded = deriveVehicleDegradedState({
+    lastUpdate: now - 1000,
+    missionOnline: false,
+    deliveryMode: "live",
+    now,
+  });
+
+  assert.equal(degraded.offline, false);
+  assert.equal(degraded.status, "active");
+  assert.equal(degraded.lastContactAgeMs, 1000);
+});
+
 test("normalizeMissionMetaForVehicle supports normalized and raw ids", () => {
   const meta = normalizeMissionMetaForVehicle("scout-1", {
     assignments: { scout_1: "SEARCHING" },

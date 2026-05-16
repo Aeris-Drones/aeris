@@ -89,3 +89,7 @@ map_tile_publisher:
     # Layer identifiers enable multi-layer composition in ground station UI.
     # Format: [source_type, fetch_endpoint, mime_type]
     layer_ids: ["occupancy", "fetch-service:/map/get_tile_bytes", "mime:image/png"]
+
+    # Vehicle provenance for last-known tile ownership in the viewer.
+    # Multi-vehicle launches should override this per vehicle instance.
+    source_vehicle_id: ""

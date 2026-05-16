@@ -52,14 +52,15 @@ test("applyVehicleMissionMeta applies command status hint only for online vehicl
   assert.equal(projected.status, "holding");
 });
 
-test("applyVehicleMissionMeta forces offline when telemetry marks vehicle offline", () => {
+test("applyVehicleMissionMeta does not let stale mission offline hints override fresh telemetry", () => {
   const projected = applyVehicleMissionMeta(baseVehicle({ status: "active" }), {
     commandStatusHint: "holding",
     online: false,
   });
 
-  assert.equal(projected.status, "offline");
-  assert.equal(projected.isLastKnown, true);
+  assert.equal(projected.status, "holding");
+  assert.equal(projected.isOffline, false);
+  assert.equal(projected.isLastKnown, false);
 });
 
 test("applyVehicleMissionMeta keeps offline status when command hint arrives", () => {

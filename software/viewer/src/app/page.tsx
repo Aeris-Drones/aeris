@@ -530,7 +530,11 @@ function V2PageContent() {
           const vehicle = fleetVehicles.find(v => v.id === pipVehicleId);
           if (!vehicle) return null;
 
-          const isLive = vehicle.status === 'active' || vehicle.status === 'warning';
+          const isLive =
+            (vehicle.status === 'active' || vehicle.status === 'warning' || vehicle.status === 'returning') &&
+            vehicle.deliveryMode !== 'replayed' &&
+            vehicle.isRetroactive !== true &&
+            vehicle.isLastKnown !== true;
 
           return (
             <PiPVideoFeed
