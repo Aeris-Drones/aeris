@@ -1,0 +1,61 @@
+name: AI Reviewers
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - ready_for_review
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  request-ai-review:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger AI review bots
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = `<!-- ai-review-request:${context.payload.pull_request.head.sha} -->`;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner,
+                repo,
+                issue_number,
+                per_page: 100,
+              }
+            );
+
+            const alreadyPosted = comments.some(
+              (comment) =>
+                comment.user?.login === "github-actions[bot]" &&
+                typeof comment.body === "string" &&
+                comment.body.includes(marker)
+            );
+
+            if (alreadyPosted) {
+              core.info("AI review request comment already exists for this commit.");
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: [
+                marker,
+                "@codex review",
+                "",
+                "Automatic AI review request for this PR."
+              ].join("\n"),
+            });
