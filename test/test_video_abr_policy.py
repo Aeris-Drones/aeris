@@ -388,6 +388,14 @@ def test_store_forward_wires_abr_metrics_decisions_commands_and_acks() -> None:
     assert "self._abr_controller.update_ack_timeout(value)" in text
 
 
+def test_store_forward_prefers_existing_map_tile_provenance_before_fallback() -> None:
+    text = STORE_FORWARD_FILE.read_text(encoding="utf-8")
+    assert 'if message_kind == "map_tile":' in text
+    assert 'getattr(message, "source_vehicle_id", "")' in text
+    assert "if not source_vehicle_id:" in text
+    assert "source_vehicle_id = self._source_vehicle_id_from_message(" in text
+
+
 def test_ladder_parser_fails_on_unsorted_target_bitrate(tmp_path: Path) -> None:
     ladder_path = tmp_path / "abr_bad.yaml"
     ladder_path.write_text(

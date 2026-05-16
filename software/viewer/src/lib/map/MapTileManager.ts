@@ -23,6 +23,8 @@ export interface TileData {
   byteSize: number;
   /** Delivery provenance for retroactive map indicators */
   deliveryMode?: 'live' | 'replayed';
+  /** Vehicle that produced this tile. */
+  sourceVehicleId?: string;
   originalEventTsMs?: number;
   replayedAtTsMs?: number | null;
   isRetroactive?: boolean;
@@ -151,6 +153,7 @@ export class MapTileManager {
       timestamp: Date.now(),
       byteSize: message.byte_size,
       deliveryMode: normalizedDeliveryMode,
+      sourceVehicleId: normalizeSourceVehicleId(message.source_vehicle_id),
       originalEventTsMs: parseEpochMs(message.original_event_ts) ?? undefined,
       replayedAtTsMs: parseEpochMs(message.replayed_at_ts),
       isRetroactive: normalizedDeliveryMode === 'replayed',
@@ -291,4 +294,12 @@ function normalizeDeliveryMode(deliveryMode: unknown): 'live' | 'replayed' {
   return typeof deliveryMode === 'string' && deliveryMode.trim().toLowerCase() === 'replayed'
     ? 'replayed'
     : 'live';
+}
+
+function normalizeSourceVehicleId(sourceVehicleId: unknown): string | undefined {
+  if (typeof sourceVehicleId !== 'string') {
+    return undefined;
+  }
+  const normalized = sourceVehicleId.trim();
+  return normalized.length > 0 ? normalized : undefined;
 }

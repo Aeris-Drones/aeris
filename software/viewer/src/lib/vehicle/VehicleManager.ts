@@ -2,6 +2,11 @@ import * as THREE from 'three';
 import { Vector3, Quaternion, Color } from 'three';
 import { ReplayDeliveryMetadata, VehicleTelemetryMessage, VehicleType } from '../ros/telemetry';
 import { geoToLocal, GeoCoordinates } from '../ros/mapTile';
+import {
+  DEFAULT_LAST_KNOWN_RETENTION_MS,
+  DEFAULT_TELEMETRY_STALE_TIMEOUT_MS,
+  deriveVehicleDegradedState,
+} from '../degradedVehicleState';
 
 export interface VehicleState {
   id: string;
@@ -24,6 +29,9 @@ export interface VehicleState {
   isRetroactive?: boolean;
   originalEventTsMs?: number;
   replayedAtTsMs?: number | null;
+  isOffline?: boolean;
+  lastContactAgeMs?: number | null;
+  staleSinceMs?: number | null;
   batteryPercent?: number;
   linkQualityPercent?: number;
   coveragePercent?: number;
@@ -38,7 +46,7 @@ export interface VehicleState {
  * - Coordinate transformation from geographic (lat/lon) to local Three.js coordinates
  * - Quaternion conversion from ROS (roll/pitch/yaw) to Three.js convention
  * - Trajectory buffering with time-based eviction (30 second window)
- * - Stale vehicle cleanup (10 second timeout)
+ * - Last-known vehicle retention after telemetry staleness
  *
  * Coordinate Systems:
  * - Input (ROS): latitude, longitude, altitude; roll, pitch, yaw
@@ -52,8 +60,8 @@ export class VehicleManager {
   /** Maximum trajectory history in milliseconds (30 seconds) */
   private maxTrajectoryTime: number = 30000;
 
-  /** Vehicle timeout threshold in milliseconds (10 seconds) */
-  private cleanupThreshold: number = 10000;
+  /** Vehicle retention threshold after last contact. */
+  private cleanupThreshold: number = DEFAULT_LAST_KNOWN_RETENTION_MS;
 
   constructor() {
     this.vehicles = new Map();
@@ -190,7 +198,22 @@ export class VehicleManager {
             this.lastTelemetry.delete(id);
         }
     }
-    return Array.from(this.vehicles.values());
+    return Array.from(this.vehicles.values()).map((vehicle) => {
+      const degraded = deriveVehicleDegradedState({
+        lastUpdate: vehicle.lastUpdate,
+        deliveryMode: vehicle.deliveryMode,
+        isRetroactive: vehicle.isRetroactive,
+        now,
+        staleTimeoutMs: DEFAULT_TELEMETRY_STALE_TIMEOUT_MS,
+        retentionMs: this.cleanupThreshold,
+      });
+      return {
+        ...vehicle,
+        isOffline: degraded.offline,
+        lastContactAgeMs: degraded.lastContactAgeMs,
+        staleSinceMs: degraded.staleSinceMs,
+      };
+    });
   }
 
   /**

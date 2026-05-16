@@ -114,3 +114,33 @@ test("VehicleCard slam mode formatter preserves explicit labels and UNKNOWN fall
   assert.ok(returnedLabels.has("VIO"), "VehicleCard should present the VIO label cleanly");
   assert.ok(returnedLabels.has("LIO-SAM"), "VehicleCard should present the LIO-SAM label cleanly");
 });
+
+test("VehicleCard exposes offline last-known status and timer copy", () => {
+  const cardPath = path.join(ROOT, "VehicleCard.tsx");
+  const { source, sourceFile } = parseTsx(cardPath);
+
+  assert.match(source, /offline:/, "VehicleCard should define an offline status config");
+  assert.match(source, /OFFLINE/, "VehicleCard should render an explicit OFFLINE label");
+  assert.match(source, /vehicle-last-known-age/, "VehicleCard should expose a targeted last-contact timer");
+
+  let importsLastContactFormatter = false;
+  let formatsLastContactAge = false;
+  walk(sourceFile, (node) => {
+    if (
+      ts.isImportDeclaration(node) &&
+      node.moduleSpecifier.getText(sourceFile).includes("degradedVehicleState")
+    ) {
+      importsLastContactFormatter = true;
+    }
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(sourceFile) === "formatLastContactAge" &&
+      node.arguments[0]?.getText(sourceFile) === "vehicle.lastContactAgeMs"
+    ) {
+      formatsLastContactAge = true;
+    }
+  });
+
+  assert.ok(importsLastContactFormatter);
+  assert.ok(formatsLastContactAge);
+});

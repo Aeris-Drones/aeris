@@ -20,6 +20,8 @@ export interface MapTileMessage {
   byte_size: number;
   /** Base64-encoded tile payload (PNG image data) */
   data?: string;
+  /** Vehicle that produced the tile, used for last-known/stale-region rendering */
+  source_vehicle_id?: string;
   /** ROS timestamp when the tile was published */
   published_at?: {
     sec: number;

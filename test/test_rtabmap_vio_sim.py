@@ -78,6 +78,8 @@ def test_launch_wires_openvins_and_rtabmap_nodes():
     assert "DeclareLaunchArgument('base_frame', default_value='base_link')" in text
     assert "DeclareLaunchArgument('map_frame', default_value='map')" in text
     assert "DeclareLaunchArgument('odom_frame', default_value='odom')" in text
+    assert "DeclareLaunchArgument(\n            'source_vehicle_id'," in text
+    assert "'source_vehicle_id': source_vehicle_id" in text
 
 
 def test_configs_include_expected_topic_and_frame_contracts():
@@ -100,6 +102,9 @@ def test_configs_include_expected_topic_and_frame_contracts():
     assert 'frame_id: base_link' in rtabmap_text
     assert 'subscribe_stereo: true' in rtabmap_text
     assert 'subscribe_imu: true' in rtabmap_text
+
+    map_tile_text = Path('software/edge/src/aeris_map/config/map_tile_stream.yaml').read_text()
+    assert 'source_vehicle_id: ""' in map_tile_text
 
 
 def test_parity_docs_and_trajectory_present():

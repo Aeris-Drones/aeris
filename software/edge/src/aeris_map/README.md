@@ -44,6 +44,7 @@ Select the source via launch parameters without modifying core code.
    - `hash_sha256`: Content hash for cache validation
    - `byte_size`: Payload size for bandwidth estimation
    - `layer_ids`: Composition hints for multi-layer rendering
+   - `source_vehicle_id`: Vehicle provenance for GCS last-known/stale-region styling
 
 2. **Byte Request**: Consumer calls `GetMapTileBytes` service with `tile_id`
 
@@ -58,6 +59,8 @@ Select the source via launch parameters without modifying core code.
 
 - **Topic**: `/map/tiles` (`aeris_msgs/MapTile`)
 - **Service**: `/map/get_tile_bytes` (`aeris_msgs/GetMapTileBytes`)
+
+Changing `aeris_msgs/MapTile` requires rebuilding the rosbridge image so the GCS receives the updated message schema over WebSocket.
 
 ## MBTiles 1.3 Storage
 

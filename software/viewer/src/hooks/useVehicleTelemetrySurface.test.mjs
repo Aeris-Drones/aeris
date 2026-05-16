@@ -157,6 +157,27 @@ test("MapScene3D disables duplicate subscriptions when parent props already prov
   );
 });
 
+test("MapScene3D derives offline marker and stale tile ownership from shared state", () => {
+  const mapScenePath = path.join(ROOT, "components", "map", "MapScene3D.tsx");
+  const source = fs.readFileSync(mapScenePath, "utf8");
+
+  assert.match(
+    source,
+    /vehicleMissionMeta\?: MissionMetaMaps/,
+    "MapScene3D should accept mission metadata from the shared page projection"
+  );
+  assert.match(
+    source,
+    /deriveVehicleDegradedState/,
+    "MapScene3D should use the canonical degraded-state helper for marker status"
+  );
+  assert.match(
+    source,
+    /offlineVehicleIds\.has\(normalizeVehicleId\(tile\.sourceVehicleId\)\)/,
+    "MapScene3D should only stale-style tiles owned by offline vehicles"
+  );
+});
+
 const SOURCE = fs.readFileSync(path.join(ROOT, "hooks", "useVehicleTelemetry.ts"), "utf8");
 
 test("buildTelemetryDedupeKey recognizes snake_case and camelCase vehicle ids", () => {

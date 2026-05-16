@@ -64,12 +64,14 @@ std::string sha256_hex(const std::vector<uint8_t> & bytes);
  * @param layer_ids Vector of layer identifiers for UI composition
  * @param hash_sha256 SHA-256 hex digest of tile payload
  * @param byte_size Size of tile payload in bytes
+ * @param source_vehicle_id Vehicle that produced this tile, if known
  * @return Populated MapTile message ready for publication
  */
 aeris_msgs::msg::MapTile build_descriptor(
   const std::string & tile_id,
   const std::vector<std::string> & layer_ids,
   const std::string & hash_sha256,
-  uint32_t byte_size);
+  uint32_t byte_size,
+  const std::string & source_vehicle_id = "");
 
 }  // namespace aeris_map::tile_contract

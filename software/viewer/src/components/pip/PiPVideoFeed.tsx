@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 interface Vehicle {
   id: string;
   name: string;
-  status: 'active' | 'idle' | 'warning' | 'returning' | 'error';
+  status: 'active' | 'idle' | 'warning' | 'returning' | 'error' | 'offline';
 }
 
 interface PiPVideoFeedProps {

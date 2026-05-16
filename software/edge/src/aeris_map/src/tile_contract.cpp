@@ -81,7 +81,8 @@ aeris_msgs::msg::MapTile build_descriptor(
   const std::string & tile_id,
   const std::vector<std::string> & layer_ids,
   const std::string & hash_sha256,
-  uint32_t byte_size)
+  uint32_t byte_size,
+  const std::string & source_vehicle_id)
 {
   aeris_msgs::msg::MapTile descriptor;
   descriptor.tile_id = tile_id;
@@ -89,6 +90,7 @@ aeris_msgs::msg::MapTile build_descriptor(
   descriptor.layer_ids = layer_ids;
   descriptor.hash_sha256 = hash_sha256;
   descriptor.byte_size = byte_size;
+  descriptor.source_vehicle_id = source_vehicle_id;
   return descriptor;
 }
 

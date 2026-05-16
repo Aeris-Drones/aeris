@@ -7,6 +7,9 @@ function baseVehicle(overrides = {}) {
   return {
     id: "scout_1",
     status: "active",
+    lastUpdate: Date.now(),
+    deliveryMode: "live",
+    isRetroactive: false,
     batteryPercent: 95,
     signalStrength: 88,
     speed: 2.4,
@@ -49,13 +52,15 @@ test("applyVehicleMissionMeta applies command status hint only for online vehicl
   assert.equal(projected.status, "holding");
 });
 
-test("applyVehicleMissionMeta forces offline when telemetry marks vehicle offline", () => {
+test("applyVehicleMissionMeta does not let stale mission offline hints override fresh telemetry", () => {
   const projected = applyVehicleMissionMeta(baseVehicle({ status: "active" }), {
     commandStatusHint: "holding",
     online: false,
   });
 
-  assert.equal(projected.status, "offline");
+  assert.equal(projected.status, "holding");
+  assert.equal(projected.isOffline, false);
+  assert.equal(projected.isLastKnown, false);
 });
 
 test("applyVehicleMissionMeta keeps offline status when command hint arrives", () => {
@@ -81,4 +86,23 @@ test("applyVehicleMissionMeta projects normalized slam mode", () => {
   });
 
   assert.equal(projected.slamMode, "liosam");
+});
+
+test("applyVehicleMissionMeta marks stale telemetry offline without treating replay as offline", () => {
+  const now = Date.now();
+  const replayed = applyVehicleMissionMeta(baseVehicle({
+    lastUpdate: now,
+    deliveryMode: "replayed",
+    isRetroactive: true,
+  }));
+  assert.equal(replayed.status, "warning");
+  assert.equal(replayed.isOffline, false);
+
+  const stale = applyVehicleMissionMeta(baseVehicle({
+    lastUpdate: now - 6000,
+    deliveryMode: "live",
+  }));
+  assert.equal(stale.status, "offline");
+  assert.equal(stale.isOffline, true);
+  assert.ok(stale.lastContactAgeMs >= 5000);
 });

@@ -12,8 +12,9 @@ import { cn } from '@/lib/utils';
  * - error: Critical issue requiring immediate attention
  * - returning: Vehicle is executing return-to-launch sequence
  * - idle: Vehicle is on ground and ready
+ * - offline: Last-known state; telemetry is stale or mission progress says offline
  */
-export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle';
+export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle' | 'offline';
 
 export interface VehicleInfo {
   id: string;
@@ -49,6 +50,7 @@ const statusColors: Record<VehicleStatus, string> = {
   error: 'bg-[var(--danger)]',
   returning: 'bg-[var(--info)]',
   idle: 'bg-white/30',
+  offline: 'bg-zinc-500',
 };
 
 /**

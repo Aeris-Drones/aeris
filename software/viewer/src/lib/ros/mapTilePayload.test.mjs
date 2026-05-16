@@ -23,6 +23,7 @@ test("normalizeMapTileMessage accepts camelCase payloads and replay metadata", (
     format: "image/png",
     byteSize: 1024,
     deliveryMode: "replayed",
+    sourceVehicleId: "scout-1",
     originalEventTs: { sec: 1700000000, nanosec: 0 },
     replayedAtTs: 1700000010,
   });
@@ -31,6 +32,7 @@ test("normalizeMapTileMessage accepts camelCase payloads and replay metadata", (
   assert.equal(normalized.tile_id, "17/20684/50622");
   assert.equal(normalized.byte_size, 1024);
   assert.equal(normalized.delivery_mode, "replayed");
+  assert.equal(normalized.source_vehicle_id, "scout-1");
   assert.deepEqual(normalized.original_event_ts, { sec: 1700000000, nanosec: 0 });
   assert.equal(normalized.replayed_at_ts, 1700000010);
 });

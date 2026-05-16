@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { MapPin, Video, Home, Signal, Gauge, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatLastContactAge } from '@/lib/degradedVehicleState';
 
 /**
  * Vehicle operational status for UI display.
@@ -11,7 +12,7 @@ import { cn } from '@/lib/utils';
  * in the GCS. Critical statuses (error, returning) receive heightened visual
  * prominence to ensure operator awareness during multi-vehicle operations.
  */
-export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle';
+export type VehicleStatus = 'active' | 'warning' | 'error' | 'returning' | 'idle' | 'offline';
 
 /**
  * Core telemetry snapshot for a single vehicle.
@@ -30,6 +31,10 @@ export interface VehicleInfo {
   linkQuality?: number;
   coverage?: number;
   slamMode?: string;
+  lastContactAgeMs?: number | null;
+  isLastKnown?: boolean;
+  deliveryMode?: 'live' | 'replayed';
+  isRetroactive?: boolean;
 }
 
 /**
@@ -90,6 +95,12 @@ const statusConfig: Record<VehicleStatus, {
     color: 'text-white/40',
     glow: '',
     dot: 'bg-white/40'
+  },
+  offline: {
+    label: 'OFFLINE',
+    color: 'text-zinc-300',
+    glow: '',
+    dot: 'bg-zinc-500'
   },
 };
 
@@ -190,6 +201,7 @@ export function VehicleCard({
   onRTH,
 }: VehicleCardProps) {
   const status = statusConfig[vehicle.status];
+  const isOffline = vehicle.status === 'offline';
 
   return (
     <div
@@ -198,6 +210,7 @@ export function VehicleCard({
         'bg-white/[0.03] backdrop-blur-md',
         'border border-white/[0.06]',
         status.glow,
+        isOffline && 'grayscale opacity-75 bg-zinc-950/60 border-zinc-500/20',
         isSelected && 'ring-2 ring-cyan-500/50',
         vehicle.status === 'error' && 'border-red-500/20'
       )}
@@ -217,6 +230,14 @@ export function VehicleCard({
           >
             SLAM: {formatSlamModeLabel(vehicle.slamMode)}
           </span>
+          {isOffline && (
+            <span
+              className="text-[10px] font-semibold tracking-[0.16em] text-zinc-300"
+              data-testid="vehicle-last-known-age"
+            >
+              LAST CONTACT {formatLastContactAge(vehicle.lastContactAgeMs)}
+            </span>
+          )}
         </div>
 
         <div className="relative">
