@@ -146,9 +146,7 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
     : typeof data.vehicleType === 'string'
       ? data.vehicleType
       : '';
-  const vType = typeof vTypeSource === 'string'
-    ? vTypeSource.trim().toLowerCase()
-    : '';
+  const vType = vTypeSource.trim().toLowerCase();
 
   let vehicleType: VehicleType = VehicleType.UNKNOWN;
   if (vType === 'scout') {

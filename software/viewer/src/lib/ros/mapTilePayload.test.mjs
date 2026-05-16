@@ -49,4 +49,20 @@ test("normalizeMapTileMessage rejects malformed payloads", () => {
     normalizeMapTileMessage({ tile_id: "1/2/3", format: "image/png", byte_size: -1 }),
     null
   );
+  assert.equal(
+    normalizeMapTileMessage({ tile_id: "abc", format: "image/png", byte_size: 10 }),
+    null
+  );
+  assert.equal(
+    normalizeMapTileMessage({ tile_id: "23/1/1", format: "image/png", byte_size: 10 }),
+    null
+  );
+  assert.equal(
+    normalizeMapTileMessage({ tile_id: "1/2/0", format: "image/png", byte_size: 10 }),
+    null
+  );
+  assert.equal(
+    normalizeMapTileMessage({ tile_id: "1/1/1", format: "image/png", byte_size: 10.5 }),
+    null
+  );
 });

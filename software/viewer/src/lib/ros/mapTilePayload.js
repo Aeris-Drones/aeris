@@ -1,6 +1,26 @@
 function parseTileId(value) {
   const tileId = String(value ?? "").trim();
-  return tileId.length > 0 ? tileId : null;
+  const match = /^(\d+)\/(\d+)\/(\d+)$/.exec(tileId);
+  if (!match) {
+    return null;
+  }
+
+  const z = Number(match[1]);
+  const x = Number(match[2]);
+  const y = Number(match[3]);
+  if (!Number.isInteger(z) || !Number.isInteger(x) || !Number.isInteger(y)) {
+    return null;
+  }
+  if (z < 0 || z > 22) {
+    return null;
+  }
+
+  const maxIndex = (2 ** z) - 1;
+  if (x < 0 || y < 0 || x > maxIndex || y > maxIndex) {
+    return null;
+  }
+
+  return tileId;
 }
 
 function parseFormat(value) {
@@ -10,7 +30,7 @@ function parseFormat(value) {
 
 function parseByteSize(value) {
   const byteSize = Number(value);
-  if (!Number.isFinite(byteSize) || byteSize < 0) {
+  if (!Number.isInteger(byteSize) || byteSize < 0) {
     return null;
   }
   return byteSize;

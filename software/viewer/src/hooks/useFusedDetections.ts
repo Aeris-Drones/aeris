@@ -91,7 +91,6 @@ export function useFusedDetections(
     resetReplayCaches([replayMetadataCache, replayDetectionIndexCache]);
 
     if (!ros || !isConnected) {
-      resetReplayCaches([replayMetadataRef.current, replayDetectionIndexRef.current]);
       return;
     }
 
