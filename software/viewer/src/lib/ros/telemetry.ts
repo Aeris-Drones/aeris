@@ -60,6 +60,12 @@ export interface VehicleTelemetryMessage {
   coveragePercent?: number;
   /** Optional replay provenance from store-forward transport */
   replay?: ReplayDeliveryMetadata;
+  /** Optional battery percentage (0-100) from telemetry extensions */
+  battery_percent?: number;
+  /** Optional link quality percentage (0-100) from telemetry extensions */
+  link_quality?: number;
+  /** Optional mission coverage percentage (0-100) from telemetry/progress bridges */
+  coverage_percent?: number;
 }
 
 export interface ReplayDeliveryMetadata {
@@ -93,7 +99,13 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
   const isNumber = (value: unknown): value is number =>
     typeof value === 'number' && Number.isFinite(value);
 
-  if (!data.vehicle_id || typeof data.vehicle_id !== 'string') {
+  const vehicleId = typeof data.vehicle_id === 'string'
+    ? data.vehicle_id
+    : typeof data.vehicleId === 'string'
+      ? data.vehicleId
+      : null;
+
+  if (!vehicleId) {
     throw new Error('Invalid telemetry data: vehicle_id must be a non-empty string');
   }
 
@@ -107,12 +119,8 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
   }
 
   const position = data.position as Record<string, unknown> | undefined;
-  if (
-    !position ||
-    !isNumber(position.latitude) ||
-    !isNumber(position.longitude) ||
-    !isNumber(position.altitude)
-  ) {
+  const altitude = position?.altitude ?? position?.altitude_m ?? position?.altitudeM;
+  if (!position || !isNumber(position.latitude) || !isNumber(position.longitude) || !isNumber(altitude)) {
     throw new Error('Invalid telemetry data: position must include numeric latitude, longitude, and altitude');
   }
 
@@ -137,9 +145,12 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
   }
 
   // Normalize vehicle type string to enum (case-insensitive)
-  const vType = typeof data.vehicle_type === 'string'
-    ? data.vehicle_type.trim().toLowerCase()
-    : '';
+  const vTypeSource = typeof data.vehicle_type === 'string'
+    ? data.vehicle_type
+    : typeof data.vehicleType === 'string'
+      ? data.vehicleType
+      : '';
+  const vType = vTypeSource.trim().toLowerCase();
 
   let vehicleType: VehicleType = VehicleType.UNKNOWN;
   if (vType === 'scout') {
@@ -150,18 +161,14 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
 
   const messageTimestampMs = (timestamp.sec as number) * 1000 + ((timestamp.nanosec as number) / 1_000_000);
   const replay = parseReplayDeliveryMetadata(data, messageTimestampMs);
-  const batteryPercent = getOptionalFiniteNumber(data, ['batteryPercent', 'battery_percent']);
-  const linkQualityPercent = getOptionalFiniteNumber(data, [
-    'linkQualityPercent',
-    'link_quality_percent',
-  ]);
-  const coveragePercent = getOptionalFiniteNumber(data, [
-    'coveragePercent',
-    'coverage_percent',
-  ]);
+  const batteryPercent = parsePercent(data.battery_percent ?? data.batteryPercent);
+  const linkQualityPercent = parsePercent(
+    data.link_quality ?? data.linkQuality ?? data.link_quality_percent ?? data.linkQualityPercent
+  );
+  const coveragePercent = parsePercent(data.coverage_percent ?? data.coveragePercent);
 
   return {
-    vehicle_id: data.vehicle_id as string,
+    vehicle_id: vehicleId,
     vehicle_type: vehicleType,
     timestamp: {
       sec: timestamp.sec as number,
@@ -170,7 +177,7 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
     position: {
       latitude: position.latitude as number,
       longitude: position.longitude as number,
-      altitude: position.altitude as number,
+      altitude: altitude as number,
     },
     orientation: {
       roll: orientation.roll as number,
@@ -182,11 +189,33 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
       y: velocity.y as number,
       z: velocity.z as number,
     },
-    batteryPercent,
-    linkQualityPercent,
-    coveragePercent,
+    batteryPercent: batteryPercent ?? undefined,
+    linkQualityPercent: linkQualityPercent ?? undefined,
+    coveragePercent: coveragePercent ?? undefined,
     replay: replay ?? undefined,
+    battery_percent: batteryPercent ?? undefined,
+    link_quality: linkQualityPercent ?? undefined,
+    coverage_percent: coveragePercent ?? undefined,
   };
+}
+
+function parsePercent(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string' && value.trim().length === 0) {
+    return null;
+  }
+  const numeric =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, numeric));
 }
 
 function parseReplayDeliveryMetadata(
@@ -237,17 +266,4 @@ function parseEpochMs(value: unknown, fallback: number | null): number | null {
     }
   }
   return fallback;
-}
-
-function getOptionalFiniteNumber(
-  data: Record<string, unknown>,
-  keys: string[]
-): number | undefined {
-  for (const key of keys) {
-    const value = data[key];
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-  }
-  return undefined;
 }

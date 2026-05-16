@@ -60,6 +60,8 @@ const mockDetections: Detection[] = [
   },
 ];
 
+const MOCK_ALERT_IDS = ['demo-critical', 'demo-warning'] as const;
+
 /**
  * Root page component for the Aeris GCS.
  *
@@ -258,8 +260,8 @@ function V2PageContent() {
   const hasAddedInitialAlerts = useRef(false);
   const areAlertsOpenRef = useRef(false);
   const dismissStoredAlerts = useCallback(() => {
-    storedAlerts.forEach((alert) => dismissAlert(alert.id));
-  }, [storedAlerts]);
+    MOCK_ALERT_IDS.forEach((alertId) => dismissAlert(alertId));
+  }, []);
 
   useEffect(() => {
     if (!allowMockFallback) {

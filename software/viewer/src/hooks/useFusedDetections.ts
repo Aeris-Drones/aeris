@@ -65,7 +65,13 @@ export function useFusedDetections(
 ): UseFusedDetectionsResult {
   const merged = { ...DEFAULT_OPTIONS, ...options };
   const { ros, isConnected } = useSharedROSConnection();
-  const [detections, setDetections] = useState<Detection[]>([]);
+  const [detectionState, setDetectionState] = useState<{
+    connection: ROSLIB.Ros | null;
+    detections: Detection[];
+  }>({
+    connection: null,
+    detections: [],
+  });
   const vehiclesRef = useRef<VehicleState[]>(vehicles);
   const replayMetadataRef = useRef<Map<string, ReplayMetadata>>(new Map());
   const replayDetectionIndexRef = useRef<Map<string, ReplayDetectionIndexEntry>>(new Map());
@@ -150,11 +156,15 @@ export function useFusedDetections(
         pruneReplayCacheEntries(replayDetectionIndexRef.current, merged.replayAnnotationTtlMs);
       }
 
-      setDetections((previous) => {
-        return mergeLiveDetections(previous, detectionWithReplay, {
-          maxAgeMs: merged.maxAgeMs,
-          maxDetections: merged.maxDetections,
-        });
+      setDetectionState((previous) => {
+        const currentDetections = previous.connection === ros ? previous.detections : [];
+        return {
+          connection: ros,
+          detections: mergeLiveDetections(currentDetections, detectionWithReplay, {
+            maxAgeMs: merged.maxAgeMs,
+            maxDetections: merged.maxDetections,
+          }),
+        };
       });
     };
     const handleReplayAnnotation = (rawMessage: ROSLIB.Message) => {
@@ -176,9 +186,12 @@ export function useFusedDetections(
           : extractFusedDetectionIdFromDedupeKey(parsed.dedupeKey);
 
       if (indexedDetectionId) {
-        setDetections((previous) => {
+        setDetectionState((previous) => {
+          if (previous.connection !== ros) {
+            return previous;
+          }
           let changed = false;
-          const next = previous.map((detection) => {
+          const next = previous.detections.map((detection) => {
             if (detection.id !== indexedDetectionId) {
               return detection;
             }
@@ -191,7 +204,12 @@ export function useFusedDetections(
               isRetroactive: parsed.deliveryMode === 'replayed',
             };
           });
-          return changed ? next : previous;
+          return changed
+            ? {
+                connection: ros,
+                detections: next,
+              }
+            : previous;
         });
       }
       pruneReplayCacheEntries(replayMetadataRef.current, merged.replayAnnotationTtlMs);
@@ -216,6 +234,7 @@ export function useFusedDetections(
       unsubscribeFused();
       replayTopic.unsubscribe();
       resetReplayCaches([replayMetadataCache, replayDetectionIndexCache]);
+      setDetectionState({ connection: null, detections: [] });
     };
   }, [
     fallbackVehicleName,
@@ -232,7 +251,13 @@ export function useFusedDetections(
     ros,
   ]);
 
-  return { detections, isConnected };
+  return {
+    detections:
+      isConnected && detectionState.connection === ros
+        ? detectionState.detections
+        : [],
+    isConnected,
+  };
 }
 
 function buildFusedDetectionDedupeKey(rawMessage: ROSLIB.Message): string | null {

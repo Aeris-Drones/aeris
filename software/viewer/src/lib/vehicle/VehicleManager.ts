@@ -150,9 +150,9 @@ export class VehicleManager {
       isRetroactive: message.replay?.isRetroactive ?? false,
       originalEventTsMs: message.replay?.originalEventTsMs ?? messageTimestampMs,
       replayedAtTsMs: message.replay?.replayedAtTsMs ?? null,
-      batteryPercent: message.batteryPercent,
-      linkQualityPercent: message.linkQualityPercent,
-      coveragePercent: message.coveragePercent,
+      batteryPercent: message.batteryPercent ?? message.battery_percent,
+      linkQualityPercent: message.linkQualityPercent ?? message.link_quality,
+      coveragePercent: message.coveragePercent ?? message.coverage_percent,
       color: color
     });
 
@@ -208,5 +208,11 @@ export class VehicleManager {
       if (!vehicle) return null;
 
       return { position: vehicle.position, heading: vehicle.heading };
+  }
+
+  public clear(): void {
+    this.vehicles.clear();
+    this.trajectoryBuffers.clear();
+    this.lastTelemetry.clear();
   }
 }

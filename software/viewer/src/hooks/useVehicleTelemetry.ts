@@ -36,8 +36,20 @@ export function useVehicleTelemetry(options: UseVehicleTelemetryOptions = {}) {
   } = options;
   const { ros, isConnected } = useSharedROSConnection();
   const { origin, setOrigin } = useCoordinateOrigin();
-  const [vehicles, setVehicles] = useState<VehicleState[]>([]);
-  const [returnTrajectories, setReturnTrajectories] = useState<ReturnTrajectoryMap>({});
+  const [vehicleState, setVehicleState] = useState<{
+    connection: ROSLIB.Ros | null;
+    vehicles: VehicleState[];
+  }>({
+    connection: null,
+    vehicles: [],
+  });
+  const [trajectoryState, setTrajectoryState] = useState<{
+    connection: ROSLIB.Ros | null;
+    returnTrajectories: ReturnTrajectoryMap;
+  }>({
+    connection: null,
+    returnTrajectories: {},
+  });
 
   const [manager] = useState(() => new VehicleManager());
   const originRef = useRef(origin);
@@ -66,7 +78,10 @@ export function useVehicleTelemetry(options: UseVehicleTelemetryOptions = {}) {
       latestTelemetryKeyCache,
     ]);
 
-    if (!ros || !isConnected) return;
+    if (!ros || !isConnected) {
+      manager.clear();
+      return;
+    }
 
     const topic = subscribeTelemetry
       ? new ROSLIB.Topic({
@@ -131,7 +146,10 @@ export function useVehicleTelemetry(options: UseVehicleTelemetryOptions = {}) {
         setOriginRef.current(newOrigin);
       }
 
-      setVehicles([...manager.getVehicles()]);
+      setVehicleState({
+        connection: ros,
+        vehicles: [...manager.getVehicles()],
+      });
     };
 
     const handleProgressMessage = (message: ROSLIB.Message) => {
@@ -154,10 +172,16 @@ export function useVehicleTelemetry(options: UseVehicleTelemetryOptions = {}) {
         if (payload.returnTrajectory === null || payload.returnTrajectory === undefined) {
           const vehicleId = (payload.vehicleId ?? '').trim();
           if (vehicleId) {
-            setReturnTrajectories(previous => {
-              const next = { ...previous };
+            setTrajectoryState(previous => {
+              const next =
+                previous.connection === ros
+                  ? { ...previous.returnTrajectories }
+                  : {};
               delete next[vehicleId];
-              return next;
+              return {
+                connection: ros,
+                returnTrajectories: next,
+              };
             });
           }
           return;
@@ -183,14 +207,20 @@ export function useVehicleTelemetry(options: UseVehicleTelemetryOptions = {}) {
             return [x, y, z] as [number, number, number];
           })
           .filter((point): point is [number, number, number] => point !== null);
-        setReturnTrajectories(previous => {
-          const next = { ...previous };
+        setTrajectoryState(previous => {
+          const next =
+            previous.connection === ros
+              ? { ...previous.returnTrajectories }
+              : {};
           if (points.length < 2) {
             delete next[vehicleId];
           } else {
             next[vehicleId] = points;
           }
-          return next;
+          return {
+            connection: ros,
+            returnTrajectories: next,
+          };
         });
       } catch (error) {
         console.warn('[useVehicleTelemetry] Ignoring invalid mission progress payload:', error);
@@ -217,7 +247,10 @@ export function useVehicleTelemetry(options: UseVehicleTelemetryOptions = {}) {
             replayedAtTsMs: parsed.replayedAtTsMs,
             isRetroactive: parsed.deliveryMode === 'replayed',
           });
-          setVehicles([...manager.getVehicles()]);
+          setVehicleState({
+            connection: ros,
+            vehicles: [...manager.getVehicles()],
+          });
         }
       }
       pruneReplayCacheEntries(replayMetadataRef.current, REPLAY_METADATA_TTL_MS);
@@ -237,24 +270,52 @@ export function useVehicleTelemetry(options: UseVehicleTelemetryOptions = {}) {
         replayMessageIndexCache,
         latestTelemetryKeyCache,
       ]);
+      manager.clear();
+      setVehicleState({ connection: null, vehicles: [] });
+      setTrajectoryState({ connection: null, returnTrajectories: {} });
     };
   }, [ros, isConnected, manager, subscribeMissionProgress, subscribeTelemetry]);
 
   useEffect(() => {
       const interval = setInterval(() => {
           const currentVehicles = manager.getVehicles();
-          if (currentVehicles.length !== vehicles.length) {
-             setVehicles([...currentVehicles]);
-          }
+          setVehicleState((previous) => {
+            if (currentVehicles.length === previous.vehicles.length) {
+              return previous;
+            }
+            return {
+              connection: previous.connection,
+              vehicles: [...currentVehicles],
+            };
+          });
       }, 1000);
       return () => clearInterval(interval);
-  }, [vehicles.length, manager]);
+  }, [manager]);
 
-  return { vehicles, manager, returnTrajectories };
+  return {
+    vehicles:
+      isConnected && vehicleState.connection === ros
+        ? vehicleState.vehicles
+        : [],
+    manager,
+    returnTrajectories:
+      isConnected && trajectoryState.connection === ros
+        ? trajectoryState.returnTrajectories
+        : {},
+  };
 }
 
-function buildTelemetryDedupeKey(rawMessage: ROSLIB.Message): string | null {
-  const vehicleId = String((rawMessage as { vehicle_id?: unknown }).vehicle_id ?? '');
+export function buildTelemetryDedupeKey(rawMessage: ROSLIB.Message): string | null {
+  const vehicleId = String(
+    (
+      rawMessage as { vehicle_id?: unknown; vehicleId?: unknown }
+    ).vehicle_id ?? (
+      rawMessage as { vehicleId?: unknown }
+    ).vehicleId ?? ''
+  ).trim();
+  if (!vehicleId) {
+    return null;
+  }
   const stamp = (rawMessage as { timestamp?: { sec?: unknown; nanosec?: unknown } }).timestamp;
   const sec = stamp?.sec ?? 0;
   const nanosec = stamp?.nanosec ?? 0;

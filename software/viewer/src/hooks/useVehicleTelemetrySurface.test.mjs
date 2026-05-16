@@ -156,3 +156,21 @@ test("MapScene3D disables duplicate subscriptions when parent props already prov
     "MapScene3D should disable the mission-progress subscription when parent trajectories are present"
   );
 });
+
+const SOURCE = fs.readFileSync(path.join(ROOT, "hooks", "useVehicleTelemetry.ts"), "utf8");
+
+test("buildTelemetryDedupeKey recognizes snake_case and camelCase vehicle ids", () => {
+  assert.match(
+    SOURCE,
+    /vehicle_id\?: unknown; vehicleId\?: unknown/,
+    "telemetry dedupe keys should read both snake_case and camelCase vehicle ids"
+  );
+});
+
+test("buildTelemetryDedupeKey drops payloads without a usable vehicle id", () => {
+  assert.match(
+    SOURCE,
+    /if \(!vehicleId\) {\s*return null;\s*}/,
+    "telemetry dedupe keys should be skipped when vehicle ids are missing"
+  );
+});

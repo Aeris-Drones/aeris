@@ -23,7 +23,6 @@ export function ROSConnectionProvider({
   options,
 }: ROSConnectionProviderProps) {
   const connection = useROSConnection(options);
-
   return (
     <ROSConnectionContext.Provider value={connection}>
       {children}
