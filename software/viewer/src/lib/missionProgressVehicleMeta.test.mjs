@@ -92,3 +92,28 @@ test("extractVehicleMissionMetaFromProgressPayload returns empty maps for invali
     slamModes: {},
   });
 });
+
+test("extractVehicleMissionMetaFromProgressPayload returns fresh empty maps per call", () => {
+  const first = extractVehicleMissionMetaFromProgressPayload("not-json");
+  first.assignments.scout_1 = "SEARCHING";
+  first.assignmentLabels.scout_1 = "SEARCHING:zone-a";
+  first.progress.scout_1 = 42;
+  first.online.scout_1 = true;
+  first.slamModes.scout_1 = "vio";
+
+  const second = extractVehicleMissionMetaFromProgressPayload("not-json");
+
+  assert.notStrictEqual(first, second);
+  assert.notStrictEqual(first.assignments, second.assignments);
+  assert.notStrictEqual(first.assignmentLabels, second.assignmentLabels);
+  assert.notStrictEqual(first.progress, second.progress);
+  assert.notStrictEqual(first.online, second.online);
+  assert.notStrictEqual(first.slamModes, second.slamModes);
+  assert.deepEqual(second, {
+    assignments: {},
+    assignmentLabels: {},
+    progress: {},
+    online: {},
+    slamModes: {},
+  });
+});

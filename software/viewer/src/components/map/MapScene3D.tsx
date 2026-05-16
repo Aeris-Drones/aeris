@@ -98,8 +98,13 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     drawingPriority = 1,
     onAddZonePoint,
   }, ref) => {
+    const needsLiveVehicles = vehiclesProp === undefined;
+    const needsLiveReturnTrajectories = returnTrajectoriesProp === undefined;
     const { vehicles: liveVehicles, returnTrajectories: liveReturnTrajectories } =
-      useVehicleTelemetry();
+      useVehicleTelemetry({
+        subscribeTelemetry: needsLiveVehicles,
+        subscribeMissionProgress: needsLiveReturnTrajectories,
+      });
     const { tiles: mapTiles } = useMapTiles();
     const visibility = useLayerVisibility();
     const cameraControlsRef = useRef<CameraControls>(null);

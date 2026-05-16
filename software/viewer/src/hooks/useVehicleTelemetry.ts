@@ -13,6 +13,11 @@ import { useCoordinateOrigin } from '../context/CoordinateOriginContext';
 type ReturnTrajectoryMap = Record<string, [number, number, number][]>;
 const REPLAY_METADATA_TTL_MS = 5 * 60 * 1000;
 
+interface UseVehicleTelemetryOptions {
+  subscribeTelemetry?: boolean;
+  subscribeMissionProgress?: boolean;
+}
+
 /**
  * Subscribes to vehicle telemetry from ROS and manages real-time state.
  *
@@ -24,7 +29,11 @@ const REPLAY_METADATA_TTL_MS = 5 * 60 * 1000;
  * - /vehicle/telemetry: Position, orientation, velocity (aeris_msgs/Telemetry)
  * - /mission/progress: Return-to-launch trajectories (std_msgs/String JSON)
  */
-export function useVehicleTelemetry() {
+export function useVehicleTelemetry(options: UseVehicleTelemetryOptions = {}) {
+  const {
+    subscribeTelemetry = true,
+    subscribeMissionProgress = true,
+  } = options;
   const { ros, isConnected } = useSharedROSConnection();
   const { origin, setOrigin } = useCoordinateOrigin();
   const [vehicles, setVehicles] = useState<VehicleState[]>([]);
@@ -59,21 +68,27 @@ export function useVehicleTelemetry() {
 
     if (!ros || !isConnected) return;
 
-    const topic = new ROSLIB.Topic({
-      ros: ros,
-      name: '/vehicle/telemetry',
-      messageType: 'aeris_msgs/Telemetry',
-    });
-    const progressTopic = new ROSLIB.Topic({
-      ros: ros,
-      name: '/mission/progress',
-      messageType: 'std_msgs/String',
-    });
-    const replayTopic = new ROSLIB.Topic({
-      ros: ros,
-      name: '/mesh/replay_annotations',
-      messageType: 'std_msgs/String',
-    });
+    const topic = subscribeTelemetry
+      ? new ROSLIB.Topic({
+          ros: ros,
+          name: '/vehicle/telemetry',
+          messageType: 'aeris_msgs/Telemetry',
+        })
+      : null;
+    const progressTopic = subscribeMissionProgress
+      ? new ROSLIB.Topic({
+          ros: ros,
+          name: '/mission/progress',
+          messageType: 'std_msgs/String',
+        })
+      : null;
+    const replayTopic = subscribeTelemetry
+      ? new ROSLIB.Topic({
+          ros: ros,
+          name: '/mesh/replay_annotations',
+          messageType: 'std_msgs/String',
+        })
+      : null;
 
     const handleMessage = (message: ROSLIB.Message) => {
       let telemetry;
@@ -209,21 +224,21 @@ export function useVehicleTelemetry() {
       pruneReplayCacheEntries(replayMessageIndexRef.current, REPLAY_METADATA_TTL_MS);
     };
 
-    topic.subscribe(handleMessage);
-    progressTopic.subscribe(handleProgressMessage);
-    replayTopic.subscribe(handleReplayMessage);
+    topic?.subscribe(handleMessage);
+    progressTopic?.subscribe(handleProgressMessage);
+    replayTopic?.subscribe(handleReplayMessage);
 
     return () => {
-      topic.unsubscribe();
-      progressTopic.unsubscribe();
-      replayTopic.unsubscribe();
+      topic?.unsubscribe();
+      progressTopic?.unsubscribe();
+      replayTopic?.unsubscribe();
       resetReplayCaches([
         replayMetadataCache,
         replayMessageIndexCache,
         latestTelemetryKeyCache,
       ]);
     };
-  }, [ros, isConnected, manager]);
+  }, [ros, isConnected, manager, subscribeMissionProgress, subscribeTelemetry]);
 
   useEffect(() => {
       const interval = setInterval(() => {

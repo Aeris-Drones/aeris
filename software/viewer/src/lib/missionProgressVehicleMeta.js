@@ -3,13 +3,15 @@
  * /mission/progress legacy JSON payloads.
  */
 
-const EMPTY_META = Object.freeze({
-  assignments: {},
-  assignmentLabels: {},
-  progress: {},
-  online: {},
-  slamModes: {},
-});
+function createEmptyMeta() {
+  return {
+    assignments: {},
+    assignmentLabels: {},
+    progress: {},
+    online: {},
+    slamModes: {},
+  };
+}
 
 export function normalizeVehicleId(value) {
   if (typeof value !== "string") {
@@ -27,17 +29,17 @@ export function extractVehicleMissionMetaFromProgressPayload(rawDataOrParsed) {
   let parsed;
   if (typeof rawDataOrParsed === "string") {
     if (!rawDataOrParsed.trim().startsWith("{")) {
-      return EMPTY_META;
+      return createEmptyMeta();
     }
     try {
       parsed = JSON.parse(rawDataOrParsed);
     } catch {
-      return EMPTY_META;
+      return createEmptyMeta();
     }
   } else if (rawDataOrParsed && typeof rawDataOrParsed === "object") {
     parsed = rawDataOrParsed;
   } else {
-    return EMPTY_META;
+    return createEmptyMeta();
   }
 
   const assignments = {};
