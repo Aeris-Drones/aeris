@@ -24,7 +24,7 @@ export function normalizeVehicleId(value: string): string;
  * @returns Mapped vehicle metadata keyed by normalized vehicle ID
  */
 export function extractVehicleMissionMetaFromProgressPayload(
-  rawData: string
+  rawDataOrParsed: string | Record<string, unknown>
 ): {
   assignments: Record<string, string>;
   assignmentLabels: Record<string, string>;

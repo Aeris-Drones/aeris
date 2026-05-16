@@ -54,6 +54,10 @@ export interface VehicleTelemetryMessage {
     y: number;
     z: number;
   };
+  /** Optional telemetry fields for UI summaries */
+  batteryPercent?: number;
+  linkQualityPercent?: number;
+  coveragePercent?: number;
   /** Optional replay provenance from store-forward transport */
   replay?: ReplayDeliveryMetadata;
   /** Optional battery percentage (0-100) from telemetry extensions */
@@ -157,9 +161,10 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
 
   const messageTimestampMs = (timestamp.sec as number) * 1000 + ((timestamp.nanosec as number) / 1_000_000);
   const replay = parseReplayDeliveryMetadata(data, messageTimestampMs);
-
   const batteryPercent = parsePercent(data.battery_percent ?? data.batteryPercent);
-  const linkQuality = parsePercent(data.link_quality ?? data.linkQuality);
+  const linkQualityPercent = parsePercent(
+    data.link_quality ?? data.linkQuality ?? data.link_quality_percent ?? data.linkQualityPercent
+  );
   const coveragePercent = parsePercent(data.coverage_percent ?? data.coveragePercent);
 
   return {
@@ -184,9 +189,12 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
       y: velocity.y as number,
       z: velocity.z as number,
     },
+    batteryPercent: batteryPercent ?? undefined,
+    linkQualityPercent: linkQualityPercent ?? undefined,
+    coveragePercent: coveragePercent ?? undefined,
     replay: replay ?? undefined,
     battery_percent: batteryPercent ?? undefined,
-    link_quality: linkQuality ?? undefined,
+    link_quality: linkQualityPercent ?? undefined,
     coverage_percent: coveragePercent ?? undefined,
   };
 }

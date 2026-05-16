@@ -150,9 +150,9 @@ export class VehicleManager {
       isRetroactive: message.replay?.isRetroactive ?? false,
       originalEventTsMs: message.replay?.originalEventTsMs ?? messageTimestampMs,
       replayedAtTsMs: message.replay?.replayedAtTsMs ?? null,
-      batteryPercent: message.battery_percent,
-      linkQualityPercent: message.link_quality,
-      coveragePercent: message.coverage_percent,
+      batteryPercent: message.batteryPercent ?? message.battery_percent,
+      linkQualityPercent: message.linkQualityPercent ?? message.link_quality,
+      coveragePercent: message.coveragePercent ?? message.coverage_percent,
       color: color
     });
 

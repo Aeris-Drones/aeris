@@ -15,6 +15,7 @@ import {
   getAbortMissionValidationError,
   withServiceTimeout,
 } from '@/lib/missionControlBehavior';
+import { extractVehicleMissionMetaFromProgressPayload } from '@/lib/missionProgressVehicleMeta';
 import ROSLIB from 'roslib';
 
 type SearchPattern = 'lawnmower' | 'spiral';
@@ -59,6 +60,7 @@ export interface MissionControlState {
   abortMission: () => void;
   completeMission: () => void;
   rosConnected: boolean;
+  vehicleSlamModes: Record<string, string>;
 }
 
 /**
@@ -98,6 +100,7 @@ export function useMissionControl(): MissionControlState {
   const [selectedPattern, setSelectedPattern] = useState<SearchPattern>('lawnmower');
   const [startMissionError, setStartMissionError] = useState<string | null>(null);
   const [abortMissionError, setAbortMissionError] = useState<string | null>(null);
+  const [vehicleSlamModes, setVehicleSlamModes] = useState<Record<string, string>>({});
 
   const hasValidStartZone =
     !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
@@ -183,7 +186,10 @@ export function useMissionControl(): MissionControlState {
   );
 
   useEffect(() => {
-    if (!ros || !rosConnected) return;
+    if (!ros || !rosConnected) {
+      setVehicleSlamModes({});
+      return;
+    }
 
     const stateTopic = new ROSLIB.Topic({
       ros: ros,
@@ -238,7 +244,8 @@ export function useMissionControl(): MissionControlState {
 
     const handleProgressMessage = (message: ROSLIB.Message) => {
       try {
-        const data = JSON.parse((message as { data: string }).data) as {
+        const rawData = (message as { data: string }).data;
+        const parsedProgress = JSON.parse(rawData) as {
           coveragePercent?: number;
           coverage_percent?: number;
           searchAreaKm2?: number;
@@ -255,52 +262,70 @@ export function useMissionControl(): MissionControlState {
           grid_completed?: number;
           grid_total?: number;
         };
+        const { slamModes } =
+          extractVehicleMissionMetaFromProgressPayload(parsedProgress);
+        if (Object.keys(slamModes).length > 0) {
+          setVehicleSlamModes((previous) => ({
+            ...previous,
+            ...slamModes,
+          }));
+        }
+
         const progressPayload: Partial<MissionProgress> = {};
 
-        const coveragePercent = data.coveragePercent ?? data.coverage_percent;
+        const coveragePercent =
+          parsedProgress.coveragePercent ?? parsedProgress.coverage_percent;
         if (coveragePercent !== undefined) {
           progressPayload.coveragePercent = coveragePercent;
         }
 
-        const searchAreaKm2 = data.searchAreaKm2 ?? data.search_area_km2;
+        const searchAreaKm2 =
+          parsedProgress.searchAreaKm2 ?? parsedProgress.search_area_km2;
         if (searchAreaKm2 !== undefined) {
           progressPayload.searchAreaKm2 = searchAreaKm2;
         }
 
-        const coveredAreaKm2 = data.coveredAreaKm2 ?? data.covered_area_km2;
+        const coveredAreaKm2 =
+          parsedProgress.coveredAreaKm2 ?? parsedProgress.covered_area_km2;
         if (coveredAreaKm2 !== undefined) {
           progressPayload.coveredAreaKm2 = coveredAreaKm2;
         }
 
-        const activeDrones = data.activeDrones ?? data.active_drones;
+        const activeDrones =
+          parsedProgress.activeDrones ?? parsedProgress.active_drones;
         if (activeDrones !== undefined) {
           progressPayload.activeDrones = activeDrones;
         }
 
-        const totalDrones = data.totalDrones ?? data.total_drones;
+        const totalDrones =
+          parsedProgress.totalDrones ?? parsedProgress.total_drones;
         if (totalDrones !== undefined) {
           progressPayload.totalDrones = totalDrones;
         }
 
         const estimatedTimeRemaining =
-          data.estimatedTimeRemaining ?? data.estimated_time_remaining;
+          parsedProgress.estimatedTimeRemaining ??
+          parsedProgress.estimated_time_remaining;
         if (estimatedTimeRemaining !== undefined) {
           progressPayload.estimatedTimeRemaining = estimatedTimeRemaining;
         }
 
-        if (data.gridProgress) {
-          const completed = data.gridProgress.completed;
-          const total = data.gridProgress.total;
+        if (parsedProgress.gridProgress) {
+          const completed = parsedProgress.gridProgress.completed;
+          const total = parsedProgress.gridProgress.total;
           if (completed !== undefined || total !== undefined) {
             progressPayload.gridProgress = {
               completed: completed ?? 0,
               total: total ?? 0,
             };
           }
-        } else if (data.grid_completed !== undefined || data.grid_total !== undefined) {
+        } else if (
+          parsedProgress.grid_completed !== undefined ||
+          parsedProgress.grid_total !== undefined
+        ) {
           progressPayload.gridProgress = {
-            completed: data.grid_completed ?? 0,
-            total: data.grid_total ?? 0,
+            completed: parsedProgress.grid_completed ?? 0,
+            total: parsedProgress.grid_total ?? 0,
           };
         }
 
@@ -491,6 +516,7 @@ export function useMissionControl(): MissionControlState {
     startMissionError: effectiveStartMissionError,
     abortMissionError,
     rosConnected,
+    vehicleSlamModes,
   };
 }
 

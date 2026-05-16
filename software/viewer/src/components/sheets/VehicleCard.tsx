@@ -29,6 +29,7 @@ export interface VehicleInfo {
   altitude: number;
   linkQuality?: number;
   coverage?: number;
+  slamMode?: string;
 }
 
 /**
@@ -116,6 +117,22 @@ function getBatteryStroke(battery: number | null): string {
   return 'stroke-red-400';
 }
 
+function formatSlamModeLabel(slamMode?: string): string {
+  const normalized = typeof slamMode === 'string' ? slamMode.trim().toLowerCase() : '';
+
+  if (!normalized || normalized === 'unknown') {
+    return 'UNKNOWN';
+  }
+  if (normalized === 'vio') {
+    return 'VIO';
+  }
+  if (normalized === 'liosam') {
+    return 'LIO-SAM';
+  }
+
+  return normalized.toUpperCase();
+}
+
 /**
  * Circular battery indicator using SVG stroke-dasharray technique.
  *
@@ -194,6 +211,12 @@ export function VehicleCard({
               {status.label}
             </span>
           </div>
+          <span
+            className="text-[10px] font-medium tracking-[0.18em] text-white/35"
+            data-testid="vehicle-slam-mode"
+          >
+            SLAM: {formatSlamModeLabel(vehicle.slamMode)}
+          </span>
         </div>
 
         <div className="relative">

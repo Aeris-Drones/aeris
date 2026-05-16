@@ -157,8 +157,7 @@ export function useFusedDetections(
       }
 
       setDetectionState((previous) => {
-        const currentDetections =
-          previous.connection === ros ? previous.detections : [];
+        const currentDetections = previous.connection === ros ? previous.detections : [];
         return {
           connection: ros,
           detections: mergeLiveDetections(currentDetections, detectionWithReplay, {
@@ -235,6 +234,7 @@ export function useFusedDetections(
       unsubscribeFused();
       replayTopic.unsubscribe();
       resetReplayCaches([replayMetadataCache, replayDetectionIndexCache]);
+      setDetectionState({ connection: null, detections: [] });
     };
   }, [
     fallbackVehicleName,

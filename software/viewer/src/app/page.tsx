@@ -26,6 +26,7 @@ import { useMissionControl } from '@/hooks/useMissionControl';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useFusedDetections } from '@/hooks/useFusedDetections';
 import { applyDetectionStatusOverrides, computeDetectionCounts } from '@/lib/detectionViewState';
+import { normalizeVehicleId } from '@/lib/missionProgressVehicleMeta';
 
 /**
  * Mock detections for UI demonstration when ROS telemetry is unavailable.
@@ -66,6 +67,7 @@ const MOCK_ALERT_IDS = ['demo-critical', 'demo-warning'] as const;
  *
  * Provider hierarchy (outer to inner):
  * - CoordinateOriginProvider: Global lat/lon origin for local ENU coordinate transforms
+ * - ROSConnectionProvider: Shared rosbridge connection state for downstream telemetry hooks
  * - LayerVisibilityProvider: Map layer toggle state (thermal, gas, acoustic, trajectories)
  * - ZoneProvider: Search zone CRUD and polygon drawing state
  * - MissionProvider: Mission lifecycle state and command history
@@ -121,6 +123,7 @@ function V2PageContent() {
     resumeMission,
     abortMission,
     rosConnected,
+    vehicleSlamModes,
   } = useMissionControl();
   const {
     vehicles: telemetryVehicles,
@@ -174,8 +177,9 @@ function V2PageContent() {
       coverage: typeof vehicle.coveragePercent === 'number'
         ? Math.round(vehicle.coveragePercent)
         : undefined,
+      slamMode: vehicleSlamModes[normalizeVehicleId(vehicle.id)],
     }));
-  }, [telemetryVehicles]);
+  }, [telemetryVehicles, vehicleSlamModes]);
 
   /**
    * Map of vehicle IDs to their ground-plane (X, Z) positions for camera teleport.

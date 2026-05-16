@@ -11,6 +11,7 @@ import { ZoneOverlay3D, ZoneDrawingPreview } from './ZoneOverlay3D';
 import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
 import type { Detection } from '@/components/sheets/DetectionCard';
 import { useMapTiles } from '@/hooks/useMapTiles';
+import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 import type { TileData } from '@/lib/map/MapTileManager';
 import type { VehicleState } from '@/lib/vehicle/VehicleManager';
@@ -32,9 +33,9 @@ export interface MapScene3DHandle {
  * Props for the MapScene3D component.
  */
 interface MapScene3DProps {
-  /** Vehicle telemetry snapshots to render in the scene */
+  /** Optional vehicle telemetry snapshot from the parent */
   vehicles?: VehicleState[];
-  /** Optional return trajectory overlays by vehicle ID */
+  /** Optional return trajectories from the parent */
   returnTrajectories?: Record<string, [number, number, number][]>;
   /** Sensor detections to render in the scene */
   detections?: Detection[];
@@ -82,8 +83,8 @@ interface MapScene3DProps {
  */
 export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
   ({
-    vehicles = [],
-    returnTrajectories = {},
+    vehicles: vehiclesProp,
+    returnTrajectories: returnTrajectoriesProp,
     detections = [],
     selectedDroneId,
     selectedDetectionId,
@@ -97,9 +98,18 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     drawingPriority = 1,
     onAddZonePoint,
   }, ref) => {
+    const needsLiveVehicles = vehiclesProp === undefined;
+    const needsLiveReturnTrajectories = returnTrajectoriesProp === undefined;
+    const { vehicles: liveVehicles, returnTrajectories: liveReturnTrajectories } =
+      useVehicleTelemetry({
+        subscribeTelemetry: needsLiveVehicles,
+        subscribeMissionProgress: needsLiveReturnTrajectories,
+      });
     const { tiles: mapTiles } = useMapTiles();
     const visibility = useLayerVisibility();
     const cameraControlsRef = useRef<CameraControls>(null);
+    const vehicles = vehiclesProp ?? liveVehicles;
+    const returnTrajectories = returnTrajectoriesProp ?? liveReturnTrajectories;
 
     const telemetryDrones: Omit<DroneMarker3DProps, 'isSelected' | 'onClick'>[] = vehicles.map((vehicle) => {
       const trailPoints: [number, number, number][] = vehicle.trajectory.map((point) => [
