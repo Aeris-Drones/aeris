@@ -20,7 +20,7 @@ import { ROSConnectionProvider } from '@/context/ROSConnectionContext';
 import { MissionProvider } from '@/context/MissionContext';
 import { ZoneToolbar } from '@/components/zones/ZoneToolbar';
 import { PiPVideoFeed } from '@/components/pip/PiPVideoFeed';
-import { AlertToaster, showAlert, dismissAllAlerts, type Alert } from '@/components/alerts';
+import { AlertToaster, showAlert, dismissAlert, type Alert } from '@/components/alerts';
 import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
@@ -253,17 +253,21 @@ function V2PageContent() {
   );
   const hasAddedInitialAlerts = useRef(false);
   const areAlertsOpenRef = useRef(false);
+  const dismissStoredAlerts = useCallback(() => {
+    storedAlerts.forEach((alert) => dismissAlert(alert.id));
+  }, [storedAlerts]);
+
   useEffect(() => {
     if (!allowMockFallback) {
       hasAddedInitialAlerts.current = false;
       areAlertsOpenRef.current = false;
-      dismissAllAlerts();
+      dismissStoredAlerts();
       return;
     }
     if (hasAddedInitialAlerts.current) return;
     hasAddedInitialAlerts.current = true;
     storedAlerts.forEach((alert) => showAlert(alert));
-  }, [allowMockFallback, storedAlerts]);
+  }, [allowMockFallback, dismissStoredAlerts, storedAlerts]);
 
   const handleDroneSelect = (id: string) => {
     setSelectedDroneId(id || null);
@@ -331,8 +335,8 @@ function V2PageContent() {
       storedAlerts.forEach((alert) => showAlert(alert, { playSound: false }));
       return;
     }
-    dismissAllAlerts();
-  }, [allowMockFallback, storedAlerts]);
+    dismissStoredAlerts();
+  }, [allowMockFallback, dismissStoredAlerts, storedAlerts]);
 
   /**
    * Global keyboard shortcuts for mission control.

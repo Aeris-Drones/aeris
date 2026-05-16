@@ -194,7 +194,18 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
 }
 
 function parsePercent(value: unknown): number | null {
-  const numeric = Number(value);
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'string' && value.trim().length === 0) {
+    return null;
+  }
+  const numeric =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : NaN;
   if (!Number.isFinite(numeric)) {
     return null;
   }

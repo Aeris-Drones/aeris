@@ -30,6 +30,29 @@ test("parallel ROS hooks consume shared ROS connection surface", () => {
   }
 });
 
+test("viewer ROS socket creation stays centralized in the shared connection hook", () => {
+  const hookDir = path.join(ROOT, "hooks");
+  const hookFiles = fs.readdirSync(hookDir).filter((entry) => entry.endsWith(".ts"));
+
+  for (const hookFile of hookFiles) {
+    const source = fs.readFileSync(path.join(hookDir, hookFile), "utf8");
+    if (hookFile === "useROSConnection.ts") {
+      assert.match(
+        source,
+        /new ROSLIB\.Ros/,
+        "useROSConnection.ts should remain the single ROS socket creation surface"
+      );
+      continue;
+    }
+
+    assert.doesNotMatch(
+      source,
+      /new ROSLIB\.Ros/,
+      `${hookFile} should not create a direct ROS socket`
+    );
+  }
+});
+
 test("viewer app provides a shared ROS connection provider", () => {
   const pagePath = path.join(ROOT, "app", "page.tsx");
   const source = fs.readFileSync(pagePath, "utf8");

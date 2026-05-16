@@ -32,6 +32,12 @@ const EMPTY_STATS: MapStats = {
   lastLatencyMs: null,
 };
 
+const EMPTY_TILE_STATE = {
+  connection: null as ROSLIB.Ros | null,
+  tiles: [] as TileData[],
+  stats: EMPTY_STATS,
+};
+
 export function useMapTiles(
   options: UseMapTilesOptions = {}
 ): UseMapTilesResult {
@@ -39,8 +45,7 @@ export function useMapTiles(
   const { ros, isConnected } = useSharedROSConnection();
   const { origin, setOrigin } = useCoordinateOrigin();
   const [manager] = useState(() => new MapTileManager(merged.maxTiles));
-  const [tiles, setTiles] = useState<TileData[]>([]);
-  const [stats, setStats] = useState<MapStats>(EMPTY_STATS);
+  const [tileState, setTileState] = useState(EMPTY_TILE_STATE);
   const originRef = useRef(origin);
   const setOriginRef = useRef(setOrigin);
 
@@ -83,8 +88,11 @@ export function useMapTiles(
         setOriginRef.current(ingestResult.newOrigin);
       }
 
-      setTiles(manager.getTiles());
-      setStats(manager.getStats());
+      setTileState({
+        connection: ros,
+        tiles: manager.getTiles(),
+        stats: manager.getStats(),
+      });
     };
 
     topic.subscribe(handleMessage);
@@ -94,8 +102,8 @@ export function useMapTiles(
   }, [isConnected, manager, merged.messageType, merged.topicName, ros]);
 
   return {
-    tiles: isConnected ? tiles : [],
-    stats: isConnected ? stats : EMPTY_STATS,
+    tiles: isConnected && tileState.connection === ros ? tileState.tiles : [],
+    stats: isConnected && tileState.connection === ros ? tileState.stats : EMPTY_STATS,
     isConnected,
   };
 }
