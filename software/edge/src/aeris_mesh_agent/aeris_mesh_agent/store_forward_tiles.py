@@ -1121,11 +1121,15 @@ class StoreForwardTiles(Node):
         relay_hop: int = 0,
     ) -> None:
         decision = route_decision or self._select_route_decision()
-        source_vehicle_id = self._source_vehicle_id_from_message(
-            message,
-            input_topic=input_topic,
-            is_relay_ingress=route_key.startswith("relay_"),
-        )
+        source_vehicle_id = ""
+        if message_kind == "map_tile":
+            source_vehicle_id = str(getattr(message, "source_vehicle_id", "") or "")
+        if not source_vehicle_id:
+            source_vehicle_id = self._source_vehicle_id_from_message(
+                message,
+                input_topic=input_topic,
+                is_relay_ingress=route_key.startswith("relay_"),
+            )
         if message_kind == "map_tile" and source_vehicle_id and not getattr(
             message, "source_vehicle_id", ""
         ):

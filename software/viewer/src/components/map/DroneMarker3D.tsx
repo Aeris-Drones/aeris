@@ -4,6 +4,7 @@ import React, { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { formatLastContactAge as formatMarkerAge } from '@/lib/degradedVehicleState';
 
 /** Props for the DroneMarker3D component - uses Three.js coordinate system where y is up */
 export interface DroneMarker3DProps {
@@ -41,15 +42,6 @@ const STATUS_COLORS = {
   returning: '#3b82f6',
   offline: '#a1a1aa',
 };
-
-function formatMarkerAge(ageMs?: number | null): string {
-  if (!Number.isFinite(ageMs ?? Number.NaN)) {
-    return '--';
-  }
-  const seconds = Math.floor((ageMs ?? 0) / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
-}
 
 /**
  * 3D visual representation of a drone in the Three.js scene.
