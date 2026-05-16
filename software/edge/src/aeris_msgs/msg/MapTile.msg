@@ -6,3 +6,4 @@ string format        # Image encoding (e.g., "png", "webp") for client-side deco
 string[] layer_ids   # Active map layers this tile contributes to (elevation, imagery, etc.)
 string hash_sha256   # Content hash for cache validation and deduplication
 uint32 byte_size     # Uncompressed size in bytes for storage planning
+string source_vehicle_id # Vehicle that produced the tile for stale-region ownership

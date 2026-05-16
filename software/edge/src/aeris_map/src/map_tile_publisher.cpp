@@ -395,6 +395,7 @@ public:
     layer_ids_ = this->declare_parameter<std::vector<std::string>>(
       "layer_ids",
       default_layer_ids);
+    source_vehicle_id_ = this->declare_parameter<std::string>("source_vehicle_id", "");
 
     initialize_mbtiles();
 
@@ -895,7 +896,8 @@ private:
       tile_id,
       layer_ids_,
       hash,
-      static_cast<uint32_t>(bytes.size()));
+      static_cast<uint32_t>(bytes.size()),
+      source_vehicle_id_);
 
     TilePayload payload;
     payload.data = bytes;
@@ -1073,6 +1075,7 @@ private:
   std::string mbtiles_path_;
   std::string map_source_;
   std::vector<std::string> layer_ids_;
+  std::string source_vehicle_id_;
   aeris_map::slam_backend::BackendActivation slam_backend_;
 
   sqlite3 * db_{nullptr};

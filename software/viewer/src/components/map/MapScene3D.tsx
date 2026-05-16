@@ -15,6 +15,12 @@ import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 import type { TileData } from '@/lib/map/MapTileManager';
 import type { VehicleState } from '@/lib/vehicle/VehicleManager';
+import {
+  deriveVehicleDegradedState,
+  normalizeMissionMetaForVehicle,
+  type MissionMetaMaps,
+} from '@/lib/degradedVehicleState';
+import { normalizeVehicleId } from '@/lib/missionProgressVehicleMeta';
 
 /**
  * Imperative handle interface exposed by MapScene3D.
@@ -35,6 +41,8 @@ export interface MapScene3DHandle {
 interface MapScene3DProps {
   /** Optional vehicle telemetry snapshot from the parent */
   vehicles?: VehicleState[];
+  /** Optional mission metadata used to resolve online/offline hints */
+  vehicleMissionMeta?: MissionMetaMaps;
   /** Optional return trajectories from the parent */
   returnTrajectories?: Record<string, [number, number, number][]>;
   /** Sensor detections to render in the scene */
@@ -84,6 +92,7 @@ interface MapScene3DProps {
 export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
   ({
     vehicles: vehiclesProp,
+    vehicleMissionMeta = {},
     returnTrajectories: returnTrajectoriesProp,
     detections = [],
     selectedDroneId,
@@ -110,6 +119,22 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     const cameraControlsRef = useRef<CameraControls>(null);
     const vehicles = vehiclesProp ?? liveVehicles;
     const returnTrajectories = returnTrajectoriesProp ?? liveReturnTrajectories;
+    const offlineVehicleIds = useMemo(() => {
+      const ids = new Set<string>();
+      vehicles.forEach((vehicle) => {
+        const missionMeta = normalizeMissionMetaForVehicle(vehicle.id, vehicleMissionMeta);
+        const degraded = deriveVehicleDegradedState({
+          lastUpdate: vehicle.lastUpdate,
+          missionOnline: missionMeta.online,
+          deliveryMode: vehicle.deliveryMode,
+          isRetroactive: vehicle.isRetroactive,
+        });
+        if (degraded.offline) {
+          ids.add(normalizeVehicleId(vehicle.id));
+        }
+      });
+      return ids;
+    }, [vehicles, vehicleMissionMeta]);
 
     const telemetryDrones: Omit<DroneMarker3DProps, 'isSelected' | 'onClick'>[] = vehicles.map((vehicle) => {
       const trailPoints: [number, number, number][] = vehicle.trajectory.map((point) => [
@@ -117,17 +142,29 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
         point.y,
         point.z,
       ]);
+      const missionMeta = normalizeMissionMetaForVehicle(vehicle.id, vehicleMissionMeta);
+      const degraded = deriveVehicleDegradedState({
+        lastUpdate: vehicle.lastUpdate,
+        missionOnline: missionMeta.online,
+        deliveryMode: vehicle.deliveryMode,
+        isRetroactive: vehicle.isRetroactive,
+      });
 
       return {
         vehicleId: vehicle.id,
         vehicleName: vehicle.id.replace(/_/g, ' ').toUpperCase(),
         position: [vehicle.position.x, vehicle.position.y, vehicle.position.z],
         heading: (vehicle.heading * 180) / Math.PI,
-        status: 'active',
+        status: degraded.status === 'offline'
+          ? 'offline'
+          : degraded.status === 'warning'
+            ? 'warning'
+            : 'active',
         showTrail: trailPoints.length > 1,
         trailPoints,
         deliveryMode: vehicle.deliveryMode,
         isRetroactive: vehicle.isRetroactive,
+        lastContactAgeMs: degraded.lastContactAgeMs,
       };
     });
 
@@ -210,7 +247,11 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
           {/* Map tiles */}
           {visibility.map &&
             mapTiles.map((tile) => (
-              <MapTile3D key={tile.id} tile={tile} />
+              <MapTile3D
+                key={tile.id}
+                tile={tile}
+                isStale={!!tile.sourceVehicleId && offlineVehicleIds.has(normalizeVehicleId(tile.sourceVehicleId))}
+              />
             ))}
 
           {/* Render order: trails first so markers appear on top */}
@@ -327,7 +368,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
 
 MapScene3D.displayName = 'MapScene3D';
 
-function MapTile3D({ tile }: { tile: TileData }) {
+function MapTile3D({ tile, isStale = false }: { tile: TileData; isStale?: boolean }) {
   const texture = useMemo(() => {
     const loaded = new THREE.TextureLoader().load(tile.url);
     loaded.colorSpace = THREE.SRGBColorSpace;
@@ -353,9 +394,20 @@ function MapTile3D({ tile }: { tile: TileData }) {
         <meshBasicMaterial
           map={texture}
           transparent
-          opacity={0.96}
+          opacity={isStale ? 0.42 : 0.96}
         />
       </mesh>
+      {isStale && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]}>
+          <planeGeometry args={[tile.size, tile.size]} />
+          <meshBasicMaterial
+            color="#71717a"
+            transparent
+            opacity={0.32}
+            wireframe
+          />
+        </mesh>
+      )}
       {showReplayBadge && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
           <ringGeometry args={[tile.size * 0.42, tile.size * 0.48, 48]} />

@@ -1,4 +1,4 @@
-import type { VehicleInfo, VehicleStatus } from "@/types/vehicle";
+import type { VehicleStatus } from "@/types/vehicle";
 
 /**
  * Metadata overlay for vehicles participating in active missions.
@@ -32,7 +32,13 @@ export type VehicleMissionMeta = {
  * @param meta - Mission-specific metadata from progress updates
  * @returns VehicleInfo with mission context applied
  */
-export function applyVehicleMissionMeta(
-  vehicleInfo: VehicleInfo,
+export function applyVehicleMissionMeta<T extends Record<string, unknown> & { status?: string }>(
+  vehicleInfo: T,
   meta?: VehicleMissionMeta
-): VehicleInfo;
+): T & {
+  status: T["status"] | "offline" | "warning" | "active";
+  isOffline?: boolean;
+  lastContactAgeMs?: number | null;
+  staleSinceMs?: number | null;
+  isLastKnown?: boolean;
+};

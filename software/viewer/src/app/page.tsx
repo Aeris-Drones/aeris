@@ -27,6 +27,8 @@ import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useFusedDetections } from '@/hooks/useFusedDetections';
 import { applyDetectionStatusOverrides, computeDetectionCounts } from '@/lib/detectionViewState';
 import { normalizeVehicleId } from '@/lib/missionProgressVehicleMeta';
+import { applyVehicleMissionMeta } from '@/lib/fleetVehicleProjection';
+import { normalizeMissionMetaForVehicle } from '@/lib/degradedVehicleState';
 
 /**
  * Mock detections for UI demonstration when ROS telemetry is unavailable.
@@ -124,6 +126,7 @@ function V2PageContent() {
     abortMission,
     rosConnected,
     vehicleSlamModes,
+    vehicleMissionMeta,
   } = useMissionControl();
   const {
     vehicles: telemetryVehicles,
@@ -161,25 +164,34 @@ function V2PageContent() {
    * the Aeris GCS for consistent spatial reasoning.
    */
   const fleetVehicles = useMemo<VehicleInfo[]>(() => {
-    return telemetryVehicles.map((vehicle) => ({
-      status: vehicle.deliveryMode === 'replayed' || vehicle.isRetroactive
-        ? 'warning'
-        : 'active',
-      id: vehicle.id,
-      name: vehicle.id.replace(/[_-]/g, ' ').toUpperCase(),
-      battery: typeof vehicle.batteryPercent === 'number'
-        ? Math.round(vehicle.batteryPercent)
-        : null,
-      altitude: Math.round(vehicle.position.y),
-      linkQuality: typeof vehicle.linkQualityPercent === 'number'
-        ? Math.round(vehicle.linkQualityPercent)
-        : undefined,
-      coverage: typeof vehicle.coveragePercent === 'number'
-        ? Math.round(vehicle.coveragePercent)
-        : undefined,
-      slamMode: vehicleSlamModes[normalizeVehicleId(vehicle.id)],
-    }));
-  }, [telemetryVehicles, vehicleSlamModes]);
+    return telemetryVehicles.map((vehicle) => {
+      const missionMeta = normalizeMissionMetaForVehicle(vehicle.id, vehicleMissionMeta);
+      return applyVehicleMissionMeta(
+        {
+          status: (vehicle.deliveryMode === 'replayed' || vehicle.isRetroactive
+            ? 'warning'
+            : 'active') as VehicleInfo['status'],
+          id: vehicle.id,
+          name: vehicle.id.replace(/[_-]/g, ' ').toUpperCase(),
+          battery: typeof vehicle.batteryPercent === 'number'
+            ? Math.round(vehicle.batteryPercent)
+            : null,
+          altitude: Math.round(vehicle.position.y),
+          linkQuality: typeof vehicle.linkQualityPercent === 'number'
+            ? Math.round(vehicle.linkQualityPercent)
+            : undefined,
+          coverage: typeof vehicle.coveragePercent === 'number'
+            ? Math.round(vehicle.coveragePercent)
+            : undefined,
+          slamMode: vehicleSlamModes[normalizeVehicleId(vehicle.id)],
+          lastUpdate: vehicle.lastUpdate,
+          deliveryMode: vehicle.deliveryMode,
+          isRetroactive: vehicle.isRetroactive,
+        },
+        missionMeta
+      );
+    });
+  }, [telemetryVehicles, vehicleMissionMeta, vehicleSlamModes]);
 
   /**
    * Map of vehicle IDs to their ground-plane (X, Z) positions for camera teleport.
@@ -420,6 +432,7 @@ function V2PageContent() {
       map={
         <MapScene3D
           vehicles={telemetryVehicles}
+          vehicleMissionMeta={vehicleMissionMeta}
           returnTrajectories={returnTrajectories}
           ref={mapRef}
           detections={detections}

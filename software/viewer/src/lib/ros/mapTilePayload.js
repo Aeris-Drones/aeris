@@ -43,6 +43,14 @@ function normalizeDeliveryMode(value) {
   return value.trim().toLowerCase() === "replayed" ? "replayed" : "live";
 }
 
+function normalizeSourceVehicleId(value) {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const sourceVehicleId = value.trim();
+  return sourceVehicleId.length > 0 ? sourceVehicleId : undefined;
+}
+
 export function normalizeMapTileMessage(rawMessage) {
   if (!rawMessage || typeof rawMessage !== "object") {
     return null;
@@ -72,6 +80,12 @@ export function normalizeMapTileMessage(rawMessage) {
   }
   if ("replayed_at_ts" in rawMessage || "replayedAtTs" in rawMessage) {
     normalized.replayed_at_ts = rawMessage.replayed_at_ts ?? rawMessage.replayedAtTs;
+  }
+  const sourceVehicleId = normalizeSourceVehicleId(
+    rawMessage.source_vehicle_id ?? rawMessage.sourceVehicleId
+  );
+  if (sourceVehicleId) {
+    normalized.source_vehicle_id = sourceVehicleId;
   }
 
   return normalized;

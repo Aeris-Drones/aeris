@@ -2,16 +2,26 @@
  * Fleet vehicle presentation helpers used by FleetPanel/VehicleCard rendering.
  */
 
+import { deriveVehicleDegradedState } from "./degradedVehicleState.js";
+
 export function applyVehicleMissionMeta(vehicleInfo, meta = {}) {
   const next = { ...vehicleInfo };
+  const degraded = deriveVehicleDegradedState({
+    lastUpdate: next.lastUpdate,
+    missionOnline: meta?.online,
+    deliveryMode: next.deliveryMode,
+    isRetroactive: next.isRetroactive,
+  });
+  const alreadyOffline = next.status === "offline";
+  next.status = alreadyOffline ? "offline" : degraded.status;
+  next.isOffline = alreadyOffline || degraded.offline;
+  next.lastContactAgeMs = degraded.lastContactAgeMs;
+  next.staleSinceMs = degraded.staleSinceMs;
+  next.isLastKnown = (alreadyOffline || degraded.offline) && degraded.retained;
 
   const commandStatusHint = meta?.commandStatusHint;
-  if (next.status !== "offline" && commandStatusHint) {
+  if (!alreadyOffline && !degraded.offline && commandStatusHint) {
     next.status = commandStatusHint;
-  }
-
-  if (meta?.online === false) {
-    next.status = "offline";
   }
 
   const assignmentLabel =

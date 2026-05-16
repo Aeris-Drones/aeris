@@ -280,7 +280,7 @@ export function useVehicleTelemetry(options: UseVehicleTelemetryOptions = {}) {
       const interval = setInterval(() => {
           const currentVehicles = manager.getVehicles();
           setVehicleState((previous) => {
-            if (currentVehicles.length === previous.vehicles.length) {
+            if (currentVehicles.length === 0 && previous.vehicles.length === 0) {
               return previous;
             }
             return {

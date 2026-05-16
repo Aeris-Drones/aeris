@@ -1121,6 +1121,15 @@ class StoreForwardTiles(Node):
         relay_hop: int = 0,
     ) -> None:
         decision = route_decision or self._select_route_decision()
+        source_vehicle_id = self._source_vehicle_id_from_message(
+            message,
+            input_topic=input_topic,
+            is_relay_ingress=route_key.startswith("relay_"),
+        )
+        if message_kind == "map_tile" and source_vehicle_id and not getattr(
+            message, "source_vehicle_id", ""
+        ):
+            message.source_vehicle_id = source_vehicle_id
         target_topic, target_route_key = self._resolve_route_target(
             delivery_mode=decision.delivery_mode,
             output_topic=output_topic,
@@ -1135,11 +1144,6 @@ class StoreForwardTiles(Node):
             payload_hash=payload_hash,
         )
         event_ts = extract_event_timestamp(message)
-        source_vehicle_id = self._source_vehicle_id_from_message(
-            message,
-            input_topic=input_topic,
-            is_relay_ingress=route_key.startswith("relay_"),
-        )
         if route_key.startswith("relay_") and not source_vehicle_id:
             self.get_logger().warning(
                 "relay ingress message missing source vehicle metadata "

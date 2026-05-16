@@ -16,7 +16,7 @@ export interface DroneMarker3DProps {
   /** Display name for the vehicle - shown in the marker UI */
   vehicleName: string;
   /** Operational status - drives color coding and visual indicators */
-  status: 'active' | 'warning' | 'error' | 'returning';
+  status: 'active' | 'warning' | 'error' | 'returning' | 'offline';
   /** Whether this drone is currently selected - enables selection effects */
   isSelected: boolean;
   /** Whether to show the flight trail - controlled by layer visibility */
@@ -29,6 +29,8 @@ export interface DroneMarker3DProps {
   deliveryMode?: 'live' | 'replayed';
   /** Whether this marker represents replayed telemetry */
   isRetroactive?: boolean;
+  /** Age in milliseconds since the last live telemetry contact */
+  lastContactAgeMs?: number | null;
 }
 
 /** Status color mapping for visual feedback across the GCS */
@@ -37,7 +39,17 @@ const STATUS_COLORS = {
   warning: '#f59e0b',
   error: '#ef4444',
   returning: '#3b82f6',
+  offline: '#a1a1aa',
 };
+
+function formatMarkerAge(ageMs?: number | null): string {
+  if (!Number.isFinite(ageMs ?? Number.NaN)) {
+    return '--';
+  }
+  const seconds = Math.floor((ageMs ?? 0) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
 
 /**
  * 3D visual representation of a drone in the Three.js scene.
@@ -74,12 +86,14 @@ export function DroneMarker3D({
   onClick,
   deliveryMode,
   isRetroactive,
+  lastContactAgeMs,
 }: DroneMarker3DProps) {
   const groupRef = useRef<THREE.Group>(null);
   const ringRef = useRef<THREE.Mesh>(null);
   const pulseRef = useRef<THREE.Mesh>(null);
   const statusColor = STATUS_COLORS[status];
   const showReplayBadge = deliveryMode === 'replayed' || isRetroactive === true;
+  const isOffline = status === 'offline';
 
   /**
    * Per-frame animation loop for selection effects.
@@ -147,9 +161,9 @@ export function DroneMarker3D({
         <mesh castShadow>
           <boxGeometry args={[8, 3, 8]} />
           <meshStandardMaterial
-            color={isSelected ? '#ffffff' : '#2a2a3a'}
+            color={isOffline ? '#34343a' : isSelected ? '#ffffff' : '#2a2a3a'}
             emissive={statusColor}
-            emissiveIntensity={isSelected ? 0.3 : 0.1}
+            emissiveIntensity={isOffline ? 0.03 : isSelected ? 0.3 : 0.1}
           />
         </mesh>
 
@@ -206,6 +220,11 @@ export function DroneMarker3D({
           {showReplayBadge && (
             <span className="ml-2 rounded border border-cyan-300/60 bg-cyan-400/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-cyan-200">
               Replayed
+            </span>
+          )}
+          {isOffline && (
+            <span className="ml-2 rounded border border-zinc-300/50 bg-zinc-500/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-100">
+              Last Known {formatMarkerAge(lastContactAgeMs)}
             </span>
           )}
         </div>

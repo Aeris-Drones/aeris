@@ -69,7 +69,8 @@ TEST(TileContract, PopulatesMapTileSchema)
     "10/123/456",
     std::vector<std::string>{"occupancy", "fetch-service:/map/get_tile_bytes"},
     "deadbeef",
-    1024);
+    1024,
+    "scout-1");
 
   EXPECT_EQ(descriptor.tile_id, "10/123/456");
   EXPECT_EQ(descriptor.format, "mbtiles-1.3");
@@ -77,4 +78,5 @@ TEST(TileContract, PopulatesMapTileSchema)
   EXPECT_EQ(descriptor.layer_ids[0], "occupancy");
   EXPECT_EQ(descriptor.hash_sha256, "deadbeef");
   EXPECT_EQ(descriptor.byte_size, 1024U);
+  EXPECT_EQ(descriptor.source_vehicle_id, "scout-1");
 }

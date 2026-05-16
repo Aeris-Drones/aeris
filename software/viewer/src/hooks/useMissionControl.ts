@@ -61,6 +61,13 @@ export interface MissionControlState {
   completeMission: () => void;
   rosConnected: boolean;
   vehicleSlamModes: Record<string, string>;
+  vehicleMissionMeta: {
+    assignments: Record<string, string>;
+    assignmentLabels: Record<string, string>;
+    progress: Record<string, number>;
+    online: Record<string, boolean>;
+    slamModes: Record<string, string>;
+  };
 }
 
 /**
@@ -101,6 +108,9 @@ export function useMissionControl(): MissionControlState {
   const [startMissionError, setStartMissionError] = useState<string | null>(null);
   const [abortMissionError, setAbortMissionError] = useState<string | null>(null);
   const [vehicleSlamModes, setVehicleSlamModes] = useState<Record<string, string>>({});
+  const [vehicleMissionMeta, setVehicleMissionMeta] = useState(() =>
+    extractVehicleMissionMetaFromProgressPayload({})
+  );
 
   const hasValidStartZone =
     !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
@@ -188,6 +198,7 @@ export function useMissionControl(): MissionControlState {
   useEffect(() => {
     if (!ros || !rosConnected) {
       setVehicleSlamModes({});
+      setVehicleMissionMeta(extractVehicleMissionMetaFromProgressPayload({}));
       return;
     }
 
@@ -262,8 +273,31 @@ export function useMissionControl(): MissionControlState {
           grid_completed?: number;
           grid_total?: number;
         };
-        const { slamModes } =
+        const extractedMeta =
           extractVehicleMissionMetaFromProgressPayload(parsedProgress);
+        const { slamModes } = extractedMeta;
+        setVehicleMissionMeta((previous) => ({
+          assignments: {
+            ...previous.assignments,
+            ...extractedMeta.assignments,
+          },
+          assignmentLabels: {
+            ...previous.assignmentLabels,
+            ...extractedMeta.assignmentLabels,
+          },
+          progress: {
+            ...previous.progress,
+            ...extractedMeta.progress,
+          },
+          online: {
+            ...previous.online,
+            ...extractedMeta.online,
+          },
+          slamModes: {
+            ...previous.slamModes,
+            ...extractedMeta.slamModes,
+          },
+        }));
         if (Object.keys(slamModes).length > 0) {
           setVehicleSlamModes((previous) => ({
             ...previous,
@@ -517,6 +551,7 @@ export function useMissionControl(): MissionControlState {
     abortMissionError,
     rosConnected,
     vehicleSlamModes,
+    vehicleMissionMeta,
   };
 }
 
