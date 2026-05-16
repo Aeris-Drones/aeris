@@ -162,6 +162,37 @@ function parseGeometryFromHazardPayload(rawHazardPayload) {
   }
 }
 
+function parseRouteBlockerType(rawMessage) {
+  const direct = typeof rawMessage?.route_blocker_type === "string"
+    ? rawMessage.route_blocker_type
+    : "";
+  const normalizedDirect = direct.trim().toLowerCase();
+  if (normalizedDirect === "gas" || normalizedDirect === "structural") {
+    return normalizedDirect;
+  }
+
+  if (typeof rawMessage?.hazard_payload_json !== "string" || rawMessage.hazard_payload_json.trim() === "") {
+    return undefined;
+  }
+
+  try {
+    const payload = JSON.parse(rawMessage.hazard_payload_json);
+    const rawType = typeof payload?.route_blocker_type === "string"
+      ? payload.route_blocker_type
+      : typeof payload?.hazard_type === "string"
+        ? payload.hazard_type
+        : "";
+    const normalized = rawType.trim().toLowerCase();
+    if (normalized === "gas" || normalized === "structural") {
+      return normalized;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
 function pickPrimarySensorType(sourceModalities) {
   for (const modality of MODALITY_PRIORITY) {
     if (sourceModalities.includes(modality)) {
@@ -253,6 +284,7 @@ export function normalizeFusedDetectionMessage(rawMessage, options = {}) {
     sourceModalities,
     geometry: fallbackGeometry.length > 0 ? fallbackGeometry : undefined,
     signatureType: buildSignature(sourceModalities, confidenceLevel),
+    routeBlockerType: parseRouteBlockerType(message),
     deliveryMode: replayMetadata?.deliveryMode,
     originalEventTs: replayMetadata?.originalEventTs ?? timestamp,
     replayedAtTs: replayMetadata?.replayedAtTs ?? undefined,

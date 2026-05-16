@@ -75,6 +75,32 @@ test("normalizeFusedDetectionMessage falls back to hazard payload geometry when 
   ]);
 });
 
+test("normalizeFusedDetectionMessage preserves explicit structural route blocker metadata", () => {
+  const message = {
+    stamp: { sec: 1_700_000_060, nanosec: 0 },
+    candidate_id: "collapse-001",
+    confidence_level: "HIGH",
+    confidence: 0.93,
+    source_modalities: ["thermal"],
+    local_target: { x: -15, y: 25, z: 0 },
+    local_geometry: [
+      { x: -25, y: 15, z: 0 },
+      { x: -5, y: 15, z: 0 },
+      { x: -5, y: 35, z: 0 },
+      { x: -25, y: 35, z: 0 },
+    ],
+    route_blocker_type: "structural",
+  };
+
+  const detection = normalizeFusedDetectionMessage(message, {
+    nowMs: (1_700_000_060 * 1000) + 1000,
+    maxAgeMs: 120_000,
+  });
+
+  assert.ok(detection);
+  assert.equal(detection.routeBlockerType, "structural");
+});
+
 test("normalizeFusedDetectionMessage drops stale detections", () => {
   const message = {
     stamp: { sec: 1_700_000_000, nanosec: 0 },

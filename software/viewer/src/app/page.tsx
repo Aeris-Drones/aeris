@@ -29,6 +29,11 @@ import { applyDetectionStatusOverrides, computeDetectionCounts } from '@/lib/det
 import { normalizeVehicleId } from '@/lib/missionProgressVehicleMeta';
 import { applyVehicleMissionMeta } from '@/lib/fleetVehicleProjection';
 import { normalizeMissionMetaForVehicle } from '@/lib/degradedVehicleState';
+import {
+  DEFAULT_ROUTE_STAGING_AREA,
+  deriveRouteRecommendations,
+  type RouteStagingArea,
+} from '@/lib/routeRecommendations';
 
 /**
  * Mock detections for UI demonstration when ROS telemetry is unavailable.
@@ -107,6 +112,7 @@ function V2PageContent() {
 
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
+  const [routeStagingArea] = useState<RouteStagingArea>(DEFAULT_ROUTE_STAGING_AREA);
 
   const {
     phase: missionPhase,
@@ -155,6 +161,14 @@ function V2PageContent() {
   const detections = useMemo<Detection[]>(
     () => applyDetectionStatusOverrides(baseDetections, detectionStatusOverrides),
     [baseDetections, detectionStatusOverrides]
+  );
+  const routeRecommendations = useMemo(
+    () =>
+      deriveRouteRecommendations({
+        detections,
+        stagingArea: routeStagingArea,
+      }),
+    [detections, routeStagingArea]
   );
 
   /**
@@ -434,6 +448,7 @@ function V2PageContent() {
           vehicles={telemetryVehicles}
           vehicleMissionMeta={vehicleMissionMeta}
           returnTrajectories={returnTrajectories}
+          routeRecommendations={routeRecommendations}
           ref={mapRef}
           detections={detections}
           selectedDroneId={selectedDroneId}

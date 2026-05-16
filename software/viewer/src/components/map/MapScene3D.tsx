@@ -7,6 +7,7 @@ import { CameraControls, Grid } from '@react-three/drei';
 import { DroneMarker3D, DroneMarker3DProps } from './DroneMarker3D';
 import { DetectionMarker3D, DetectionMarker3DProps } from './DetectionMarker3D';
 import { FlightTrail3D } from './FlightTrail3D';
+import { RouteOverlay3D } from './RouteOverlay3D';
 import { ZoneOverlay3D, ZoneDrawingPreview } from './ZoneOverlay3D';
 import type { PriorityZone, ZonePoint, ZonePriority } from '@/types/zone';
 import type { Detection } from '@/components/sheets/DetectionCard';
@@ -15,6 +16,7 @@ import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 import type { TileData } from '@/lib/map/MapTileManager';
 import type { VehicleState } from '@/lib/vehicle/VehicleManager';
+import type { RouteRecommendation } from '@/lib/routeRecommendations';
 import {
   deriveVehicleDegradedState,
   normalizeMissionMetaForVehicle,
@@ -45,6 +47,8 @@ interface MapScene3DProps {
   vehicleMissionMeta?: MissionMetaMaps;
   /** Optional return trajectories from the parent */
   returnTrajectories?: Record<string, [number, number, number][]>;
+  /** Advisory responder entry routes derived by the parent projection path */
+  routeRecommendations?: RouteRecommendation[];
   /** Sensor detections to render in the scene */
   detections?: Detection[];
   /** Currently selected drone ID for highlighting */
@@ -94,6 +98,7 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     vehicles: vehiclesProp,
     vehicleMissionMeta = {},
     returnTrajectories: returnTrajectoriesProp,
+    routeRecommendations = [],
     detections = [],
     selectedDroneId,
     selectedDetectionId,
@@ -284,6 +289,11 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
                 />
               ) : null
             )}
+
+          {visibility.routes &&
+            routeRecommendations.map((route) => (
+              <RouteOverlay3D key={route.id} route={route} />
+            ))}
 
           {/* Drone markers */}
           {telemetryDrones.map((drone) => (

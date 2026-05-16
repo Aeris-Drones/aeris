@@ -36,6 +36,7 @@ export interface Detection {
   concentration?: number;
   sector?: string;
   signatureType?: string;
+  routeBlockerType?: 'gas' | 'structural';
   deliveryMode?: 'live' | 'replayed';
   originalEventTs?: number;
   replayedAtTs?: number;
