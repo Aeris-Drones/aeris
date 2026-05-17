@@ -10,11 +10,17 @@ import React, {
 } from 'react';
 import type { PriorityZone, ZoneInput, ZonePriority, ZonePoint } from '@/types/zone';
 import { createZone } from '@/types/zone';
+import {
+  DEFAULT_ROUTE_STAGING_AREA,
+  type RouteStagingArea,
+} from '@/lib/routeRecommendations';
 
 export type DrawingMode = 'none' | 'drawing' | 'editing';
+export type DrawingTarget = 'search-zone' | 'structural-hazard';
 
 export interface DrawingState {
   mode: DrawingMode;
+  target: DrawingTarget;
   currentPriority: ZonePriority;
   points: ZonePoint[];
   editingZoneId?: string;
@@ -23,20 +29,26 @@ export interface DrawingState {
 interface ZoneContextValue {
   zones: PriorityZone[];
   activeZones: PriorityZone[];
+  structuralHazardZones: PriorityZone[];
   drawing: DrawingState;
   isDrawing: boolean;
+  routeStagingArea: RouteStagingArea;
+  isPlacingRouteStagingArea: boolean;
   addZone: (input: ZoneInput) => PriorityZone;
   updateZone: (id: string, updates: Partial<PriorityZone>) => void;
   deleteZone: (id: string) => void;
   completeZone: (id: string) => void;
   skipZone: (id: string) => void;
   reactivateZone: (id: string) => void;
-  startDrawing: (priority: ZonePriority) => void;
+  startDrawing: (priority: ZonePriority, target?: DrawingTarget) => void;
   addPoint: (point: ZonePoint) => void;
   undoLastPoint: () => void;
   cancelDrawing: () => void;
   finishDrawing: (name?: string, notes?: string) => PriorityZone | null;
   setPriority: (priority: ZonePriority) => void;
+  startPlacingRouteStagingArea: () => void;
+  setRouteStagingAreaPosition: (point: ZonePoint) => void;
+  cancelRouteStagingAreaPlacement: () => void;
   startEditing: (zoneId: string) => void;
   stopEditing: () => void;
   selectedZoneId: string | null;
@@ -62,12 +74,21 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
   const [drawing, setDrawing] = useState<DrawingState>({
     mode: 'none',
+    target: 'search-zone',
     currentPriority: 1,
     points: [],
   });
+  const [routeStagingArea, setRouteStagingArea] = useState<RouteStagingArea>(
+    DEFAULT_ROUTE_STAGING_AREA
+  );
+  const [isPlacingRouteStagingArea, setIsPlacingRouteStagingArea] = useState(false);
 
   const activeZones = useMemo(() => {
-    return zones.filter(z => z.status === 'active');
+    return zones.filter(z => z.kind === 'search' && z.status === 'active');
+  }, [zones]);
+
+  const structuralHazardZones = useMemo(() => {
+    return zones.filter(z => z.kind === 'structural_hazard' && z.status === 'active');
   }, [zones]);
 
   const selectedZone = useMemo(() => {
@@ -107,9 +128,11 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     updateZone(id, { status: 'active', completedAt: undefined });
   }, [updateZone]);
 
-  const startDrawing = useCallback((priority: ZonePriority) => {
+  const startDrawing = useCallback((priority: ZonePriority, target: DrawingTarget = 'search-zone') => {
+    setIsPlacingRouteStagingArea(false);
     setDrawing({
       mode: 'drawing',
+      target,
       currentPriority: priority,
       points: [],
     });
@@ -132,6 +155,7 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
   const cancelDrawing = useCallback(() => {
     setDrawing({
       mode: 'none',
+      target: 'search-zone',
       currentPriority: 1,
       points: [],
     });
@@ -146,6 +170,7 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
 
     const zone = addZone({
       name,
+      kind: drawing.target === 'structural-hazard' ? 'structural_hazard' : 'search',
       priority: drawing.currentPriority,
       polygon: drawing.points,
       notes,
@@ -153,6 +178,7 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
 
     setDrawing({
       mode: 'none',
+      target: 'search-zone',
       currentPriority: 1,
       points: [],
     });
@@ -167,12 +193,35 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     }));
   }, []);
 
+  const startPlacingRouteStagingArea = useCallback(() => {
+    setDrawing(previous => ({
+      mode: 'none',
+      target: 'search-zone',
+      currentPriority: previous.currentPriority,
+      points: [],
+    }));
+    setIsPlacingRouteStagingArea(true);
+  }, []);
+
+  const setRouteStagingAreaPosition = useCallback((point: ZonePoint) => {
+    setRouteStagingArea((previous) => ({
+      ...previous,
+      position: [point.x, 0, point.z],
+    }));
+    setIsPlacingRouteStagingArea(false);
+  }, []);
+
+  const cancelRouteStagingAreaPlacement = useCallback(() => {
+    setIsPlacingRouteStagingArea(false);
+  }, []);
+
   const startEditing = useCallback((zoneId: string) => {
     const zone = zones.find(z => z.id === zoneId);
     if (!zone) return;
 
     setDrawing({
       mode: 'editing',
+      target: zone.kind === 'structural_hazard' ? 'structural-hazard' : 'search-zone',
       currentPriority: zone.priority,
       points: [...zone.polygon],
       editingZoneId: zoneId,
@@ -184,11 +233,13 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
       updateZone(drawing.editingZoneId, {
         polygon: drawing.points,
         priority: drawing.currentPriority,
+        kind: drawing.target === 'structural-hazard' ? 'structural_hazard' : 'search',
       });
     }
 
     setDrawing({
       mode: 'none',
+      target: 'search-zone',
       currentPriority: 1,
       points: [],
     });
@@ -201,8 +252,11 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
   const value: ZoneContextValue = {
     zones,
     activeZones,
+    structuralHazardZones,
     drawing,
     isDrawing,
+    routeStagingArea,
+    isPlacingRouteStagingArea,
     addZone,
     updateZone,
     deleteZone,
@@ -215,6 +269,9 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
     cancelDrawing,
     finishDrawing,
     setPriority,
+    startPlacingRouteStagingArea,
+    setRouteStagingAreaPosition,
+    cancelRouteStagingAreaPlacement,
     startEditing,
     stopEditing,
     selectedZoneId,

@@ -20,7 +20,7 @@ import type { ZonePriority } from '@/types/zone';
 
 /** Layer toggle configuration - IDs must match LayerVisibilityContext keys */
 interface LayerItem {
-  id: 'map' | 'thermal' | 'acoustic' | 'gas' | 'trajectories';
+  id: 'map' | 'thermal' | 'acoustic' | 'gas' | 'trajectories' | 'routes';
   label: string;
   icon: LucideIcon;
   color: string;
@@ -33,6 +33,7 @@ const layers: LayerItem[] = [
   { id: 'acoustic', label: 'Acoustic', icon: AudioLines, color: 'text-sky-400' },
   { id: 'gas', label: 'Gas', icon: Wind, color: 'text-amber-400' },
   { id: 'trajectories', label: 'Paths', icon: Route, color: 'text-violet-400' },
+  { id: 'routes', label: 'Routes', icon: Route, color: 'text-emerald-400' },
 ];
 
 /** Zone priority levels for mission planning - Priority 1 is highest urgency */
@@ -153,7 +154,7 @@ export function LayersPanel() {
           {zonePriorities.map(({ priority, label, color }) => (
             <button
               key={priority}
-              onClick={() => startDrawing(priority)}
+              onClick={() => startDrawing(priority, 'search-zone')}
               disabled={isDrawing}
               className={cn(
                 'flex-1 px-2 py-1.5 rounded text-[10px] font-medium',

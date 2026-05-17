@@ -16,6 +16,11 @@ const priorityColors: Record<ZonePriority, { line: string; fill: string }> = {
   3: { line: '#eab308', fill: '#eab308' }, // Yellow - lowest priority
 };
 
+const structuralHazardColors = {
+  line: '#fb7185',
+  fill: '#fb7185',
+};
+
 interface ZoneOverlay3DProps {
   zone: PriorityZone;
   isSelected: boolean;
@@ -47,7 +52,8 @@ function pointsToVector3(points: ZonePoint[], y: number = 1): THREE.Vector3[] {
  * @param onClick - Handler for zone selection interactions
  */
 export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps) {
-  const colors = priorityColors[zone.priority];
+  const isStructuralHazard = zone.kind === 'structural_hazard';
+  const colors = isStructuralHazard ? structuralHazardColors : priorityColors[zone.priority];
   const isCompleted = zone.status === 'completed';
   const isSkipped = zone.status === 'skipped';
   const isDimmed = isCompleted || isSkipped;
@@ -101,9 +107,9 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
         lineWidth={isSelected ? 3 : 2}
         transparent
         opacity={isDimmed ? 0.4 : 0.8}
-        dashed={isCompleted}
-        dashSize={isCompleted ? 5 : undefined}
-        gapSize={isCompleted ? 5 : undefined}
+        dashed={isCompleted || isStructuralHazard}
+        dashSize={isCompleted || isStructuralHazard ? 5 : undefined}
+        gapSize={isCompleted || isStructuralHazard ? 5 : undefined}
       />
 
       <Text
@@ -127,7 +133,7 @@ export function ZoneOverlay3D({ zone, isSelected, onClick }: ZoneOverlay3DProps)
         outlineWidth={0.2}
         outlineColor="#000000"
       >
-        P{zone.priority}
+        {isStructuralHazard ? 'NO-GO' : `P${zone.priority}`}
       </Text>
     </group>
   );

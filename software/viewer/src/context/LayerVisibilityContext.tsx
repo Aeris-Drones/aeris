@@ -11,6 +11,7 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
  * - gas: Gas sensor readings and concentration overlays
  * - acoustic: Acoustic detection markers and source indicators
  * - trajectories: Vehicle path history and planned waypoints
+ * - routes: Advisory responder entry routes
  */
 interface LayerState {
   map: boolean;
@@ -18,6 +19,7 @@ interface LayerState {
   gas: boolean;
   acoustic: boolean;
   trajectories: boolean;
+  routes: boolean;
 }
 
 interface LayerVisibilityContextType extends LayerState {
@@ -31,6 +33,7 @@ const defaultState: LayerState = {
   gas: true,
   acoustic: true,
   trajectories: true,
+  routes: true,
 };
 
 const LayerVisibilityContext = createContext<LayerVisibilityContextType | undefined>(undefined);

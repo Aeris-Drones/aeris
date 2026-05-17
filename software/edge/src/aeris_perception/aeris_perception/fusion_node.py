@@ -317,15 +317,19 @@ class FusionNode(Node):
         ]
         message.frame_id = self._frame_id
         if len(result.geometry) >= 3:
-            message.hazard_payload_json = json.dumps(
-                {
-                    "polygons": [
-                        [
-                            {"x": float(point[0]), "z": float(point[1])}
-                            for point in result.geometry
-                        ]
+            payload: dict[str, Any] = {
+                "polygons": [
+                    [
+                        {"x": float(point[0]), "z": float(point[1])}
+                        for point in result.geometry
                     ]
-                }
+                ]
+            }
+            if "gas" in result.source_modalities:
+                payload["hazard_type"] = "gas"
+                payload["route_blocker_type"] = "gas"
+            message.hazard_payload_json = json.dumps(
+                payload
             )
         else:
             message.hazard_payload_json = ""

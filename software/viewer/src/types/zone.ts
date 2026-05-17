@@ -7,6 +7,14 @@
 export type ZonePriority = 1 | 2 | 3;
 
 /**
+ * Semantic role for map-drawn polygons.
+ *
+ * - search: mission search coverage area
+ * - structural_hazard: explicit no-go / collapse hazard area used by route guidance
+ */
+export type ZoneKind = 'search' | 'structural_hazard';
+
+/**
  * Zone lifecycle status for search coordination.
  *
  * - active: Currently being or scheduled to be searched
@@ -34,6 +42,7 @@ export interface ZonePoint {
 export interface PriorityZone {
   id: string;
   name: string;
+  kind: ZoneKind;
   priority: ZonePriority;
   status: ZoneStatus;
   polygon: ZonePoint[];
@@ -49,6 +58,7 @@ export interface PriorityZone {
  */
 export interface ZoneInput {
   name?: string;
+  kind?: ZoneKind;
   priority: ZonePriority;
   polygon: ZonePoint[];
   notes?: string;
@@ -260,9 +270,15 @@ export function isPointInZone(point: ZonePoint, polygon: ZonePoint[]): boolean {
  */
 export function createZone(input: ZoneInput): PriorityZone {
   const id = generateZoneId();
+  const kind = input.kind ?? 'search';
+  const defaultName =
+    kind === 'structural_hazard'
+      ? `Hazard ${id.slice(-4).toUpperCase()}`
+      : `Zone ${id.slice(-4).toUpperCase()}`;
   return {
     id,
-    name: input.name || `Zone ${id.slice(-4).toUpperCase()}`,
+    name: input.name || defaultName,
+    kind,
     priority: input.priority,
     status: 'active',
     polygon: input.polygon,

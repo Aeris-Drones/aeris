@@ -113,7 +113,10 @@ export function useMissionControl(): MissionControlState {
   );
 
   const hasValidStartZone =
-    !!selectedZone && selectedZone.status === 'active' && selectedZone.polygon.length >= 3;
+    !!selectedZone &&
+    selectedZone.kind === 'search' &&
+    selectedZone.status === 'active' &&
+    selectedZone.polygon.length >= 3;
 
   const effectiveStartMissionError =
     hasValidStartZone && startMissionError === INVALID_START_ZONE_ERROR

@@ -1,7 +1,19 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { PenTool, Undo2, Check, X, AlertTriangle, AlertCircle, Info, Trash2, ChevronDown } from 'lucide-react';
+import {
+  PenTool,
+  Undo2,
+  Check,
+  X,
+  AlertTriangle,
+  AlertCircle,
+  Info,
+  Trash2,
+  ChevronDown,
+  MapPin,
+  ShieldAlert,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useZoneContext } from '@/context/ZoneContext';
 import type { ZonePriority } from '@/types/zone';
@@ -130,6 +142,10 @@ export function ZoneToolbar() {
     setPriority,
     deleteZone,
     selectZone,
+    isPlacingRouteStagingArea,
+    startPlacingRouteStagingArea,
+    cancelRouteStagingAreaPlacement,
+    routeStagingArea,
   } = useZoneContext();
 
   const [zoneName, setZoneName] = useState('');
@@ -156,6 +172,45 @@ export function ZoneToolbar() {
     }
   };
 
+  if (isPlacingRouteStagingArea) {
+    return (
+      <div className={cn(
+        'flex items-center gap-3 px-4 py-2.5 rounded-lg',
+        'bg-black/60 backdrop-blur-md',
+        'border border-white/10'
+      )}>
+        <div className="flex items-center gap-2 text-emerald-300">
+          <MapPin className="h-4 w-4" />
+          <span className="text-xs font-medium uppercase">Set Staging</span>
+        </div>
+
+        <div className="w-px h-5 bg-white/10" />
+
+        <span className="text-xs text-white/60">
+          Click the map to place the responder staging point.
+        </span>
+
+        <div className="w-px h-5 bg-white/10" />
+
+        <span className="font-mono text-xs text-white/50">
+          {Math.round(routeStagingArea.position[0])}, {Math.round(routeStagingArea.position[2])}
+        </span>
+
+        <button
+          onClick={cancelRouteStagingAreaPlacement}
+          className={cn(
+            'ml-auto flex items-center gap-2 px-3 py-1.5 rounded-md',
+            'text-white/60 hover:text-white hover:bg-white/10 transition-colors',
+            'text-sm font-medium'
+          )}
+        >
+          <X className="h-4 w-4" />
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
   if (!isDrawing) {
     return (
       <div className={cn(
@@ -169,7 +224,7 @@ export function ZoneToolbar() {
         <div className="w-px h-5 bg-white/10" />
 
         <button
-          onClick={() => startDrawing(drawing.currentPriority)}
+          onClick={() => startDrawing(drawing.currentPriority, 'search-zone')}
           className={cn(
             'flex items-center gap-2 px-3 py-1.5 rounded-md',
             'bg-cyan-500/20 text-cyan-400',
@@ -179,6 +234,32 @@ export function ZoneToolbar() {
         >
           <PenTool className="h-4 w-4" />
           Draw Zone
+        </button>
+
+        <button
+          onClick={() => startDrawing(drawing.currentPriority, 'structural-hazard')}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-md',
+            'bg-rose-500/20 text-rose-300',
+            'hover:bg-rose-500/30 transition-colors',
+            'text-sm font-medium'
+          )}
+        >
+          <ShieldAlert className="h-4 w-4" />
+          Hazard Zone
+        </button>
+
+        <button
+          onClick={startPlacingRouteStagingArea}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-md',
+            'bg-emerald-500/20 text-emerald-300',
+            'hover:bg-emerald-500/30 transition-colors',
+            'text-sm font-medium'
+          )}
+        >
+          <MapPin className="h-4 w-4" />
+          Set Staging
         </button>
 
         {zones.length > 0 && (
@@ -205,6 +286,7 @@ export function ZoneToolbar() {
   }
 
   const currentPriority = priorityConfig[drawing.currentPriority];
+  const isStructuralHazard = drawing.target === 'structural-hazard';
 
   return (
     <div className={cn(
@@ -212,9 +294,15 @@ export function ZoneToolbar() {
       'bg-black/60 backdrop-blur-md',
       'border border-white/10'
     )}>
-      <div className={cn('flex items-center gap-2', currentPriority.color)}>
-        <currentPriority.Icon className="h-4 w-4" />
-        <span className="text-xs font-medium">{currentPriority.label}</span>
+      <div className={cn('flex items-center gap-2', isStructuralHazard ? 'text-rose-300' : currentPriority.color)}>
+        {isStructuralHazard ? (
+          <ShieldAlert className="h-4 w-4" />
+        ) : (
+          <currentPriority.Icon className="h-4 w-4" />
+        )}
+        <span className="text-xs font-medium">
+          {isStructuralHazard ? 'STRUCTURAL HAZARD' : currentPriority.label}
+        </span>
       </div>
 
       <div className="w-px h-5 bg-white/10" />

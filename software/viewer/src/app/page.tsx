@@ -29,6 +29,9 @@ import { applyDetectionStatusOverrides, computeDetectionCounts } from '@/lib/det
 import { normalizeVehicleId } from '@/lib/missionProgressVehicleMeta';
 import { applyVehicleMissionMeta } from '@/lib/fleetVehicleProjection';
 import { normalizeMissionMetaForVehicle } from '@/lib/degradedVehicleState';
+import {
+  deriveRouteRecommendations,
+} from '@/lib/routeRecommendations';
 
 /**
  * Mock detections for UI demonstration when ROS telemetry is unavailable.
@@ -98,15 +101,20 @@ export default function V2Page() {
 function V2PageContent() {
   const {
     zones,
+    structuralHazardZones,
     selectedZoneId,
     selectZone,
     drawing,
     isDrawing,
     addPoint,
+    routeStagingArea,
+    isPlacingRouteStagingArea,
+    setRouteStagingAreaPosition,
   } = useZoneContext();
 
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
+  const [routeNowMs, setRouteNowMs] = useState(() => Date.now());
 
   const {
     phase: missionPhase,
@@ -155,6 +163,24 @@ function V2PageContent() {
   const detections = useMemo<Detection[]>(
     () => applyDetectionStatusOverrides(baseDetections, detectionStatusOverrides),
     [baseDetections, detectionStatusOverrides]
+  );
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setRouteNowMs(Date.now());
+    }, 5_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const routeRecommendations = useMemo(
+    () =>
+      deriveRouteRecommendations({
+        detections,
+        stagingArea: routeStagingArea,
+        structuralHazards: structuralHazardZones,
+        nowMs: routeNowMs,
+      }),
+    [detections, routeNowMs, routeStagingArea, structuralHazardZones]
   );
 
   /**
@@ -434,6 +460,7 @@ function V2PageContent() {
           vehicles={telemetryVehicles}
           vehicleMissionMeta={vehicleMissionMeta}
           returnTrajectories={returnTrajectories}
+          routeRecommendations={routeRecommendations}
           ref={mapRef}
           detections={detections}
           selectedDroneId={selectedDroneId}
@@ -447,6 +474,9 @@ function V2PageContent() {
           drawingPoints={drawing.points}
           drawingPriority={drawing.currentPriority}
           onAddZonePoint={addPoint}
+          routeStagingArea={routeStagingArea}
+          isPlacingRouteStagingArea={isPlacingRouteStagingArea}
+          onRouteStagingAreaSet={setRouteStagingAreaPosition}
         />
       }
 
