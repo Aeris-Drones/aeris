@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 
 /** Props for the CommandDock component using the slot pattern for composition */
 interface CommandDockProps {
@@ -9,7 +10,9 @@ interface CommandDockProps {
   /** Detections card - shows sensor detections and confidence scores */
   detectionsCard: ReactNode;
   /** Controls card - mission control buttons and actions */
-  controlsCard: ReactNode;
+  controlsCard?: ReactNode;
+  /** Mode-specific composition for operator controls vs IC read-only summaries */
+  mode?: 'operator' | 'ic';
 }
 
 /**
@@ -32,7 +35,20 @@ export function CommandDock({
   fleetCard,
   detectionsCard,
   controlsCard,
+  mode = 'operator',
 }: CommandDockProps) {
+  if (mode === 'ic') {
+    return (
+      <div
+        className="flex items-stretch justify-center gap-4 px-6 pb-6 pt-12"
+        style={{ minHeight: '132px' }}
+      >
+        <div className="w-[360px] min-h-[108px]">{fleetCard}</div>
+        <div className="w-[360px] min-h-[108px]">{detectionsCard}</div>
+      </div>
+    );
+  }
+
   return (
     <div
       className="flex items-stretch justify-center gap-4 p-4 pb-6"
@@ -40,7 +56,9 @@ export function CommandDock({
     >
       <div className="w-[280px] min-h-[140px]">{fleetCard}</div>
       <div className="w-[280px] min-h-[140px]">{detectionsCard}</div>
-      <div className="w-[280px] min-h-[140px]">{controlsCard}</div>
+      <div className={cn('w-[280px] min-h-[140px]', !controlsCard && 'hidden')}>
+        {controlsCard}
+      </div>
     </div>
   );
 }

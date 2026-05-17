@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { Suspense, useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { GCSLayout } from '@/components/layout/GCSLayout';
 import { StatusPill, MissionPhase } from '@/components/layout/StatusPill';
 import { CommandDock } from '@/components/layout/CommandDock';
@@ -14,6 +15,7 @@ import { Detection } from '@/components/sheets/DetectionCard';
 import { VehicleInfo } from '@/components/sheets/VehicleCard';
 import { LayersPanel } from '@/components/layers/LayersPanel';
 import { LayerVisibilityProvider } from '@/context/LayerVisibilityContext';
+import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 import { ZoneProvider, useZoneContext } from '@/context/ZoneContext';
 import { CoordinateOriginProvider } from '@/context/CoordinateOriginContext';
 import { ROSConnectionProvider } from '@/context/ROSConnectionContext';
@@ -22,6 +24,7 @@ import { ZoneToolbar } from '@/components/zones/ZoneToolbar';
 import { PiPVideoFeed } from '@/components/pip/PiPVideoFeed';
 import { AlertToaster, showAlert, dismissAlert, type Alert } from '@/components/alerts';
 import { KeyboardShortcutsOverlay } from '@/components/ui/KeyboardShortcuts';
+import { Switch } from '@/components/ui/switch';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useFusedDetections } from '@/hooks/useFusedDetections';
@@ -29,6 +32,7 @@ import { applyDetectionStatusOverrides, computeDetectionCounts } from '@/lib/det
 import { normalizeVehicleId } from '@/lib/missionProgressVehicleMeta';
 import { applyVehicleMissionMeta } from '@/lib/fleetVehicleProjection';
 import { normalizeMissionMetaForVehicle } from '@/lib/degradedVehicleState';
+import { isIcViewModeQueryValue } from '@/lib/icViewMode';
 import {
   deriveRouteRecommendations,
 } from '@/lib/routeRecommendations';
@@ -87,7 +91,9 @@ export default function V2Page() {
         <LayerVisibilityProvider>
           <ZoneProvider>
             <MissionProvider>
-              <V2PageContent />
+              <Suspense fallback={null}>
+                <V2PageContent />
+              </Suspense>
               <AlertToaster visibleToasts={5} />
               <KeyboardShortcutsOverlay />
             </MissionProvider>
@@ -99,6 +105,10 @@ export default function V2Page() {
 }
 
 function V2PageContent() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const layerVisibility = useLayerVisibility();
   const {
     zones,
     structuralHazardZones,
@@ -115,6 +125,9 @@ function V2PageContent() {
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
   const [routeNowMs, setRouteNowMs] = useState(() => Date.now());
+  const [icViewModeEnabled, setIcViewModeEnabled] = useState(() =>
+    isIcViewModeQueryValue(searchParams.get('ic'))
+  );
 
   const {
     phase: missionPhase,
@@ -150,6 +163,34 @@ function V2PageContent() {
   } = useFusedDetections(telemetryVehicles);
   const allowMockFallback =
     process.env.NODE_ENV !== 'production' && !rosConnected;
+
+  useEffect(() => {
+    setIcViewModeEnabled(isIcViewModeQueryValue(searchParams.get('ic')));
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!icViewModeEnabled) {
+      return;
+    }
+
+    (['map', 'thermal', 'gas', 'acoustic', 'trajectories', 'routes'] as const).forEach((layer) => {
+      if (!layerVisibility[layer]) {
+        layerVisibility.setLayer(layer, true);
+      }
+    });
+  }, [icViewModeEnabled, layerVisibility]);
+
+  const setIcModeFromUi = useCallback((enabled: boolean) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (enabled) {
+      params.set('ic', '1');
+    } else {
+      params.delete('ic');
+    }
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
 
   const baseDetections = useMemo<Detection[]>(
     () => {
@@ -260,8 +301,12 @@ function V2PageContent() {
   }, [vehiclePositionById]);
 
   const handleViewFeed = useCallback((id: string) => {
+    if (icViewModeEnabled) {
+      return;
+    }
+
     setPipVehicleId(id);
-  }, []);
+  }, [icViewModeEnabled]);
 
   /**
    * Static alerts for demonstration. In production, these are fed from
@@ -337,18 +382,26 @@ function V2PageContent() {
   }, [detections]);
 
   const handleConfirmDetection = useCallback((id: string) => {
+    if (icViewModeEnabled) {
+      return;
+    }
+
     setDetectionStatusOverrides((previous) => ({
       ...previous,
       [id]: 'confirmed',
     }));
-  }, []);
+  }, [icViewModeEnabled]);
 
   const handleDismissDetection = useCallback((id: string) => {
+    if (icViewModeEnabled) {
+      return;
+    }
+
     setDetectionStatusOverrides((previous) => ({
       ...previous,
       [id]: 'dismissed',
     }));
-  }, []);
+  }, [icViewModeEnabled]);
 
   const handleLocateDetection = useCallback((id: string) => {
     const detection = detections.find(d => d.id === id);
@@ -367,8 +420,11 @@ function V2PageContent() {
   }, []);
 
   const handleRTH = useCallback((id: string) => {
+    if (icViewModeEnabled) {
+      return;
+    }
     void id;
-  }, []);
+  }, [icViewModeEnabled]);
 
   const handleAlertClick = useCallback(() => {
     if (!allowMockFallback || storedAlerts.length === 0) {
@@ -395,8 +451,16 @@ function V2PageContent() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
       switch (e.key) {
+        case 'i':
+        case 'I':
+          e.preventDefault();
+          setIcModeFromUi(!icViewModeEnabled);
+          break;
         case ' ': // Space - Pause/Resume mission
           e.preventDefault();
+          if (icViewModeEnabled) {
+            break;
+          }
           if (missionPhase === 'SEARCHING' || missionPhase === 'TRACKING') {
             if (isPaused) {
               resumeMission();
@@ -407,6 +471,9 @@ function V2PageContent() {
           break;
         case 'Escape': // Cancel current action
           e.preventDefault();
+          if (icViewModeEnabled) {
+            break;
+          }
           setSelectedDroneId(null);
           setSelectedDetectionId(null);
           break;
@@ -416,6 +483,9 @@ function V2PageContent() {
         case '4':
         case '5':
         case '6':
+          if (icViewModeEnabled) {
+            break;
+          }
           // Select drone 1-6
           const droneIndex = parseInt(e.key) - 1;
           if (droneIndex < fleetVehicles.length) {
@@ -424,6 +494,9 @@ function V2PageContent() {
           break;
         case 'r':
         case 'R':
+          if (icViewModeEnabled) {
+            break;
+          }
           // Reset camera to default view
           if (mapRef.current) {
             mapRef.current.teleportTo(0, 0);
@@ -434,7 +507,7 @@ function V2PageContent() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [missionPhase, isPaused, pauseMission, resumeMission, handleLocateVehicle, fleetVehicles]);
+  }, [missionPhase, isPaused, pauseMission, resumeMission, handleLocateVehicle, fleetVehicles, icViewModeEnabled, setIcModeFromUi]);
 
   const activeVehicles = fleetVehicles.filter(v => v.status === 'active' || v.status === 'warning');
   const batteryReadings = fleetVehicles
@@ -452,9 +525,35 @@ function V2PageContent() {
     [detections]
   );
   const statusAlertCount = detectionCounts.pending;
+  const icTacticalSummary = (
+    <div className="pointer-events-auto flex max-w-[360px] flex-col gap-3 text-lg">
+      <div className="rounded-lg border border-white/25 bg-black/75 px-4 py-3 shadow-[0_0_30px_rgba(0,0,0,0.35)]">
+        <div className="text-base font-semibold uppercase tracking-wide text-white/75">IC VIEW</div>
+        <div className="mt-2 grid grid-cols-2 gap-3 text-white">
+          <div>
+            <div className="font-mono text-2xl font-semibold">{activeVehicles.length}/{fleetVehicles.length}</div>
+            <div className="text-base text-white/75">fleet active</div>
+          </div>
+          <div>
+            <div className="font-mono text-2xl font-semibold">{detectionCounts.pending}</div>
+            <div className="text-base text-white/75">pending alerts</div>
+          </div>
+          <div>
+            <div className="font-mono text-2xl font-semibold">{routeRecommendations.length}</div>
+            <div className="text-base text-white/75">entry routes</div>
+          </div>
+          <div>
+            <div className="font-mono text-2xl font-semibold">{structuralHazardZones.length}</div>
+            <div className="text-base text-white/75">hazard zones</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <GCSLayout
+      viewMode={icViewModeEnabled ? 'ic' : 'operator'}
       map={
         <MapScene3D
           vehicles={telemetryVehicles}
@@ -465,18 +564,18 @@ function V2PageContent() {
           detections={detections}
           selectedDroneId={selectedDroneId}
           selectedDetectionId={selectedDetectionId}
-          onDroneSelect={handleDroneSelect}
-          onDetectionSelect={handleDetectionSelect}
+          onDroneSelect={icViewModeEnabled ? undefined : handleDroneSelect}
+          onDetectionSelect={icViewModeEnabled ? handleLocateDetection : handleDetectionSelect}
           zones={zones}
           selectedZoneId={selectedZoneId}
-          onZoneSelect={selectZone}
-          isDrawingZone={isDrawing}
+          onZoneSelect={icViewModeEnabled ? undefined : selectZone}
+          isDrawingZone={icViewModeEnabled ? false : isDrawing}
           drawingPoints={drawing.points}
           drawingPriority={drawing.currentPriority}
-          onAddZonePoint={addPoint}
+          onAddZonePoint={icViewModeEnabled ? undefined : addPoint}
           routeStagingArea={routeStagingArea}
-          isPlacingRouteStagingArea={isPlacingRouteStagingArea}
-          onRouteStagingAreaSet={setRouteStagingAreaPosition}
+          isPlacingRouteStagingArea={icViewModeEnabled ? false : isPlacingRouteStagingArea}
+          onRouteStagingAreaSet={icViewModeEnabled ? undefined : setRouteStagingAreaPosition}
         />
       }
 
@@ -490,22 +589,35 @@ function V2PageContent() {
           alertCount={statusAlertCount}
           hasUnreadAlerts={statusAlertCount > 0}
           onAlertClick={handleAlertClick}
+          viewMode={icViewModeEnabled ? 'ic' : 'operator'}
         />
       }
 
-      layersPanel={<LayersPanel />}
+      layersPanel={
+        icViewModeEnabled ? (
+          <div className="space-y-3">
+            {icTacticalSummary}
+            <div className="rounded-lg border border-white/20 bg-black/70 px-4 py-3 text-lg text-white/90">
+              Read-only shared tactical picture
+            </div>
+          </div>
+        ) : (
+          <LayersPanel />
+        )
+      }
 
-      zoneToolbar={<ZoneToolbar />}
+      zoneToolbar={icViewModeEnabled ? undefined : <ZoneToolbar />}
 
       commandDock={
         <CommandDock
+          mode={icViewModeEnabled ? 'ic' : 'operator'}
           fleetCard={
             <FleetSheet
               vehicles={fleetVehicles}
               selectedVehicleId={selectedDroneId}
               onLocate={handleLocateVehicle}
               onViewFeed={handleViewFeed}
-              onRTH={handleRTH}
+              onRTH={icViewModeEnabled ? undefined : handleRTH}
               trigger={
                 <FleetCard
                   vehicles={fleetVehicles}
@@ -514,6 +626,7 @@ function V2PageContent() {
                   avgBattery={avgBattery}
                   avgAltitude={avgAltitude}
                   warnings={fleetWarnings}
+                  viewMode={icViewModeEnabled ? 'ic' : 'operator'}
                 />
               }
             />
@@ -524,6 +637,7 @@ function V2PageContent() {
               onConfirm={handleConfirmDetection}
               onDismiss={handleDismissDetection}
               onLocate={handleLocateDetection}
+              readOnly={icViewModeEnabled}
               trigger={
                 <DetectionsCard
                   thermalCount={detectionCounts.thermal}
@@ -531,11 +645,12 @@ function V2PageContent() {
                   gasCount={detectionCounts.gas}
                   pendingCount={detectionCounts.pending}
                   confirmedCount={detectionCounts.confirmed}
+                  viewMode={icViewModeEnabled ? 'ic' : 'operator'}
                 />
               }
             />
           }
-          controlsCard={
+          controlsCard={icViewModeEnabled ? undefined : (
             <ControlsCard
               missionPhase={missionPhase}
               isPaused={isPaused}
@@ -551,7 +666,7 @@ function V2PageContent() {
               onResume={resumeMission}
               onAbort={abortMission}
             />
-          }
+          )}
         />
       }
 
@@ -586,6 +701,16 @@ function V2PageContent() {
         })() : undefined
       }
       alerts={undefined}
+      statusToggle={
+        <label className="pointer-events-auto absolute right-4 top-4 flex h-12 items-center gap-3 rounded-full border border-white/20 bg-black/70 px-4 text-base font-semibold text-white shadow-[0_0_28px_rgba(0,0,0,0.35)]">
+          <span>IC VIEW</span>
+          <Switch
+            checked={icViewModeEnabled}
+            onCheckedChange={setIcModeFromUi}
+            aria-label="Toggle IC view"
+          />
+        </label>
+      }
     />
   );
 }

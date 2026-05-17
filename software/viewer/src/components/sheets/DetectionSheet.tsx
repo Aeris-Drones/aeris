@@ -22,6 +22,8 @@ interface DetectionSheetProps {
   onLocate: (id: string) => void;
   /** Trigger element that opens the drawer */
   trigger: React.ReactNode;
+  /** Hides detection triage controls for read-only presentation modes */
+  readOnly?: boolean;
 }
 
 /**
@@ -48,6 +50,7 @@ export function DetectionSheet({
   onDismiss,
   onLocate,
   trigger,
+  readOnly = false,
 }: DetectionSheetProps) {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
 
@@ -76,8 +79,8 @@ export function DetectionSheet({
       <DrawerContent className="max-h-[80vh] bg-[#0c0c0e] border-white/5">
         <div className="mx-auto w-full max-w-xl">
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
-            <h2 className="text-sm font-medium text-white">Detections</h2>
-            <span className="text-xs text-white/40">
+            <h2 className="text-lg font-medium text-white">Detections</h2>
+            <span className="text-base text-white/55">
               {counts.pending} pending
             </span>
           </div>
@@ -88,7 +91,7 @@ export function DetectionSheet({
                 key={tab}
                 onClick={() => setActiveFilter(tab)}
                 className={cn(
-                  'flex-1 py-2.5 text-xs font-medium transition-colors',
+                  'flex-1 py-3 text-base font-medium transition-colors',
                   activeFilter === tab
                     ? 'text-white border-b-2 border-white'
                     : 'text-white/40 hover:text-white/60'
@@ -115,6 +118,7 @@ export function DetectionSheet({
                     onConfirm={() => onConfirm(detection.id)}
                     onDismiss={() => onDismiss(detection.id)}
                     onLocate={() => onLocate(detection.id)}
+                    readOnly={readOnly}
                   />
                 ))}
               </div>

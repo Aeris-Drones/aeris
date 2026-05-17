@@ -23,7 +23,7 @@ interface FleetSheetProps {
   /** Callback to open video feed for vehicle */
   onViewFeed: (id: string) => void;
   /** Callback to initiate return-to-home for vehicle */
-  onRTH: (id: string) => void;
+  onRTH?: (id: string) => void;
   /** Callback for emergency recall of all vehicles */
   onRecallAll?: () => void;
   /** Callback to pause all vehicles at current positions */
@@ -84,6 +84,7 @@ export function FleetSheet({
         batteryReadings.reduce((sum, battery) => sum + battery, 0) / batteryReadings.length
       )
     : null;
+  const hasFleetCommandActions = Boolean(onRecallAll || onHoldPositions);
 
   // Fleet status bar provides immediate visual health assessment
 
@@ -100,24 +101,24 @@ export function FleetSheet({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Plane className="h-5 w-5 text-white/40" />
-                <DrawerTitle className="text-lg font-light text-white tracking-wide">
+                <DrawerTitle className="text-xl font-medium text-white tracking-wide">
                   Fleet
                 </DrawerTitle>
               </div>
-              <div className="flex items-center gap-5 text-xs">
+              <div className="flex items-center gap-5 text-base">
                 <span className="text-emerald-400">
-                  <span className="font-mono text-sm">{activeCount}</span>
+                  <span className="font-mono text-lg">{activeCount}</span>
                   <span className="ml-1 text-white/40">active</span>
                 </span>
                 {warningCount > 0 && (
                   <span className="flex items-center gap-1 text-amber-400">
                     <AlertTriangle className="h-3 w-3" />
-                    <span className="font-mono text-sm">{warningCount}</span>
+                    <span className="font-mono text-lg">{warningCount}</span>
                   </span>
                 )}
                 <span className="flex items-center gap-1.5 text-white/50">
                   <Battery className="h-3.5 w-3.5" />
-                  <span className="font-mono text-sm">
+                  <span className="font-mono text-lg">
                     {avgBattery === null ? '--' : `${avgBattery}%`}
                   </span>
                   <span className="text-white/30">avg</span>
@@ -153,7 +154,7 @@ export function FleetSheet({
                   isSelected={selectedVehicleId === vehicle.id}
                   onLocate={() => handleLocate(vehicle.id)}
                   onViewFeed={() => handleViewFeed(vehicle.id)}
-                  onRTH={() => onRTH(vehicle.id)}
+                  onRTH={onRTH ? () => onRTH(vehicle.id) : undefined}
                 />
               ))}
             </div>
@@ -166,33 +167,38 @@ export function FleetSheet({
             )}
           </div>
 
-          {/* Emergency controls positioned for thumb accessibility on tablets */}
-          <div className="flex items-center justify-center gap-3 px-4 py-4 border-t border-white/[0.04]">
-            <Button
-              variant="outline"
-              className={cn(
-                'flex-1 h-10 max-w-[200px]',
-                'border-red-500/30 text-red-400',
-                'hover:bg-red-500/10 hover:border-red-500/50'
+          {hasFleetCommandActions && (
+            <div className="flex items-center justify-center gap-3 px-4 py-4 border-t border-white/[0.04]">
+              {onRecallAll && (
+                <Button
+                  variant="outline"
+                  className={cn(
+                    'flex-1 h-10 max-w-[200px]',
+                    'border-red-500/30 text-red-400',
+                    'hover:bg-red-500/10 hover:border-red-500/50'
+                  )}
+                  onClick={onRecallAll}
+                >
+                  <OctagonX className="mr-2 h-4 w-4" />
+                  Recall All
+                </Button>
               )}
-              onClick={onRecallAll}
-            >
-              <OctagonX className="mr-2 h-4 w-4" />
-              Recall All
-            </Button>
-            <Button
-              variant="outline"
-              className={cn(
-                'flex-1 h-10 max-w-[200px]',
-                'border-amber-500/30 text-amber-400',
-                'hover:bg-amber-500/10 hover:border-amber-500/50'
+              {onHoldPositions && (
+                <Button
+                  variant="outline"
+                  className={cn(
+                    'flex-1 h-10 max-w-[200px]',
+                    'border-amber-500/30 text-amber-400',
+                    'hover:bg-amber-500/10 hover:border-amber-500/50'
+                  )}
+                  onClick={onHoldPositions}
+                >
+                  <Pause className="mr-2 h-4 w-4" />
+                  Hold Positions
+                </Button>
               )}
-              onClick={onHoldPositions}
-            >
-              <Pause className="mr-2 h-4 w-4" />
-              Hold Positions
-            </Button>
-          </div>
+            </div>
+          )}
         </div>
       </DrawerContent>
     </Drawer>

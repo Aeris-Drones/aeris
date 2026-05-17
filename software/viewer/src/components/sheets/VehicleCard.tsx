@@ -220,19 +220,19 @@ export function VehicleCard({
           <span className="text-lg font-light text-white">{vehicle.name}</span>
           <div className="flex items-center gap-2">
             <span className={cn('h-1.5 w-1.5 rounded-full animate-pulse', status.dot)} />
-            <span className={cn('text-[10px] font-semibold tracking-wider', status.color)}>
+            <span className={cn('text-base font-semibold tracking-wider', status.color)}>
               {status.label}
             </span>
           </div>
           <span
-            className="text-[10px] font-medium tracking-[0.18em] text-white/35"
+            className="text-base font-medium tracking-[0.12em] text-white/55"
             data-testid="vehicle-slam-mode"
           >
             SLAM: {formatSlamModeLabel(vehicle.slamMode)}
           </span>
           {isOffline && (
             <span
-              className="text-[10px] font-semibold tracking-[0.16em] text-zinc-300"
+              className="text-base font-semibold tracking-[0.12em] text-zinc-200"
               data-testid="vehicle-last-known-age"
             >
               LAST CONTACT {formatLastContactAge(vehicle.lastContactAgeMs)}
@@ -246,7 +246,7 @@ export function VehicleCard({
             <span className={cn('font-mono text-base font-light tabular-nums', getBatteryColor(vehicle.battery))}>
               {vehicle.battery ?? '--'}
             </span>
-            <span className="text-[8px] text-white/30">{vehicle.battery === null ? '' : '%'}</span>
+            <span className="text-base text-white/45">{vehicle.battery === null ? '' : '%'}</span>
           </div>
         </div>
       </div>
@@ -255,18 +255,18 @@ export function VehicleCard({
       <div className="grid grid-cols-3 gap-px bg-white/[0.02] mx-3 my-2 rounded-lg overflow-hidden">
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Gauge className="h-3 w-3 text-white/30" />
-          <span className="font-mono text-xs text-white/70">{vehicle.altitude}</span>
-          <span className="text-[8px] text-white/30 uppercase tracking-wider">Alt (m)</span>
+          <span className="font-mono text-base text-white/80">{vehicle.altitude}</span>
+          <span className="text-base text-white/45 uppercase tracking-wide">Alt (m)</span>
         </div>
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Radio className="h-3 w-3 text-white/30" />
-          <span className="font-mono text-xs text-white/70">{vehicle.linkQuality ?? '--'}</span>
-          <span className="text-[8px] text-white/30 uppercase tracking-wider">Link %</span>
+          <span className="font-mono text-base text-white/80">{vehicle.linkQuality ?? '--'}</span>
+          <span className="text-base text-white/45 uppercase tracking-wide">Link %</span>
         </div>
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Signal className="h-3 w-3 text-white/30" />
-          <span className="font-mono text-xs text-white/70">{vehicle.coverage ?? '--'}</span>
-          <span className="text-[8px] text-white/30 uppercase tracking-wider">Cover %</span>
+          <span className="font-mono text-base text-white/80">{vehicle.coverage ?? '--'}</span>
+          <span className="text-base text-white/45 uppercase tracking-wide">Cover %</span>
         </div>
       </div>
 
@@ -276,7 +276,7 @@ export function VehicleCard({
           variant="ghost"
           size="sm"
           className={cn(
-            'flex-1 h-8 rounded-lg text-xs',
+            'flex-1 h-10 rounded-lg text-base',
             'text-white/50 hover:text-white hover:bg-white/10'
           )}
           onClick={onLocate}
@@ -288,7 +288,7 @@ export function VehicleCard({
           variant="ghost"
           size="sm"
           className={cn(
-            'flex-1 h-8 rounded-lg text-xs',
+            'flex-1 h-10 rounded-lg text-base',
             'text-white/50 hover:text-white hover:bg-white/10'
           )}
           onClick={onViewFeed}
@@ -301,7 +301,7 @@ export function VehicleCard({
             variant="ghost"
             size="sm"
             className={cn(
-              'h-8 px-2 rounded-lg text-xs',
+              'h-10 px-3 rounded-lg text-base',
               'text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10'
             )}
             onClick={onRTH}

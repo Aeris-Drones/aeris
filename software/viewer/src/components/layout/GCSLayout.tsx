@@ -1,6 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 
 /**
  * Props for the GCSLayout component using the slot pattern for flexible composition.
@@ -23,6 +24,10 @@ interface GCSLayoutProps {
   alerts?: ReactNode;
   /** Optional zone toolbar - top-center below status pill for zone drawing tools */
   zoneToolbar?: ReactNode;
+  /** Presentation mode controls overlay spacing and read-only shell treatment */
+  viewMode?: 'operator' | 'ic';
+  /** Optional top-right mode toggle */
+  statusToggle?: ReactNode;
 }
 
 /**
@@ -53,7 +58,11 @@ export function GCSLayout({
   pipFeed,
   alerts,
   zoneToolbar,
+  viewMode = 'operator',
+  statusToggle,
 }: GCSLayoutProps) {
+  const isIcMode = viewMode === 'ic';
+
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[var(--surface-0)]">
       <div className="absolute inset-0 z-0">
@@ -72,7 +81,10 @@ export function GCSLayout({
         )}
 
         {pipFeed && (
-          <div className="pointer-events-auto absolute bottom-[160px] right-4">
+          <div className={cn(
+            'pointer-events-auto absolute right-4',
+            isIcMode ? 'bottom-32' : 'bottom-[160px]'
+          )}>
             {pipFeed}
           </div>
         )}
@@ -88,9 +100,14 @@ export function GCSLayout({
             {alerts}
           </div>
         )}
+
+        {statusToggle}
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-20">
+      <div className={cn(
+        'absolute inset-x-0 bottom-0 z-20',
+        isIcMode && 'bg-gradient-to-t from-black/70 via-black/25 to-transparent'
+      )}>
         {commandDock}
       </div>
     </div>
