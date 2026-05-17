@@ -104,6 +104,8 @@ def test_fusion_node_publishes_upgrades_for_correlated_modalities() -> None:
         assert "polygons" in payload
         assert len(payload["polygons"]) >= 1
         assert len(payload["polygons"][0]) >= 3
+        assert payload["hazard_type"] == "gas"
+        assert payload["route_blocker_type"] == "gas"
     finally:
         for active in (stimulus, observer, node):
             with suppress(RuntimeError):

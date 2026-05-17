@@ -1,4 +1,5 @@
 import type { Detection } from "@/components/sheets/DetectionCard";
+import type { PriorityZone } from "@/types/zone";
 
 export type RoutePoint = [number, number, number];
 
@@ -49,10 +50,11 @@ export const DEFAULT_ROUTE_STAGING_AREA: RouteStagingArea;
 
 export function selectSurvivorRouteTargets(detections: Detection[]): RouteTarget[];
 
-export function extractRouteBlockers(detections: Detection[]): RouteBlocker[];
+export function extractRouteBlockers(detections: Detection[], nowMs?: number): RouteBlocker[];
 
 export function deriveRouteRecommendations(input?: {
   detections?: Detection[];
   stagingArea?: RouteStagingArea;
+  structuralHazards?: PriorityZone[];
   nowMs?: number;
 }): RouteRecommendation[];

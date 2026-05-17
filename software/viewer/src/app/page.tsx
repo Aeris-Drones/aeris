@@ -30,9 +30,7 @@ import { normalizeVehicleId } from '@/lib/missionProgressVehicleMeta';
 import { applyVehicleMissionMeta } from '@/lib/fleetVehicleProjection';
 import { normalizeMissionMetaForVehicle } from '@/lib/degradedVehicleState';
 import {
-  DEFAULT_ROUTE_STAGING_AREA,
   deriveRouteRecommendations,
-  type RouteStagingArea,
 } from '@/lib/routeRecommendations';
 
 /**
@@ -103,16 +101,20 @@ export default function V2Page() {
 function V2PageContent() {
   const {
     zones,
+    structuralHazardZones,
     selectedZoneId,
     selectZone,
     drawing,
     isDrawing,
     addPoint,
+    routeStagingArea,
+    isPlacingRouteStagingArea,
+    setRouteStagingAreaPosition,
   } = useZoneContext();
 
   const [selectedDroneId, setSelectedDroneId] = useState<string | null>(null);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
-  const [routeStagingArea] = useState<RouteStagingArea>(DEFAULT_ROUTE_STAGING_AREA);
+  const [routeNowMs, setRouteNowMs] = useState(() => Date.now());
 
   const {
     phase: missionPhase,
@@ -162,13 +164,23 @@ function V2PageContent() {
     () => applyDetectionStatusOverrides(baseDetections, detectionStatusOverrides),
     [baseDetections, detectionStatusOverrides]
   );
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setRouteNowMs(Date.now());
+    }, 5_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   const routeRecommendations = useMemo(
     () =>
       deriveRouteRecommendations({
         detections,
         stagingArea: routeStagingArea,
+        structuralHazards: structuralHazardZones,
+        nowMs: routeNowMs,
       }),
-    [detections, routeStagingArea]
+    [detections, routeNowMs, routeStagingArea, structuralHazardZones]
   );
 
   /**
@@ -462,6 +474,9 @@ function V2PageContent() {
           drawingPoints={drawing.points}
           drawingPriority={drawing.currentPriority}
           onAddZonePoint={addPoint}
+          routeStagingArea={routeStagingArea}
+          isPlacingRouteStagingArea={isPlacingRouteStagingArea}
+          onRouteStagingAreaSet={setRouteStagingAreaPosition}
         />
       }
 

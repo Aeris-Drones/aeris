@@ -154,7 +154,7 @@ export function LayersPanel() {
           {zonePriorities.map(({ priority, label, color }) => (
             <button
               key={priority}
-              onClick={() => startDrawing(priority)}
+              onClick={() => startDrawing(priority, 'search-zone')}
               disabled={isDrawing}
               className={cn(
                 'flex-1 px-2 py-1.5 rounded text-[10px] font-medium',

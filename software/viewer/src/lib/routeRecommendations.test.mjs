@@ -90,6 +90,17 @@ test("extractRouteBlockers uses gas geometry and explicit structural blocker met
         [15, 0, 15],
       ],
     }),
+    detection({
+      id: "dismissed-gas",
+      sensorType: "gas",
+      status: "dismissed",
+      geometry: [
+        [70, 0, -8],
+        [88, 0, -8],
+        [88, 0, 8],
+        [70, 0, 8],
+      ],
+    }),
   ]);
 
   assert.deepEqual(
@@ -98,6 +109,73 @@ test("extractRouteBlockers uses gas geometry and explicit structural blocker met
       ["gas-poly", "gas"],
       ["structural-poly", "structural"],
     ]
+  );
+});
+
+test("extractRouteBlockers uses the caller-provided clock for freshness", () => {
+  const blockers = extractRouteBlockers([
+    detection({
+      id: "gas-stale",
+      sensorType: "gas",
+      timestamp: nowMs - (3 * 60 * 1000),
+      geometry: [
+        [30, 0, -10],
+        [60, 0, -10],
+        [60, 0, 10],
+        [30, 0, 10],
+      ],
+    }),
+  ], nowMs);
+
+  assert.equal(blockers.length, 1);
+  assert.equal(blockers[0].freshness.source, "stale");
+  assert.equal(blockers[0].freshness.ageMs, 3 * 60 * 1000);
+});
+
+test("deriveRouteRecommendations excludes dismissed hazards and explicit structural hazard zones from the shared planning path", () => {
+  const routes = deriveRouteRecommendations({
+    detections: [
+      detection({
+        id: "survivor-b",
+        position: [120, 0, 0],
+      }),
+      detection({
+        id: "dismissed-blocker",
+        sensorType: "gas",
+        status: "dismissed",
+        sourceModalities: ["gas"],
+        geometry: [
+          [20, 0, -10],
+          [40, 0, -10],
+          [40, 0, 10],
+          [20, 0, 10],
+        ],
+      }),
+    ],
+    structuralHazards: [
+      {
+        id: "collapse-zone-1",
+        kind: "structural_hazard",
+        name: "Collapsed atrium",
+        priority: 1,
+        status: "active",
+        polygon: [
+          { x: 55, z: -12 },
+          { x: 82, z: -12 },
+          { x: 82, z: 12 },
+          { x: 55, z: 12 },
+        ],
+        createdAt: nowMs - 1_000,
+      },
+    ],
+    nowMs,
+  });
+
+  assert.equal(routes.length, 1);
+  assert.deepEqual(routes[0].blockingHazardIds, ["collapse-zone-1"]);
+  assert.ok(
+    !routes[0].blockingHazardIds.includes("dismissed-blocker"),
+    "dismissed hazards should not continue to block routes"
   );
 });
 
@@ -131,6 +209,68 @@ test("deriveRouteRecommendations bends advisory routes around blocking hazards",
   assert.ok(routes[0].polyline.length > 2, "route should include a dogleg around the blocker");
   assert.deepEqual(routes[0].polyline[0], DEFAULT_ROUTE_STAGING_AREA.position);
   assert.deepEqual(routes[0].polyline.at(-1), [100, 0, 0]);
+});
+
+test("deriveRouteRecommendations does not detour around diagonal blockers that do not intersect the path", () => {
+  const routes = deriveRouteRecommendations({
+    detections: [
+      detection({
+        id: "survivor-diagonal",
+        position: [100, 0, 100],
+      }),
+      detection({
+        id: "gas-off-path",
+        sensorType: "gas",
+        sourceModalities: ["gas"],
+        geometry: [
+          [20, 0, 80],
+          [30, 0, 80],
+          [30, 0, 90],
+          [20, 0, 90],
+        ],
+      }),
+    ],
+    stagingArea: DEFAULT_ROUTE_STAGING_AREA,
+    nowMs,
+  });
+
+  assert.equal(routes.length, 1);
+  assert.deepEqual(routes[0].blockingHazardIds, []);
+  assert.deepEqual(routes[0].polyline, [
+    DEFAULT_ROUTE_STAGING_AREA.position,
+    [100, 0, 100],
+  ]);
+});
+
+test("deriveRouteRecommendations keeps the first detour waypoint from retreating behind the staging area", () => {
+  const routes = deriveRouteRecommendations({
+    detections: [
+      detection({
+        id: "survivor-forward",
+        position: [100, 0, 0],
+      }),
+      detection({
+        id: "gas-overlap-start",
+        sensorType: "gas",
+        sourceModalities: ["gas"],
+        geometry: [
+          [-5, 0, -12],
+          [20, 0, -12],
+          [20, 0, 12],
+          [-5, 0, 12],
+        ],
+      }),
+    ],
+    stagingArea: DEFAULT_ROUTE_STAGING_AREA,
+    nowMs,
+  });
+
+  assert.equal(routes.length, 1);
+  assert.ok(routes[0].polyline.length > 2);
+  assert.ok(
+    routes[0].polyline[1][0] >= DEFAULT_ROUTE_STAGING_AREA.position[0],
+    "first detour waypoint should not move behind the start position"
+  );
 });
 
 test("deriveRouteRecommendations marks stale/replayed inputs and clears routes when inputs disappear", () => {

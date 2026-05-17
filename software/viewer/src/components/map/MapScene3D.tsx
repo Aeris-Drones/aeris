@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { Canvas, ThreeEvent } from '@react-three/fiber';
-import { CameraControls, Grid } from '@react-three/drei';
+import { CameraControls, Grid, Html } from '@react-three/drei';
 import { DroneMarker3D, DroneMarker3DProps } from './DroneMarker3D';
 import { DetectionMarker3D, DetectionMarker3DProps } from './DetectionMarker3D';
 import { FlightTrail3D } from './FlightTrail3D';
@@ -16,7 +16,7 @@ import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
 import type { TileData } from '@/lib/map/MapTileManager';
 import type { VehicleState } from '@/lib/vehicle/VehicleManager';
-import type { RouteRecommendation } from '@/lib/routeRecommendations';
+import type { RouteRecommendation, RouteStagingArea } from '@/lib/routeRecommendations';
 import {
   deriveVehicleDegradedState,
   normalizeMissionMetaForVehicle,
@@ -73,6 +73,12 @@ interface MapScene3DProps {
   drawingPriority?: ZonePriority;
   /** Callback when a point is added during zone drawing */
   onAddZonePoint?: (point: ZonePoint) => void;
+  /** Shared staging area used as the origin for responder route recommendations */
+  routeStagingArea?: RouteStagingArea;
+  /** Whether the operator is currently placing the route staging area */
+  isPlacingRouteStagingArea?: boolean;
+  /** Callback when the operator clicks the map to place the route staging area */
+  onRouteStagingAreaSet?: (point: ZonePoint) => void;
 }
 
 /**
@@ -111,6 +117,9 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
     drawingPoints = [],
     drawingPriority = 1,
     onAddZonePoint,
+    routeStagingArea,
+    isPlacingRouteStagingArea = false,
+    onRouteStagingAreaSet,
   }, ref) => {
     const needsLiveVehicles = vehiclesProp === undefined;
     const needsLiveReturnTrajectories = returnTrajectoriesProp === undefined;
@@ -295,6 +304,14 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
               <RouteOverlay3D key={route.id} route={route} />
             ))}
 
+          {routeStagingArea && (
+            <RouteStagingAreaMarker
+              position={routeStagingArea.position}
+              label={routeStagingArea.label}
+              highlighted={isPlacingRouteStagingArea}
+            />
+          )}
+
           {/* Drone markers */}
           {telemetryDrones.map((drone) => (
             <DroneMarker3D
@@ -328,14 +345,18 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
           />
 
           {/* Invisible hit target for zone drawing interactions */}
-          {isDrawingZone && (
+          {(isDrawingZone || isPlacingRouteStagingArea) && (
             <mesh
               rotation={[-Math.PI / 2, 0, 0]}
               position={[0, -2, 0]}
               onClick={(e: ThreeEvent<MouseEvent>) => {
-                if (onAddZonePoint) {
-                  e.stopPropagation();
-                  const point = e.point;
+                e.stopPropagation();
+                const point = e.point;
+                if (isPlacingRouteStagingArea && onRouteStagingAreaSet) {
+                  onRouteStagingAreaSet({ x: point.x, z: point.z });
+                  return;
+                }
+                if (isDrawingZone && onAddZonePoint) {
                   onAddZonePoint({ x: point.x, z: point.z });
                 }
               }}
@@ -377,6 +398,41 @@ export const MapScene3D = forwardRef<MapScene3DHandle, MapScene3DProps>(
 );
 
 MapScene3D.displayName = 'MapScene3D';
+
+function RouteStagingAreaMarker({
+  position,
+  label,
+  highlighted,
+}: {
+  position: [number, number, number];
+  label: string;
+  highlighted: boolean;
+}) {
+  const [x, y, z] = position;
+  return (
+    <group position={[x, y, z]}>
+      <mesh position={[0, 1.5, 0]}>
+        <cylinderGeometry args={[2.5, 2.5, 3, 20]} />
+        <meshBasicMaterial color={highlighted ? '#fde68a' : '#34d399'} transparent opacity={0.9} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.2, 0]}>
+        <ringGeometry args={[4.5, 6.5, 32]} />
+        <meshBasicMaterial color={highlighted ? '#fde68a' : '#34d399'} transparent opacity={0.45} />
+      </mesh>
+      <Html
+        position={[0, 12, 0]}
+        center
+        distanceFactor={120}
+        occlude={false}
+        style={{ pointerEvents: 'none' }}
+      >
+        <div className="rounded border border-emerald-300/30 bg-black/70 px-2 py-1 text-[10px] font-mono uppercase text-emerald-200 shadow-lg">
+          {highlighted ? 'Place staging' : label}
+        </div>
+      </Html>
+    </group>
+  );
+}
 
 function MapTile3D({ tile, isStale = false }: { tile: TileData; isStale?: boolean }) {
   const texture = useMemo(() => {

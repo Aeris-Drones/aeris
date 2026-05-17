@@ -19,6 +19,17 @@ function routeColor(status: RouteRecommendation['status']): string {
   }
 }
 
+function routeLabel(status: RouteRecommendation['status']): string {
+  switch (status) {
+    case 'pending':
+      return 'Pending route';
+    case 'stale':
+      return 'Stale route';
+    case 'clear':
+      return 'Entry route';
+  }
+}
+
 /**
  * Advisory responder route overlay.
  *
@@ -74,7 +85,7 @@ export function RouteOverlay3D({ route }: RouteOverlay3DProps) {
           style={{ pointerEvents: 'none' }}
         >
           <div className="rounded border border-emerald-300/30 bg-black/70 px-2 py-1 text-[10px] font-mono uppercase text-emerald-200 shadow-lg">
-            {route.status === 'stale' ? 'Stale route' : 'Entry route'}
+            {routeLabel(route.status)}
           </div>
         </Html>
       )}

@@ -101,6 +101,36 @@ test("normalizeFusedDetectionMessage preserves explicit structural route blocker
   assert.equal(detection.routeBlockerType, "structural");
 });
 
+test("normalizeFusedDetectionMessage falls back to hazard payload blocker metadata", () => {
+  const message = {
+    stamp: { sec: 1_700_000_061, nanosec: 0 },
+    candidate_id: "gas-hazard-fallback",
+    confidence_level: "MEDIUM",
+    confidence: 0.66,
+    source_modalities: ["gas"],
+    local_target: { x: 8, y: 12, z: 0 },
+    local_geometry: [],
+    hazard_payload_json: JSON.stringify({
+      route_blocker_type: "gas",
+      hazard_type: "gas",
+      polygons: [[
+        { x: 4, z: 10 },
+        { x: 12, z: 10 },
+        { x: 12, z: 14 },
+        { x: 4, z: 14 },
+      ]],
+    }),
+  };
+
+  const detection = normalizeFusedDetectionMessage(message, {
+    nowMs: (1_700_000_061 * 1000) + 500,
+    maxAgeMs: 120_000,
+  });
+
+  assert.ok(detection);
+  assert.equal(detection.routeBlockerType, "gas");
+});
+
 test("normalizeFusedDetectionMessage drops stale detections", () => {
   const message = {
     stamp: { sec: 1_700_000_000, nanosec: 0 },

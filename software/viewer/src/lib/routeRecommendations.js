@@ -91,13 +91,14 @@ function boundsForGeometry(points) {
   );
 }
 
-export function extractRouteBlockers(detections) {
+export function extractRouteBlockers(detections, nowMs = Date.now()) {
   if (!Array.isArray(detections)) {
     return [];
   }
 
   return detections
     .map((detection) => {
+      if (!detection || isDismissed(detection)) return null;
       const type = normalizeBlockerType(detection);
       const geometry = Array.isArray(detection?.geometry) ? detection.geometry.filter(isFinitePoint) : [];
       const bounds = boundsForGeometry(geometry);
@@ -108,8 +109,47 @@ export function extractRouteBlockers(detections) {
         label: detectionLabel(detection),
         geometry,
         bounds,
-        freshness: freshnessForInputs([detection]),
+        freshness: freshnessForInputs([detection], nowMs),
         sourceDetection: detection,
+      };
+    })
+    .filter((blocker) => blocker !== null);
+}
+
+function extractStructuralHazardBlockers(structuralHazards, nowMs = Date.now()) {
+  if (!Array.isArray(structuralHazards)) {
+    return [];
+  }
+
+  return structuralHazards
+    .map((zone) => {
+      if (!zone || zone.kind !== "structural_hazard" || zone.status !== "active") {
+        return null;
+      }
+      const geometry = Array.isArray(zone.polygon)
+        ? zone.polygon
+          .map((point) => {
+            const x = Number(point?.x);
+            const z = Number(point?.z);
+            if (!Number.isFinite(x) || !Number.isFinite(z)) {
+              return null;
+            }
+            return [x, 0, z];
+          })
+          .filter((point) => point !== null)
+        : [];
+      const bounds = boundsForGeometry(geometry);
+      if (!bounds) return null;
+      return {
+        id: zone.id,
+        type: "structural",
+        label: zone.name || "Structural hazard",
+        geometry,
+        bounds,
+        freshness: { source: "live", ageMs: 0 },
+        sourceDetection: {
+          timestamp: typeof zone.createdAt === "number" ? Math.max(zone.createdAt, nowMs) : nowMs,
+        },
       };
     })
     .filter((blocker) => blocker !== null);
@@ -139,15 +179,33 @@ function freshnessForInputs(inputs, nowMs = Date.now()) {
 }
 
 function segmentIntersectsBounds(start, end, bounds) {
-  const minX = Math.min(start[0], end[0]);
-  const maxX = Math.max(start[0], end[0]);
-  const minZ = Math.min(start[2], end[2]);
-  const maxZ = Math.max(start[2], end[2]);
+  const x0 = start[0];
+  const z0 = start[2];
+  const dx = end[0] - x0;
+  const dz = end[2] - z0;
 
-  return maxX >= bounds.minX &&
-    minX <= bounds.maxX &&
-    maxZ >= bounds.minZ &&
-    minZ <= bounds.maxZ;
+  let tMin = 0;
+  let tMax = 1;
+
+  const clip = (p, q) => {
+    if (p === 0) {
+      return q >= 0;
+    }
+    const ratio = q / p;
+    if (p < 0) {
+      if (ratio > tMax) return false;
+      if (ratio > tMin) tMin = ratio;
+      return true;
+    }
+    if (ratio < tMin) return false;
+    if (ratio < tMax) tMax = ratio;
+    return true;
+  };
+
+  return clip(-dx, x0 - bounds.minX) &&
+    clip(dx, bounds.maxX - x0) &&
+    clip(-dz, z0 - bounds.minZ) &&
+    clip(dz, bounds.maxZ - z0);
 }
 
 function buildPolylineAroundBlockers(start, end, blockers) {
@@ -170,14 +228,27 @@ function buildPolylineAroundBlockers(start, end, blockers) {
   const startToUpper = Math.abs(start[2] - upperZ) + Math.abs(end[2] - upperZ);
   const startToLower = Math.abs(start[2] - lowerZ) + Math.abs(end[2] - lowerZ);
   const doglegZ = startToUpper <= startToLower ? upperZ : lowerZ;
+  const movingPositiveX = end[0] >= start[0];
+  const entryX = movingPositiveX
+    ? Math.max(start[0], blockerBounds.minX - ROUTE_CLEARANCE_METERS)
+    : Math.min(start[0], blockerBounds.maxX + ROUTE_CLEARANCE_METERS);
+  const exitX = movingPositiveX
+    ? Math.max(entryX, blockerBounds.maxX + ROUTE_CLEARANCE_METERS)
+    : Math.min(entryX, blockerBounds.minX - ROUTE_CLEARANCE_METERS);
+
+  const polyline = [
+    start,
+    [entryX, start[1], doglegZ],
+    [exitX, end[1], doglegZ],
+    end,
+  ].filter((point, index, points) => {
+    if (index === 0) return true;
+    const previous = points[index - 1];
+    return previous[0] !== point[0] || previous[1] !== point[1] || previous[2] !== point[2];
+  });
 
   return {
-    polyline: [
-      start,
-      [blockerBounds.minX - ROUTE_CLEARANCE_METERS, start[1], doglegZ],
-      [blockerBounds.maxX + ROUTE_CLEARANCE_METERS, end[1], doglegZ],
-      end,
-    ],
+    polyline,
     blocking,
   };
 }
@@ -185,6 +256,7 @@ function buildPolylineAroundBlockers(start, end, blockers) {
 export function deriveRouteRecommendations({
   detections,
   stagingArea = DEFAULT_ROUTE_STAGING_AREA,
+  structuralHazards = [],
   nowMs = Date.now(),
 } = {}) {
   if (!stagingArea || !isFinitePoint(stagingArea.position)) {
@@ -192,7 +264,10 @@ export function deriveRouteRecommendations({
   }
 
   const targets = selectSurvivorRouteTargets(detections);
-  const blockers = extractRouteBlockers(detections);
+  const blockers = [
+    ...extractRouteBlockers(detections, nowMs),
+    ...extractStructuralHazardBlockers(structuralHazards, nowMs),
+  ];
 
   return targets.map((target) => {
     const { polyline, blocking } = buildPolylineAroundBlockers(
