@@ -194,9 +194,14 @@ export function ZoneProvider({ children }: ZoneProviderProps) {
   }, []);
 
   const startPlacingRouteStagingArea = useCallback(() => {
-    cancelDrawing();
+    setDrawing(previous => ({
+      mode: 'none',
+      target: 'search-zone',
+      currentPriority: previous.currentPriority,
+      points: [],
+    }));
     setIsPlacingRouteStagingArea(true);
-  }, [cancelDrawing]);
+  }, []);
 
   const setRouteStagingAreaPosition = useCallback((point: ZonePoint) => {
     setRouteStagingArea((previous) => ({

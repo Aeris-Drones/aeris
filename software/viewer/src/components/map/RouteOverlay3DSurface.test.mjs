@@ -76,3 +76,26 @@ test("ZoneToolbar exposes explicit controls for structural hazards and staging p
   assert.match(source, /Hazard Zone/, "toolbar should let operators draw structural hazard polygons");
   assert.match(source, /Set Staging/, "toolbar should let operators place the staging area");
 });
+
+test("ZoneContext preserves the selected priority when entering staging placement", () => {
+  const source = fs.readFileSync(
+    path.join(ROOT, "src", "context", "ZoneContext.tsx"),
+    "utf8"
+  );
+  const stagingPlacementBlock = source.match(
+    /const startPlacingRouteStagingArea = useCallback\(\(\) => \{[\s\S]*?\n  \}, \[\]\);/
+  );
+
+  assert.ok(stagingPlacementBlock, "ZoneContext should define staging placement entry");
+
+  assert.match(
+    stagingPlacementBlock[0],
+    /currentPriority:\s*previous\.currentPriority/,
+    "staging placement should not reset the operator's selected zone priority"
+  );
+  assert.doesNotMatch(
+    stagingPlacementBlock[0],
+    /cancelDrawing\(\)/,
+    "staging placement should not call the priority-resetting cancel path"
+  );
+});
