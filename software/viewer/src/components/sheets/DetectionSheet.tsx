@@ -22,6 +22,8 @@ interface DetectionSheetProps {
   onLocate: (id: string) => void;
   /** Trigger element that opens the drawer */
   trigger: React.ReactNode;
+  /** Hides detection triage controls for read-only presentation modes */
+  readOnly?: boolean;
 }
 
 /**
@@ -48,6 +50,7 @@ export function DetectionSheet({
   onDismiss,
   onLocate,
   trigger,
+  readOnly = false,
 }: DetectionSheetProps) {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
 
@@ -115,6 +118,7 @@ export function DetectionSheet({
                     onConfirm={() => onConfirm(detection.id)}
                     onDismiss={() => onDismiss(detection.id)}
                     onLocate={() => onLocate(detection.id)}
+                    readOnly={readOnly}
                   />
                 ))}
               </div>

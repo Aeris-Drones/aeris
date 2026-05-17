@@ -37,6 +37,7 @@ export interface FleetCardProps {
   avgBattery: number | null;
   avgAltitude: number;
   warnings: VehicleWarning[];
+  viewMode?: 'operator' | 'ic';
 }
 
 /**
@@ -99,9 +100,11 @@ export function FleetCard({
   totalCount,
   avgBattery,
   warnings,
+  viewMode = 'operator',
 }: FleetCardProps) {
   const hasWarnings = warnings.length > 0;
   const criticalWarnings = warnings.filter(w => w.severity === 'critical').length;
+  const isIcMode = viewMode === 'ic';
 
   return (
     <Card
@@ -109,11 +112,12 @@ export function FleetCard({
         'flex h-full cursor-pointer flex-col justify-between p-4 transition-all',
         'hover:bg-[var(--surface-3)]',
         'active:scale-[0.98]',
+        isIcMode && 'border-white/25 bg-black/75 p-5',
         hasWarnings && 'border-[var(--warning)]/30'
       )}
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wider text-white/50">
+        <span className={cn('font-medium uppercase tracking-wider', isIcMode ? 'text-base text-white/80' : 'text-xs text-white/50')}>
           Fleet
         </span>
         {hasWarnings && (
@@ -148,17 +152,17 @@ export function FleetCard({
 
       <div className="flex items-center justify-between">
         <div className="flex items-baseline gap-1.5">
-          <span className="font-mono text-xl font-bold text-white">
+          <span className={cn('font-mono font-bold text-white', isIcMode ? 'text-3xl' : 'text-xl')}>
             {activeCount}
           </span>
-          <span className="text-sm text-white/50">
+          <span className={cn(isIcMode ? 'text-base text-white/70' : 'text-sm text-white/50')}>
             /{totalCount}
           </span>
         </div>
 
         <div className={cn('flex items-center gap-1.5', getBatteryColor(avgBattery))}>
           {getBatteryIcon(avgBattery)}
-          <span className="font-mono text-sm">
+          <span className={cn('font-mono', isIcMode ? 'text-base' : 'text-sm')}>
             {avgBattery === null ? '--' : `${avgBattery}%`}
           </span>
         </div>

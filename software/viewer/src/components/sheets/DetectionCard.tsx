@@ -53,6 +53,8 @@ export interface DetectionCardProps {
   onDismiss: () => void;
   /** Callback to center map on detection location */
   onLocate: () => void;
+  /** Hides triage actions for read-only presentation modes */
+  readOnly?: boolean;
 }
 
 const sensorConfig = {
@@ -122,6 +124,7 @@ export function DetectionCard({
   onConfirm,
   onDismiss,
   onLocate,
+  readOnly = false,
 }: DetectionCardProps) {
   const sensor = sensorConfig[detection.sensorType];
   const SensorIcon = sensor.Icon;
@@ -212,24 +215,28 @@ export function DetectionCard({
             Locate
           </Button>
           <div className="flex-1" />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-3 text-xs text-white/50 hover:text-red-400"
-            onClick={(e) => { e.stopPropagation(); onDismiss(); }}
-          >
-            <X className="mr-1.5 h-3.5 w-3.5" />
-            Dismiss
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-3 text-xs bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-            onClick={(e) => { e.stopPropagation(); onConfirm(); }}
-          >
-            <Check className="mr-1.5 h-3.5 w-3.5" />
-            Confirm
-          </Button>
+          {!readOnly && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-3 text-xs text-white/50 hover:text-red-400"
+                onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+              >
+                <X className="mr-1.5 h-3.5 w-3.5" />
+                Dismiss
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-3 text-xs bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                onClick={(e) => { e.stopPropagation(); onConfirm(); }}
+              >
+                <Check className="mr-1.5 h-3.5 w-3.5" />
+                Confirm
+              </Button>
+            </>
+          )}
         </div>
       )}
 

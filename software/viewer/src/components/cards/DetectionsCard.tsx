@@ -24,6 +24,7 @@ export interface DetectionsCardProps {
   pendingCount: number;
   confirmedCount: number;
   latestDetection?: Detection;
+  viewMode?: 'operator' | 'ic';
 }
 
 /**
@@ -75,9 +76,11 @@ export function DetectionsCard({
   gasCount,
   pendingCount,
   confirmedCount,
+  viewMode = 'operator',
 }: DetectionsCardProps) {
   const totalCount = thermalCount + acousticCount + gasCount;
   const hasPending = pendingCount > 0;
+  const isIcMode = viewMode === 'ic';
 
   return (
     <Card
@@ -85,11 +88,12 @@ export function DetectionsCard({
         'flex h-full cursor-pointer flex-col justify-between p-4 transition-all',
         'hover:bg-[var(--surface-3)]',
         'active:scale-[0.98]',
+        isIcMode && 'border-white/25 bg-black/75 p-5',
         hasPending && 'border-[var(--success)]/30'
       )}
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wider text-white/50">
+        <span className={cn('font-medium uppercase tracking-wider', isIcMode ? 'text-base text-white/80' : 'text-xs text-white/50')}>
           Detections
         </span>
         {hasPending && (
@@ -102,21 +106,21 @@ export function DetectionsCard({
       <div className="flex items-center gap-2">
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.thermal.bg)}>
           <Flame className={cn('h-4 w-4', sensorConfig.thermal.color)} />
-          <span className={cn('font-mono text-sm font-bold', sensorConfig.thermal.color)}>
+          <span className={cn('font-mono font-bold', sensorConfig.thermal.color, isIcMode ? 'text-base' : 'text-sm')}>
             {thermalCount}
           </span>
         </div>
 
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.acoustic.bg)}>
           <AudioLines className={cn('h-4 w-4', sensorConfig.acoustic.color)} />
-          <span className={cn('font-mono text-sm font-bold', sensorConfig.acoustic.color)}>
+          <span className={cn('font-mono font-bold', sensorConfig.acoustic.color, isIcMode ? 'text-base' : 'text-sm')}>
             {acousticCount}
           </span>
         </div>
 
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.gas.bg)}>
           <Wind className={cn('h-4 w-4', sensorConfig.gas.color)} />
-          <span className={cn('font-mono text-sm font-bold', sensorConfig.gas.color)}>
+          <span className={cn('font-mono font-bold', sensorConfig.gas.color, isIcMode ? 'text-base' : 'text-sm')}>
             {gasCount}
           </span>
         </div>
@@ -124,11 +128,11 @@ export function DetectionsCard({
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-sm text-[var(--success)]">
+          <span className={cn('font-mono text-[var(--success)]', isIcMode ? 'text-base' : 'text-sm')}>
             {confirmedCount}
           </span>
           <span className="text-xs text-white/40">/</span>
-          <span className="font-mono text-sm text-white/60">{totalCount}</span>
+          <span className={cn('font-mono text-white/70', isIcMode ? 'text-base' : 'text-sm')}>{totalCount}</span>
         </div>
 
         <div className="flex items-center gap-1 text-white/40">

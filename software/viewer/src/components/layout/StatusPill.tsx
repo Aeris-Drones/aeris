@@ -45,6 +45,8 @@ export interface StatusPillProps {
   detectionCounts?: DetectionStatusCounts;
   /** Callback when alert bell is clicked */
   onAlertClick?: () => void;
+  /** Presentation mode adjusts typography and contrast for shared displays */
+  viewMode?: 'operator' | 'ic';
 }
 
 /** Mission phase UI configuration - drives badge color and pulse animation */
@@ -111,6 +113,7 @@ export function StatusPill({
   hasUnreadAlerts,
   detectionCounts,
   onAlertClick,
+  viewMode = 'operator',
 }: StatusPillProps) {
   const phase = phaseConfig[missionPhase];
   const connection = connectionConfig[connectionStatus];
@@ -122,15 +125,27 @@ export function StatusPill({
     pending: 0,
     confirmed: 0,
   };
+  const isIcMode = viewMode === 'ic';
 
   return (
     <div
-      className="flex items-center gap-1 rounded-full border border-[var(--glass-border)] bg-[var(--glass-bg)] px-1 py-1 backdrop-blur-xl"
+      className={cn(
+        'flex items-center gap-1 rounded-full border px-1 py-1 backdrop-blur-xl',
+        isIcMode
+          ? 'border-white/30 bg-black/80 shadow-[0_0_32px_rgba(0,0,0,0.45)]'
+          : 'border-[var(--glass-border)] bg-[var(--glass-bg)]'
+      )}
       style={{ boxShadow: 'var(--glass-shadow)' }}
     >
-      <div className="flex h-8 items-center justify-center rounded-full bg-[var(--surface-2)] px-3">
+      <div className={cn(
+        'flex items-center justify-center rounded-full bg-[var(--surface-2)] px-3',
+        isIcMode ? 'h-11' : 'h-8'
+      )}>
         {logo || (
-          <span className="font-mono text-xs font-bold tracking-wider text-[var(--foreground)]">
+          <span className={cn(
+            'font-mono font-bold tracking-wider text-[var(--foreground)]',
+            isIcMode ? 'text-base' : 'text-xs'
+          )}>
             AERIS
           </span>
         )}
@@ -138,7 +153,10 @@ export function StatusPill({
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
-      <Badge variant={phase.variant} className="flex items-center gap-2 rounded-full px-3 py-1.5">
+      <Badge
+        variant={phase.variant}
+        className={cn('flex items-center gap-2 rounded-full px-3 py-1.5', isIcMode && 'text-base')}
+      >
         {phase.pulse ? (
           <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75" />
@@ -149,13 +167,18 @@ export function StatusPill({
         ) : (
           <span className="h-2 w-2 rounded-full bg-current opacity-50" />
         )}
-        <span className="text-xs font-semibold tracking-wide">{phase.label}</span>
+        <span className={cn('font-semibold tracking-wide', isIcMode ? 'text-base' : 'text-xs')}>
+          {phase.label}
+        </span>
       </Badge>
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
       <div className="flex items-center px-3">
-        <span className="font-mono text-sm font-medium tabular-nums text-[var(--foreground)]">
+        <span className={cn(
+          'font-mono font-medium tabular-nums text-[var(--foreground)]',
+          isIcMode ? 'text-base' : 'text-sm'
+        )}>
           {formatElapsedTime(elapsedTime)}
         </span>
       </div>
@@ -163,14 +186,16 @@ export function StatusPill({
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
       <div className="flex items-center gap-2 px-3">
-        <span className="text-[10px] uppercase tracking-wide text-white/50">Progress</span>
+        <span className={cn('uppercase tracking-wide', isIcMode ? 'text-sm text-white/80' : 'text-[10px] text-white/50')}>
+          Progress
+        </span>
         <div className="relative h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
           <div
             className="absolute inset-y-0 left-0 rounded-full bg-[var(--success)] transition-all duration-300"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
-        <span className="font-mono text-xs tabular-nums text-white/70">
+        <span className={cn('font-mono tabular-nums', isIcMode ? 'text-base text-white' : 'text-xs text-white/70')}>
           {progressPercent}%
         </span>
       </div>
@@ -178,20 +203,22 @@ export function StatusPill({
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
       <div className="flex items-center gap-1.5 px-3">
-        <span className="text-[10px] uppercase tracking-wide text-white/50">Det</span>
-        <span className="font-mono text-xs text-orange-400">T{liveDetections.thermal}</span>
-        <span className="font-mono text-xs text-sky-400">A{liveDetections.acoustic}</span>
-        <span className="font-mono text-xs text-amber-400">G{liveDetections.gas}</span>
+        <span className={cn('uppercase tracking-wide', isIcMode ? 'text-sm text-white/80' : 'text-[10px] text-white/50')}>
+          Det
+        </span>
+        <span className={cn('font-mono text-orange-400', isIcMode ? 'text-base' : 'text-xs')}>T{liveDetections.thermal}</span>
+        <span className={cn('font-mono text-sky-400', isIcMode ? 'text-base' : 'text-xs')}>A{liveDetections.acoustic}</span>
+        <span className={cn('font-mono text-amber-400', isIcMode ? 'text-base' : 'text-xs')}>G{liveDetections.gas}</span>
         <span className="text-white/25">|</span>
-        <span className="font-mono text-xs text-emerald-400">P{liveDetections.pending}</span>
-        <span className="font-mono text-xs text-white/70">C{liveDetections.confirmed}</span>
+        <span className={cn('font-mono text-emerald-400', isIcMode ? 'text-base' : 'text-xs')}>P{liveDetections.pending}</span>
+        <span className={cn('font-mono', isIcMode ? 'text-base text-white' : 'text-xs text-white/70')}>C{liveDetections.confirmed}</span>
       </div>
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
       <div className={cn('flex items-center gap-1.5 px-3', connection.colorClass)}>
         <ConnectionIcon className="h-3.5 w-3.5" />
-        <span className="text-xs font-medium">{connection.label}</span>
+        <span className={cn('font-medium', isIcMode ? 'text-base' : 'text-xs')}>{connection.label}</span>
       </div>
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
