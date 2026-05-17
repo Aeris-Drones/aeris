@@ -101,24 +101,24 @@ export function FleetSheet({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Plane className="h-5 w-5 text-white/40" />
-                <DrawerTitle className="text-lg font-light text-white tracking-wide">
+                <DrawerTitle className="text-xl font-medium text-white tracking-wide">
                   Fleet
                 </DrawerTitle>
               </div>
-              <div className="flex items-center gap-5 text-xs">
+              <div className="flex items-center gap-5 text-base">
                 <span className="text-emerald-400">
-                  <span className="font-mono text-sm">{activeCount}</span>
+                  <span className="font-mono text-lg">{activeCount}</span>
                   <span className="ml-1 text-white/40">active</span>
                 </span>
                 {warningCount > 0 && (
                   <span className="flex items-center gap-1 text-amber-400">
                     <AlertTriangle className="h-3 w-3" />
-                    <span className="font-mono text-sm">{warningCount}</span>
+                    <span className="font-mono text-lg">{warningCount}</span>
                   </span>
                 )}
                 <span className="flex items-center gap-1.5 text-white/50">
                   <Battery className="h-3.5 w-3.5" />
-                  <span className="font-mono text-sm">
+                  <span className="font-mono text-lg">
                     {avgBattery === null ? '--' : `${avgBattery}%`}
                   </span>
                   <span className="text-white/30">avg</span>

@@ -117,7 +117,7 @@ export function FleetCard({
       )}
     >
       <div className="flex items-center justify-between">
-        <span className={cn('font-medium uppercase tracking-wider', isIcMode ? 'text-base text-white/80' : 'text-xs text-white/50')}>
+        <span className={cn('font-medium uppercase tracking-wider', isIcMode ? 'text-lg text-white/85' : 'text-xs text-white/50')}>
           Fleet
         </span>
         {hasWarnings && (
@@ -126,7 +126,7 @@ export function FleetCard({
             className="flex items-center gap-1 px-2 py-0.5"
           >
             <AlertTriangle className="h-3.5 w-3.5" />
-            <span className="text-xs">{warnings.length}</span>
+            <span className={cn(isIcMode ? 'text-base' : 'text-xs')}>{warnings.length}</span>
           </Badge>
         )}
       </div>
@@ -155,14 +155,14 @@ export function FleetCard({
           <span className={cn('font-mono font-bold text-white', isIcMode ? 'text-3xl' : 'text-xl')}>
             {activeCount}
           </span>
-          <span className={cn(isIcMode ? 'text-base text-white/70' : 'text-sm text-white/50')}>
+          <span className={cn(isIcMode ? 'text-lg text-white/75' : 'text-sm text-white/50')}>
             /{totalCount}
           </span>
         </div>
 
         <div className={cn('flex items-center gap-1.5', getBatteryColor(avgBattery))}>
           {getBatteryIcon(avgBattery)}
-          <span className={cn('font-mono', isIcMode ? 'text-base' : 'text-sm')}>
+          <span className={cn('font-mono', isIcMode ? 'text-lg' : 'text-sm')}>
             {avgBattery === null ? '--' : `${avgBattery}%`}
           </span>
         </div>

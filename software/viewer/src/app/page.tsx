@@ -181,8 +181,6 @@ function V2PageContent() {
   }, [icViewModeEnabled, layerVisibility]);
 
   const setIcModeFromUi = useCallback((enabled: boolean) => {
-    setIcViewModeEnabled(enabled);
-
     const params = new URLSearchParams(searchParams.toString());
     if (enabled) {
       params.set('ic', '1');
@@ -303,8 +301,12 @@ function V2PageContent() {
   }, [vehiclePositionById]);
 
   const handleViewFeed = useCallback((id: string) => {
+    if (icViewModeEnabled) {
+      return;
+    }
+
     setPipVehicleId(id);
-  }, []);
+  }, [icViewModeEnabled]);
 
   /**
    * Static alerts for demonstration. In production, these are fed from
@@ -469,6 +471,9 @@ function V2PageContent() {
           break;
         case 'Escape': // Cancel current action
           e.preventDefault();
+          if (icViewModeEnabled) {
+            break;
+          }
           setSelectedDroneId(null);
           setSelectedDetectionId(null);
           break;
@@ -478,6 +483,9 @@ function V2PageContent() {
         case '4':
         case '5':
         case '6':
+          if (icViewModeEnabled) {
+            break;
+          }
           // Select drone 1-6
           const droneIndex = parseInt(e.key) - 1;
           if (droneIndex < fleetVehicles.length) {
@@ -486,6 +494,9 @@ function V2PageContent() {
           break;
         case 'r':
         case 'R':
+          if (icViewModeEnabled) {
+            break;
+          }
           // Reset camera to default view
           if (mapRef.current) {
             mapRef.current.teleportTo(0, 0);
@@ -515,25 +526,25 @@ function V2PageContent() {
   );
   const statusAlertCount = detectionCounts.pending;
   const icTacticalSummary = (
-    <div className="pointer-events-auto flex max-w-[360px] flex-col gap-3 text-base">
+    <div className="pointer-events-auto flex max-w-[360px] flex-col gap-3 text-lg">
       <div className="rounded-lg border border-white/25 bg-black/75 px-4 py-3 shadow-[0_0_30px_rgba(0,0,0,0.35)]">
-        <div className="text-sm font-semibold uppercase tracking-wide text-white/65">IC VIEW</div>
+        <div className="text-base font-semibold uppercase tracking-wide text-white/75">IC VIEW</div>
         <div className="mt-2 grid grid-cols-2 gap-3 text-white">
           <div>
             <div className="font-mono text-2xl font-semibold">{activeVehicles.length}/{fleetVehicles.length}</div>
-            <div className="text-sm text-white/70">fleet active</div>
+            <div className="text-base text-white/75">fleet active</div>
           </div>
           <div>
             <div className="font-mono text-2xl font-semibold">{detectionCounts.pending}</div>
-            <div className="text-sm text-white/70">pending alerts</div>
+            <div className="text-base text-white/75">pending alerts</div>
           </div>
           <div>
             <div className="font-mono text-2xl font-semibold">{routeRecommendations.length}</div>
-            <div className="text-sm text-white/70">entry routes</div>
+            <div className="text-base text-white/75">entry routes</div>
           </div>
           <div>
             <div className="font-mono text-2xl font-semibold">{structuralHazardZones.length}</div>
-            <div className="text-sm text-white/70">hazard zones</div>
+            <div className="text-base text-white/75">hazard zones</div>
           </div>
         </div>
       </div>
@@ -586,7 +597,7 @@ function V2PageContent() {
         icViewModeEnabled ? (
           <div className="space-y-3">
             {icTacticalSummary}
-            <div className="rounded-lg border border-white/20 bg-black/70 px-4 py-3 text-base text-white/85">
+            <div className="rounded-lg border border-white/20 bg-black/70 px-4 py-3 text-lg text-white/90">
               Read-only shared tactical picture
             </div>
           </div>

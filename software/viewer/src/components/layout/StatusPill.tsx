@@ -135,7 +135,7 @@ export function StatusPill({
           ? 'border-white/30 bg-black/80 shadow-[0_0_32px_rgba(0,0,0,0.45)]'
           : 'border-[var(--glass-border)] bg-[var(--glass-bg)]'
       )}
-      style={{ boxShadow: 'var(--glass-shadow)' }}
+      style={isIcMode ? undefined : { boxShadow: 'var(--glass-shadow)' }}
     >
       <div className={cn(
         'flex items-center justify-center rounded-full bg-[var(--surface-2)] px-3',
@@ -144,7 +144,7 @@ export function StatusPill({
         {logo || (
           <span className={cn(
             'font-mono font-bold tracking-wider text-[var(--foreground)]',
-            isIcMode ? 'text-base' : 'text-xs'
+            isIcMode ? 'text-lg' : 'text-xs'
           )}>
             AERIS
           </span>
@@ -155,7 +155,7 @@ export function StatusPill({
 
       <Badge
         variant={phase.variant}
-        className={cn('flex items-center gap-2 rounded-full px-3 py-1.5', isIcMode && 'text-base')}
+        className={cn('flex items-center gap-2 rounded-full px-3 py-1.5', isIcMode && 'text-lg')}
       >
         {phase.pulse ? (
           <span className="relative flex h-2 w-2">
@@ -167,7 +167,7 @@ export function StatusPill({
         ) : (
           <span className="h-2 w-2 rounded-full bg-current opacity-50" />
         )}
-        <span className={cn('font-semibold tracking-wide', isIcMode ? 'text-base' : 'text-xs')}>
+        <span className={cn('font-semibold tracking-wide', isIcMode ? 'text-lg' : 'text-xs')}>
           {phase.label}
         </span>
       </Badge>
@@ -177,7 +177,7 @@ export function StatusPill({
       <div className="flex items-center px-3">
         <span className={cn(
           'font-mono font-medium tabular-nums text-[var(--foreground)]',
-          isIcMode ? 'text-base' : 'text-sm'
+          isIcMode ? 'text-lg' : 'text-sm'
         )}>
           {formatElapsedTime(elapsedTime)}
         </span>
@@ -186,7 +186,7 @@ export function StatusPill({
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
       <div className="flex items-center gap-2 px-3">
-        <span className={cn('uppercase tracking-wide', isIcMode ? 'text-sm text-white/80' : 'text-[10px] text-white/50')}>
+        <span className={cn('uppercase tracking-wide', isIcMode ? 'text-base text-white/85' : 'text-[10px] text-white/50')}>
           Progress
         </span>
         <div className="relative h-1.5 w-16 overflow-hidden rounded-full bg-white/10">
@@ -195,7 +195,7 @@ export function StatusPill({
             style={{ width: `${progressPercent}%` }}
           />
         </div>
-        <span className={cn('font-mono tabular-nums', isIcMode ? 'text-base text-white' : 'text-xs text-white/70')}>
+        <span className={cn('font-mono tabular-nums', isIcMode ? 'text-lg text-white' : 'text-xs text-white/70')}>
           {progressPercent}%
         </span>
       </div>
@@ -203,22 +203,22 @@ export function StatusPill({
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
       <div className="flex items-center gap-1.5 px-3">
-        <span className={cn('uppercase tracking-wide', isIcMode ? 'text-sm text-white/80' : 'text-[10px] text-white/50')}>
+        <span className={cn('uppercase tracking-wide', isIcMode ? 'text-base text-white/85' : 'text-[10px] text-white/50')}>
           Det
         </span>
-        <span className={cn('font-mono text-orange-400', isIcMode ? 'text-base' : 'text-xs')}>T{liveDetections.thermal}</span>
-        <span className={cn('font-mono text-sky-400', isIcMode ? 'text-base' : 'text-xs')}>A{liveDetections.acoustic}</span>
-        <span className={cn('font-mono text-amber-400', isIcMode ? 'text-base' : 'text-xs')}>G{liveDetections.gas}</span>
+        <span className={cn('font-mono text-orange-400', isIcMode ? 'text-lg' : 'text-xs')}>T{liveDetections.thermal}</span>
+        <span className={cn('font-mono text-sky-400', isIcMode ? 'text-lg' : 'text-xs')}>A{liveDetections.acoustic}</span>
+        <span className={cn('font-mono text-amber-400', isIcMode ? 'text-lg' : 'text-xs')}>G{liveDetections.gas}</span>
         <span className="text-white/25">|</span>
-        <span className={cn('font-mono text-emerald-400', isIcMode ? 'text-base' : 'text-xs')}>P{liveDetections.pending}</span>
-        <span className={cn('font-mono', isIcMode ? 'text-base text-white' : 'text-xs text-white/70')}>C{liveDetections.confirmed}</span>
+        <span className={cn('font-mono text-emerald-400', isIcMode ? 'text-lg' : 'text-xs')}>P{liveDetections.pending}</span>
+        <span className={cn('font-mono', isIcMode ? 'text-lg text-white' : 'text-xs text-white/70')}>C{liveDetections.confirmed}</span>
       </div>
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
 
       <div className={cn('flex items-center gap-1.5 px-3', connection.colorClass)}>
-        <ConnectionIcon className="h-3.5 w-3.5" />
-        <span className={cn('font-medium', isIcMode ? 'text-base' : 'text-xs')}>{connection.label}</span>
+        <ConnectionIcon className={cn(isIcMode ? 'h-4.5 w-4.5' : 'h-3.5 w-3.5')} />
+        <span className={cn('font-medium', isIcMode ? 'text-lg' : 'text-xs')}>{connection.label}</span>
       </div>
 
       <div className="h-4 w-px bg-[var(--glass-border)]" />
@@ -226,13 +226,13 @@ export function StatusPill({
       <button
         onClick={onAlertClick}
         className={cn(
-          'relative flex h-8 items-center gap-1.5 rounded-full px-3 transition-colors',
+          'relative flex items-center gap-1.5 rounded-full px-3 transition-colors', isIcMode ? 'h-11' : 'h-8',
           alertCount > 0 ? 'hover:bg-[var(--surface-3)]' : 'opacity-50'
         )}
       >
-        <Bell className="h-4 w-4" />
+        <Bell className={cn(isIcMode ? 'h-5 w-5' : 'h-4 w-4')} />
         {alertCount > 0 && (
-          <span className="text-xs font-medium text-[var(--foreground)]">
+          <span className={cn('font-medium text-[var(--foreground)]', isIcMode ? 'text-base' : 'text-xs')}>
             {alertCount}
           </span>
         )}

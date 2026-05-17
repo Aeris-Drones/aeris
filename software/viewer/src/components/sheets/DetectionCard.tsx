@@ -155,21 +155,21 @@ export function DetectionCard({
       <div className="flex items-center gap-3 px-4 py-3">
         <div className={cn('flex items-center gap-2 px-2.5 py-1 rounded-md', sensor.bg)}>
           <SensorIcon className={cn('h-4 w-4', sensor.color)} />
-          <span className={cn('text-xs font-medium', sensor.color)}>{sensor.label}</span>
+          <span className={cn('text-base font-medium', sensor.color)}>{sensor.label}</span>
         </div>
 
         {isNew && (
-          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] font-medium uppercase">
+          <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-base font-medium uppercase">
             New
           </span>
         )}
         {detection.status === 'confirmed' && (
-          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400/70 text-[10px] font-medium uppercase flex items-center gap-1">
+          <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400/70 text-base font-medium uppercase flex items-center gap-1">
             <Check className="h-3 w-3" /> Confirmed
           </span>
         )}
         {isRetroactive && (
-          <span className="px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 text-[10px] font-medium uppercase flex items-center gap-1">
+          <span className="px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 text-base font-medium uppercase flex items-center gap-1">
             <History className="h-3 w-3" /> Retroactive
           </span>
         )}
@@ -177,13 +177,13 @@ export function DetectionCard({
         <div className="flex-1" />
 
         {/* Confidence percentage with color coding */}
-        <span className={cn('font-mono text-xl font-medium', getConfidenceTextClass(detection))}>
+        <span className={cn('font-mono text-2xl font-medium', getConfidenceTextClass(detection))}>
           {conf}%
         </span>
       </div>
 
       <div className="px-4 pb-3 space-y-2">
-        <div className="flex items-center gap-3 text-xs text-white/50">
+        <div className="flex items-center gap-3 text-base text-white/60">
           <span>{formatTime(detection.timestamp)}</span>
           <span>·</span>
           <span>{detection.vehicleName}</span>
@@ -195,7 +195,7 @@ export function DetectionCard({
           <span className="font-mono">{reading}</span>
         </div>
 
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-2 text-base">
           <MapPin className="h-3.5 w-3.5 text-white/30" />
           <span className="text-white/60">{sector}</span>
           <span className="text-white/20">|</span>
@@ -208,7 +208,7 @@ export function DetectionCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-3 text-xs text-white/50 hover:text-white"
+            className="h-10 px-4 text-base text-white/60 hover:text-white"
             onClick={(e) => { e.stopPropagation(); onLocate(); }}
           >
             <Crosshair className="mr-1.5 h-3.5 w-3.5" />
@@ -220,7 +220,7 @@ export function DetectionCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 px-3 text-xs text-white/50 hover:text-red-400"
+                className="h-10 px-4 text-base text-white/60 hover:text-red-400"
                 onClick={(e) => { e.stopPropagation(); onDismiss(); }}
               >
                 <X className="mr-1.5 h-3.5 w-3.5" />
@@ -229,7 +229,7 @@ export function DetectionCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 px-3 text-xs bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                className="h-10 px-4 text-base bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
                 onClick={(e) => { e.stopPropagation(); onConfirm(); }}
               >
                 <Check className="mr-1.5 h-3.5 w-3.5" />
@@ -245,7 +245,7 @@ export function DetectionCard({
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-3 text-xs text-white/50 hover:text-white"
+            className="h-10 px-4 text-base text-white/60 hover:text-white"
             onClick={(e) => { e.stopPropagation(); onLocate(); }}
           >
             <Crosshair className="mr-1.5 h-3.5 w-3.5" />
