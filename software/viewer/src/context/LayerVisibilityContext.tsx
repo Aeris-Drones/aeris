@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState, ReactNode } from 'react';
 
 /**
  * Layer visibility state for the 3D map scene.
@@ -49,16 +49,21 @@ const LayerVisibilityContext = createContext<LayerVisibilityContextType | undefi
 export function LayerVisibilityProvider({ children }: { children: ReactNode }) {
   const [layers, setLayers] = useState<LayerState>(defaultState);
 
-  const toggleLayer = (layer: keyof LayerState) => {
+  const toggleLayer = useCallback((layer: keyof LayerState) => {
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
-  };
+  }, []);
 
-  const setLayer = (layer: keyof LayerState, visible: boolean) => {
+  const setLayer = useCallback((layer: keyof LayerState, visible: boolean) => {
     setLayers((prev) => ({ ...prev, [layer]: visible }));
-  };
+  }, []);
+
+  const contextValue = useMemo(
+    () => ({ ...layers, toggleLayer, setLayer }),
+    [layers, toggleLayer, setLayer]
+  );
 
   return (
-    <LayerVisibilityContext.Provider value={{ ...layers, toggleLayer, setLayer }}>
+    <LayerVisibilityContext.Provider value={contextValue}>
       {children}
     </LayerVisibilityContext.Provider>
   );
