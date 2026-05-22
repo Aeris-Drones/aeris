@@ -117,3 +117,23 @@ test("EmergencyStopControl renders honest unavailable and error states", async (
     "surface should surface abort failures directly instead of masking them behind generic helper text"
   );
 });
+
+test("EmergencyStopControl dispatches abort only from nonce changes", () => {
+  const source = fs.readFileSync(path.join(ROOT, "EmergencyStopControl.tsx"), "utf8");
+
+  assert.match(
+    source,
+    /const onAbortRef = useRef\(onAbort\);/,
+    "abort callback should be stored in a ref so callback identity changes do not dispatch"
+  );
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{\s*onAbortRef\.current = onAbort;\s*\}, \[onAbort\]\);/s,
+    "abort callback ref should stay current without driving dispatch"
+  );
+  assert.match(
+    source,
+    /onAbortRef\.current\(\);\s*\}, \[abortDispatchNonce\]\);/s,
+    "abort dispatch effect should only depend on the dispatch nonce"
+  );
+});

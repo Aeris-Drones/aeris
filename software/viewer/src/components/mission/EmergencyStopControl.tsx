@@ -34,6 +34,7 @@ export function EmergencyStopControl({
   const [abortRequested, setAbortRequested] = useState(false);
   const [abortDispatchNonce, setAbortDispatchNonce] = useState(0);
   const holdStateRef = useRef(holdState);
+  const onAbortRef = useRef(onAbort);
   const abortPending = isAbortRequestPending({
     abortRequested,
     abortError,
@@ -51,6 +52,10 @@ export function EmergencyStopControl({
   useEffect(() => {
     holdStateRef.current = holdState;
   }, [holdState]);
+
+  useEffect(() => {
+    onAbortRef.current = onAbort;
+  }, [onAbort]);
 
   useEffect(() => {
     if (holdState.phase !== 'holding') {
@@ -83,8 +88,8 @@ export function EmergencyStopControl({
       return;
     }
 
-    onAbort();
-  }, [abortDispatchNonce, onAbort]);
+    onAbortRef.current();
+  }, [abortDispatchNonce]);
 
   useEffect(() => {
     if (holdState.phase !== 'holding') {

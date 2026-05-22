@@ -202,8 +202,13 @@ test("IC mode blocks feed launch and operator keyboard shortcuts", () => {
   );
   assert.match(
     source,
-    /const \[mockAlertTimestamps, setMockAlertTimestamps\] = useState<Record<\(typeof MOCK_ALERT_IDS\)\[number\], Date>>\(\(\) => \(\{/,
+    /const \[mockAlertTimestamps\] = useState<Record<\(typeof MOCK_ALERT_IDS\)\[number\], Date>>\(\(\) => \(\{/,
     "mock alert timestamps should stay stable across resyncs and IC-mode toggles"
+  );
+  assert.doesNotMatch(
+    source,
+    /setMockAlertTimestamps/,
+    "mock fallback cleanup should not write timestamp state when fallback mode is disabled"
   );
   assert.match(
     source,

@@ -326,7 +326,7 @@ function V2PageContent() {
   useEffect(() => {
     viewFeedActionRef.current = handleViewFeed;
   }, [handleViewFeed]);
-  const [mockAlertTimestamps, setMockAlertTimestamps] = useState<Record<(typeof MOCK_ALERT_IDS)[number], Date>>(() => ({
+  const [mockAlertTimestamps] = useState<Record<(typeof MOCK_ALERT_IDS)[number], Date>>(() => ({
     'demo-critical': new Date(),
     'demo-warning': new Date(),
   }));
@@ -408,10 +408,6 @@ function V2PageContent() {
       hasSyncedMockAlerts.current = false;
       areAlertsOpenRef.current = false;
       dismissedMockAlertIdsRef.current.clear();
-      setMockAlertTimestamps({
-        'demo-critical': new Date(),
-        'demo-warning': new Date(),
-      });
       dismissStoredAlerts();
       return;
     }
