@@ -176,8 +176,23 @@ test("IC mode blocks feed launch and operator keyboard shortcuts", () => {
   );
   assert.match(
     source,
-    /action:\s*icViewModeEnabled\s*\?\s*undefined\s*:\s*\{\s*label:\s*'VIEW',\s*onClick:\s*\(\) => handleViewFeed\('ranger_1'\)\s*\}/s,
+    /const locateVehicleActionRef = useRef\(handleLocateVehicle\);/,
+    "mock alert actions should keep a stable reference to the latest locate handler"
+  );
+  assert.match(
+    source,
+    /const viewFeedActionRef = useRef\(handleViewFeed\);/,
+    "mock alert actions should keep a stable reference to the latest feed handler"
+  );
+  assert.match(
+    source,
+    /action:\s*icViewModeEnabled\s*\?\s*undefined\s*:\s*\{\s*label:\s*'VIEW',\s*onClick:\s*\(\) => viewFeedActionRef\.current\('ranger_1'\)\s*\}/s,
     "IC mode should remove feed-launch actions from mock alert surfaces as well"
+  );
+  assert.match(
+    source,
+    /\[allowMockFallback, icViewModeEnabled\]\s*\);/,
+    "mock alert definitions should not resubscribe on telemetry-driven handler churn"
   );
 
   const keyboardEffect = source.match(/const handleKeyDown = \(e: KeyboardEvent\) => \{([\s\S]*?)\n    \};/);
