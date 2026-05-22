@@ -136,4 +136,13 @@ test("EmergencyStopControl dispatches abort only from nonce changes", () => {
     /onAbortRef\.current\(\);\s*\}, \[abortDispatchNonce\]\);/s,
     "abort dispatch effect should only depend on the dispatch nonce"
   );
+  assert.ok(
+    source.includes("shouldResetAbortRequest({ abortRequested, missionPhase })"),
+    "control should explicitly clear stale abort-request state when the mission leaves the active abort lifecycle"
+  );
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{\s*if \(!shouldResetAbortRequest\([\s\S]*?\)\) \{\s*return;\s*\}\s*setAbortRequested\(false\);\s*\}, \[abortRequested, missionPhase\]\);/s,
+    "control should reset abortRequested from a phase-change effect instead of waiting for a remount"
+  );
 });

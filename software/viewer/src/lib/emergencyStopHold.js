@@ -32,6 +32,13 @@ export function isAbortRequestPending({
   return abortRequested && !abortError && ACTIVE_ABORT_PHASES.has(missionPhase);
 }
 
+export function shouldResetAbortRequest({
+  abortRequested,
+  missionPhase,
+}) {
+  return abortRequested && !ACTIVE_ABORT_PHASES.has(missionPhase);
+}
+
 export function advanceEmergencyStopHold({
   state,
   now,

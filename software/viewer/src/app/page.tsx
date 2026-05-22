@@ -673,7 +673,6 @@ function V2PageContent() {
 
       topRightOverlay={icViewModeEnabled ? undefined : (
         <EmergencyStopControl
-          key={missionPhase}
           missionPhase={missionPhase}
           canAbort={canAbort}
           abortUnavailableReason={abortUnavailableReason}

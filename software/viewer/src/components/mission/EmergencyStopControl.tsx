@@ -12,6 +12,7 @@ import {
   cancelEmergencyStopHoldState,
   createIdleEmergencyStopHold,
   isAbortRequestPending,
+  shouldResetAbortRequest,
 } from '@/lib/emergencyStopHold';
 
 interface EmergencyStopControlProps {
@@ -56,6 +57,13 @@ export function EmergencyStopControl({
   useEffect(() => {
     onAbortRef.current = onAbort;
   }, [onAbort]);
+
+  useEffect(() => {
+    if (!shouldResetAbortRequest({ abortRequested, missionPhase })) {
+      return;
+    }
+    setAbortRequested(false);
+  }, [abortRequested, missionPhase]);
 
   useEffect(() => {
     if (holdState.phase !== 'holding') {
