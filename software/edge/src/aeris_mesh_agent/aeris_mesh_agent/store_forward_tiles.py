@@ -1051,7 +1051,7 @@ class StoreForwardTiles(Node):
             return
         try:
             accepted = self._abr_controller.observe_encoder_ack(msg.data)
-        except ValueError:
+        except (ValueError, TypeError, OverflowError):
             self.get_logger().warning("invalid ABR ack payload; ignoring")
             return
         if accepted:
