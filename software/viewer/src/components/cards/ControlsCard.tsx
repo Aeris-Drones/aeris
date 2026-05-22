@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ShimmerButton } from '@/components/ui/shimmer-button';
-import { Play, Pause, Square } from 'lucide-react';
+import { Play, Pause } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -27,7 +26,6 @@ export interface ControlsCardProps {
   isPaused: boolean;
   canStart: boolean;
   canPause: boolean;
-  canAbort: boolean;
   hasValidStartZone?: boolean;
   selectedPattern?: SearchPattern;
   setSelectedPattern?: (pattern: SearchPattern) => void;
@@ -35,7 +33,6 @@ export interface ControlsCardProps {
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
-  onAbort: () => void;
 }
 
 /**
@@ -43,15 +40,14 @@ export interface ControlsCardProps {
  *
  * UI/UX Decisions:
  * - ShimmerButton for START/NEW creates visual prominence for primary actions
- * - Two-step abort with countdown prevents accidental mission termination
+ * - Mission abort lives in the persistent shell emergency stop surface
  * - Pattern selector only visible in IDLE phase to prevent mid-mission changes
  * - Status message area provides contextual feedback on current state
  * - Warning/error messages appear inline to guide user corrections
  *
  * Safety Features:
- * - Abort requires confirmation (5-second countdown with cancel option)
  * - Disabled states prevent invalid actions for current phase
- * - Visual distinction between destructive (abort) and constructive (start) actions
+ * - Visual distinction between paused vs running mission states
  *
  * Accessibility:
  * - Buttons have clear labels with icons
@@ -63,7 +59,6 @@ export function ControlsCard({
   isPaused,
   canStart,
   canPause,
-  canAbort,
   hasValidStartZone = true,
   selectedPattern = 'lawnmower',
   setSelectedPattern,
@@ -71,45 +66,12 @@ export function ControlsCard({
   onStart,
   onPause,
   onResume,
-  onAbort,
 }: ControlsCardProps) {
-  const [abortCountdown, setAbortCountdown] = useState<number | null>(null);
-
   const isIdle = missionPhase === 'IDLE';
   const isActive =
     missionPhase === 'PLANNING' ||
     missionPhase === 'SEARCHING' ||
     missionPhase === 'TRACKING';
-
-  /**
-   * Abort countdown timer effect. Automatically triggers abort when countdown
-   * reaches zero. The 5-second window provides operators time to cancel
-   * accidental abort clicks while maintaining mission safety.
-   */
-  useEffect(() => {
-    if (abortCountdown === null) return;
-
-    const timer = setTimeout(() => {
-      setAbortCountdown((prev) => {
-        if (prev === null) return prev;
-        if (prev <= 1) {
-          onAbort();
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [abortCountdown, onAbort]);
-
-  const handleAbortClick = useCallback(() => {
-    if (abortCountdown !== null) {
-      setAbortCountdown(null);
-    } else {
-      setAbortCountdown(5);
-    }
-  }, [abortCountdown]);
 
   return (
     <Card className="flex h-full flex-col justify-between p-4">
@@ -189,29 +151,6 @@ export function ControlsCard({
           </Button>
         )}
 
-        {/* ABORT button - Two-step confirmation prevents accidental mission termination */}
-        {isActive && (
-          <Button
-            variant="outline"
-            className={cn(
-              'flex-1 h-auto py-2.5 transition-all',
-              abortCountdown !== null
-                ? 'border-[var(--danger)] bg-[var(--danger)]/20 text-[var(--danger)]'
-                : 'border-[var(--danger)]/50 text-[var(--danger)] hover:bg-[var(--danger)]/10 hover:text-[var(--danger)]',
-              !canAbort && 'opacity-50'
-            )}
-            disabled={!canAbort}
-            onClick={handleAbortClick}
-          >
-            <Square className="mr-2 h-4 w-4 fill-current" />
-            {abortCountdown !== null ? (
-              <span className="font-mono">{abortCountdown}s</span>
-            ) : (
-              'ABORT'
-            )}
-          </Button>
-        )}
-
         {/* NEW button - Reset for next mission after completion or abort */}
         {(missionPhase === 'COMPLETE' || missionPhase === 'ABORTED') && (
           <ShimmerButton
@@ -233,9 +172,8 @@ export function ControlsCard({
       <div className="text-center">
         <span className="text-[10px] text-white/40">
           {isIdle && 'Ready to start mission'}
-          {isActive && !isPaused && abortCountdown === null && 'Mission in progress'}
+          {isActive && !isPaused && 'Mission in progress'}
           {isActive && isPaused && 'Mission paused'}
-          {isActive && abortCountdown !== null && 'Click again to cancel abort'}
           {missionPhase === 'COMPLETE' && 'Mission completed'}
           {missionPhase === 'ABORTED' && 'Mission aborted'}
         </span>

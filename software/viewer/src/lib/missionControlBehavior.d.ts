@@ -67,7 +67,20 @@ export function computeMissionControlFlags(args: {
   pausedAt: number | undefined;
   hasValidStartZone: boolean;
   rosConnected: boolean;
+  missionId?: string | undefined;
 }): MissionControlFlags;
+
+/**
+ * Reports why the emergency stop is unavailable, if it cannot be used.
+ *
+ * This is the canonical UI contract for disabled-state messaging so the
+ * persistent emergency stop and the service-call path stay aligned.
+ */
+export function getAbortMissionUnavailableReason(args: {
+  phase: MissionControlPhase;
+  rosConnected: boolean;
+  missionId: string | undefined;
+}): string | null;
 
 /**
  * Validates preconditions for aborting a mission.
@@ -80,6 +93,7 @@ export function computeMissionControlFlags(args: {
  * @returns Error message if validation fails, null if abort is permitted
  */
 export function getAbortMissionValidationError(args: {
+  phase?: MissionControlPhase | undefined;
   rosConnected: boolean;
   missionId: string | undefined;
 }): string | null;

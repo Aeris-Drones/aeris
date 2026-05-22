@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   computeMissionControlFlags,
+  getAbortMissionUnavailableReason,
   getAbortMissionValidationError,
   withServiceTimeout,
 } from "./missionControlBehavior.js";
@@ -26,6 +27,7 @@ test("SEARCHING phase remains abortable and resumable when paused", () => {
     pausedAt: Date.now(),
     hasValidStartZone: true,
     rosConnected: true,
+    missionId: "mission-1",
   });
 
   assert.equal(flags.isPaused, true);
@@ -48,6 +50,26 @@ test("abort validation enforces connectivity and mission id", () => {
       missionId: "   ",
     }),
     "Mission abort failed: active mission id is missing."
+  );
+});
+
+test("abort availability reports non-abortable phases before the emergency stop is armed", () => {
+  assert.equal(
+    getAbortMissionUnavailableReason({
+      phase: "IDLE",
+      rosConnected: true,
+      missionId: "mission-1",
+    }),
+    "Emergency stop is unavailable until a mission is active."
+  );
+
+  assert.equal(
+    getAbortMissionUnavailableReason({
+      phase: "SEARCHING",
+      rosConnected: true,
+      missionId: "mission-1",
+    }),
+    null
   );
 });
 

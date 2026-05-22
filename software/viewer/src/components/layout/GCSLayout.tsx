@@ -22,6 +22,8 @@ interface GCSLayoutProps {
   pipFeed?: ReactNode;
   /** Optional alerts panel - top-right notification area */
   alerts?: ReactNode;
+  /** Optional top-right overlay for operator-only shell controls */
+  topRightOverlay?: ReactNode;
   /** Optional zone toolbar - top-center below status pill for zone drawing tools */
   zoneToolbar?: ReactNode;
   /** Presentation mode controls overlay spacing and read-only shell treatment */
@@ -57,6 +59,7 @@ export function GCSLayout({
   layersPanel,
   pipFeed,
   alerts,
+  topRightOverlay,
   zoneToolbar,
   viewMode = 'operator',
   statusToggle,
@@ -95,8 +98,9 @@ export function GCSLayout({
           </div>
         )}
 
-        {alerts && (
-          <div className="pointer-events-auto absolute right-4 top-20">
+        {(topRightOverlay || alerts) && (
+          <div className="pointer-events-auto absolute right-4 top-20 flex flex-col items-end gap-3">
+            {topRightOverlay}
             {alerts}
           </div>
         )}

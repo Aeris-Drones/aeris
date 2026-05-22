@@ -149,10 +149,26 @@ test("IC mode keeps one canonical page-shell flag and propagates it", () => {
   const { source } = parseTsx(pagePath);
 
   assert.match(source, /useSearchParams/);
+  assert.match(source, /EmergencyStopControl/);
   assert.match(source, /isIcViewModeQueryValue/);
   assert.match(source, /setIcViewModeEnabled/);
   assert.match(source, /viewMode=\{icViewModeEnabled \? 'ic' : 'operator'\}/);
   assert.match(source, /mode=\{icViewModeEnabled \? 'ic' : 'operator'\}/);
+  assert.match(
+    source,
+    /topRightOverlay=\{icViewModeEnabled \? undefined : \(/,
+    "operator mode should own the persistent emergency-stop surface while IC mode keeps the shell read-only"
+  );
+  assert.match(
+    source,
+    /<EmergencyStopControl[\s\S]*onAbort=\{abortMission\}/,
+    "page should route the persistent control through the existing abortMission callback"
+  );
+  assert.match(
+    source,
+    /<EmergencyStopControl[\s\S]*key=\{missionPhase\}/,
+    "mission-phase changes should reset the emergency-stop hold and pending state"
+  );
 });
 
 test("IC mode blocks feed launch and operator keyboard shortcuts", () => {

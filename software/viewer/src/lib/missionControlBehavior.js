@@ -4,29 +4,17 @@ export function isMissionPaused(phase, pausedAt) {
   return ACTIVE_PHASES.has(phase) && pausedAt !== undefined;
 }
 
-export function computeMissionControlFlags({
+export function getAbortMissionUnavailableReason({
   phase,
-  pausedAt,
-  hasValidStartZone,
   rosConnected,
+  missionId,
 }) {
-  const isActive = ACTIVE_PHASES.has(phase);
-  const isPaused = isMissionPaused(phase, pausedAt);
-  const isComplete = phase === "COMPLETE";
-  const isIdle = phase === "IDLE";
+  const abortableForPhase = ACTIVE_PHASES.has(phase);
 
-  return {
-    isActive,
-    isPaused,
-    isComplete,
-    canStart: isIdle && !isPaused && hasValidStartZone && rosConnected,
-    canPause: isActive && !isPaused,
-    canResume: isPaused,
-    canAbort: isActive || isPaused,
-  };
-}
+  if (!abortableForPhase) {
+    return "Emergency stop is unavailable until a mission is active.";
+  }
 
-export function getAbortMissionValidationError({ rosConnected, missionId }) {
   if (!rosConnected) {
     return "ROS is disconnected. Reconnect before aborting the mission.";
   }
@@ -36,6 +24,46 @@ export function getAbortMissionValidationError({ rosConnected, missionId }) {
   }
 
   return null;
+}
+
+export function computeMissionControlFlags({
+  phase,
+  pausedAt,
+  hasValidStartZone,
+  rosConnected,
+  missionId,
+}) {
+  const isActive = ACTIVE_PHASES.has(phase);
+  const isPaused = isMissionPaused(phase, pausedAt);
+  const isComplete = phase === "COMPLETE";
+  const isIdle = phase === "IDLE";
+  const abortUnavailableReason = getAbortMissionUnavailableReason({
+    phase,
+    rosConnected,
+    missionId,
+  });
+
+  return {
+    isActive,
+    isPaused,
+    isComplete,
+    canStart: isIdle && !isPaused && hasValidStartZone && rosConnected,
+    canPause: isActive && !isPaused,
+    canResume: isPaused,
+    canAbort: abortUnavailableReason === null,
+  };
+}
+
+export function getAbortMissionValidationError({
+  phase = "SEARCHING",
+  rosConnected,
+  missionId,
+}) {
+  return getAbortMissionUnavailableReason({
+    phase,
+    rosConnected,
+    missionId,
+  });
 }
 
 export function withServiceTimeout(invoke, timeoutMs, label = "service call") {
