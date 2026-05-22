@@ -12,6 +12,7 @@ import {
 } from '@/types/mission';
 import {
   computeMissionControlFlags,
+  getAbortMissionUnavailableReason,
   getAbortMissionValidationError,
   withServiceTimeout,
 } from '@/lib/missionControlBehavior';
@@ -49,6 +50,7 @@ export interface MissionControlState {
   canPause: boolean;
   canResume: boolean;
   canAbort: boolean;
+  abortUnavailableReason: string | null;
   hasValidStartZone: boolean;
   selectedPattern: SearchPattern;
   setSelectedPattern: (pattern: SearchPattern) => void;
@@ -122,6 +124,7 @@ export function useMissionControl(): MissionControlState {
     hasValidStartZone && startMissionError === INVALID_START_ZONE_ERROR
       ? null
       : startMissionError;
+  const missionId = state.missionId?.trim() ?? '';
 
   const updateSelectedPattern = useCallback((pattern: SearchPattern) => {
     setSelectedPattern(pattern);
@@ -444,6 +447,8 @@ export function useMissionControl(): MissionControlState {
 
     const missionId = state.missionId?.trim() ?? '';
     const validationError = getAbortMissionValidationError({
+      phase: state.phase,
+      pausedAt: state.pausedAt,
       rosConnected: rosConnected && !!ros,
       missionId,
     });
@@ -480,6 +485,8 @@ export function useMissionControl(): MissionControlState {
     callMissionService,
     ros,
     rosConnected,
+    state.pausedAt,
+    state.phase,
     state.missionId,
   ]);
 
@@ -515,6 +522,13 @@ export function useMissionControl(): MissionControlState {
       pausedAt: state.pausedAt,
       hasValidStartZone,
       rosConnected,
+      missionId,
+    });
+    const abortUnavailableReason = getAbortMissionUnavailableReason({
+      phase: state.phase,
+      pausedAt: state.pausedAt,
+      rosConnected,
+      missionId,
     });
 
     return {
@@ -527,9 +541,10 @@ export function useMissionControl(): MissionControlState {
       canPause: controlFlags.canPause,
       canResume: controlFlags.canResume,
       canAbort: controlFlags.canAbort,
+      abortUnavailableReason,
       hasValidStartZone,
     };
-  }, [rosConnected, hasValidStartZone, state.phase, state.pausedAt, state.missionId]);
+  }, [hasValidStartZone, missionId, rosConnected, state.missionId, state.phase, state.pausedAt]);
 
   return {
     ...computedState,
@@ -552,6 +567,7 @@ export function useMissionControl(): MissionControlState {
     setSelectedPattern: updateSelectedPattern,
     startMissionError: effectiveStartMissionError,
     abortMissionError,
+    abortUnavailableReason: computedState.abortUnavailableReason,
     rosConnected,
     vehicleSlamModes,
     vehicleMissionMeta,

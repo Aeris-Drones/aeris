@@ -8,6 +8,7 @@ import { CommandDock } from '@/components/layout/CommandDock';
 import { FleetCard, VehicleWarning } from '@/components/cards/FleetCard';
 import { DetectionsCard } from '@/components/cards/DetectionsCard';
 import { ControlsCard } from '@/components/cards/ControlsCard';
+import { EmergencyStopControl } from '@/components/mission/EmergencyStopControl';
 import { MapScene3D, MapScene3DHandle } from '@/components/map/MapScene3D';
 import { FleetSheet } from '@/components/sheets/FleetSheet';
 import { DetectionSheet } from '@/components/sheets/DetectionSheet';
@@ -137,10 +138,12 @@ function V2PageContent() {
     canStart,
     canPause,
     canAbort,
+    abortUnavailableReason,
     hasValidStartZone,
     selectedPattern,
     setSelectedPattern,
     startMissionError,
+    abortMissionError,
     startMission,
     pauseMission,
     resumeMission,
@@ -618,6 +621,16 @@ function V2PageContent() {
         )
       }
 
+      topRightOverlay={icViewModeEnabled ? undefined : (
+        <EmergencyStopControl
+          missionPhase={missionPhase}
+          canAbort={canAbort}
+          abortUnavailableReason={abortUnavailableReason}
+          abortError={abortMissionError}
+          onAbort={abortMission}
+        />
+      )}
+
       zoneToolbar={icViewModeEnabled ? undefined : <ZoneToolbar />}
 
       commandDock={
@@ -669,7 +682,6 @@ function V2PageContent() {
               isPaused={isPaused}
               canStart={canStart}
               canPause={canPause}
-              canAbort={canAbort}
               hasValidStartZone={hasValidStartZone}
               selectedPattern={selectedPattern}
               setSelectedPattern={setSelectedPattern}
@@ -677,7 +689,6 @@ function V2PageContent() {
               onStart={startMission}
               onPause={pauseMission}
               onResume={resumeMission}
-              onAbort={abortMission}
             />
           )}
         />
