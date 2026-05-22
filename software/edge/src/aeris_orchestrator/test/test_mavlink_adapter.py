@@ -76,14 +76,16 @@ class _FakeConnection:
 
 
 class _FakeAck:
-    def __init__(self, command: int, result: int) -> None:
+    def __init__(self, command: int, result: int, source_addr=None) -> None:
         self.command = command
         self.result = result
+        self.source_addr = source_addr
 
 
 class _FakeHeartbeat:
-    def __init__(self, custom_mode: int) -> None:
+    def __init__(self, custom_mode: int, source_addr=None) -> None:
         self.custom_mode = custom_mode
+        self.source_addr = source_addr
 
 
 def _px4_rtl_custom_mode() -> int:
@@ -425,4 +427,38 @@ def test_adapter_sends_commands_to_command_port_when_it_differs(monkeypatch) -> 
     assert connections[1].mav.command_long_calls
     assert connections[1].mav.command_long_calls[0][0] == 2
     assert not connections[0].mav.command_long_calls
+    adapter.close()
+
+
+def test_adapter_rejects_spoofed_partner_messages_on_split_command_port(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14541, command_port=14581, stream_hz=20.0)
+
+    connections[0].messages_by_type.setdefault("__any__", []).append(
+        _FakeHeartbeat(_px4_rtl_custom_mode(), source_addr=("127.0.0.2", 14581))
+    )
+    connections[0].messages_by_type.setdefault("COMMAND_ACK", []).append(
+        _FakeAck(
+            mavutil.mavlink.MAV_CMD_NAV_RETURN_TO_LAUNCH,
+            mavutil.mavlink.MAV_RESULT_ACCEPTED,
+            source_addr=("127.0.0.2", 14581),
+        )
+    )
+    connections[0].messages_by_type.setdefault("HEARTBEAT", []).append(
+        _FakeHeartbeat(_px4_rtl_custom_mode(), source_addr=("127.0.0.2", 14581))
+    )
+
+    assert not adapter.send_return_to_launch()
     adapter.close()

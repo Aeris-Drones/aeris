@@ -542,6 +542,8 @@ class MavlinkAdapter:
                 return None
             if not self._message_matches_target(ack):
                 continue
+            if not self._message_matches_partner(ack):
+                continue
             if int(getattr(ack, "command", -1)) != command_id:
                 continue
             return ack
@@ -569,9 +571,27 @@ class MavlinkAdapter:
                 return False
             if not self._message_matches_target(heartbeat):
                 continue
+            if not self._message_matches_partner(heartbeat):
+                continue
             if self._heartbeat_indicates_rtl(heartbeat):
                 return True
         return False
+
+
+    def _message_matches_partner(self, message) -> bool:
+        source_addr = getattr(message, "source_addr", None)
+        if not isinstance(source_addr, tuple) or not source_addr:
+            # Some pymavlink transports do not provide socket peer metadata.
+            # Preserve existing behavior in those cases.
+            return True
+
+        source_host = str(source_addr[0])
+        source_port = int(source_addr[1]) if len(source_addr) > 1 else None
+        if source_host != self._host:
+            return False
+        if source_port is not None and source_port != self._command_port:
+            return False
+        return True
 
     def _message_matches_target(self, message) -> bool:
         """Check if a MAVLink message originates from the target system.
@@ -733,7 +753,7 @@ class MavlinkAdapter:
                 self._logger(f"MAVLink endpoint handshake failed: {error}")
                 return False
 
-            if message is not None:
+            if message is not None and self._message_matches_partner(message):
                 self._partner_ready = True
                 return True
 
