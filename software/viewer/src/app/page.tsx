@@ -316,6 +316,16 @@ function V2PageContent() {
 
     setPipVehicleId(id);
   }, [icViewModeEnabled]);
+  const locateVehicleActionRef = useRef(handleLocateVehicle);
+  const viewFeedActionRef = useRef(handleViewFeed);
+
+  useEffect(() => {
+    locateVehicleActionRef.current = handleLocateVehicle;
+  }, [handleLocateVehicle]);
+
+  useEffect(() => {
+    viewFeedActionRef.current = handleViewFeed;
+  }, [handleViewFeed]);
 
   /**
    * Static alerts for demonstration. In production, these are fed from
@@ -334,7 +344,7 @@ function V2PageContent() {
           description: 'Last contact: 45 seconds ago - Initiating recovery',
           dismissible: false,
           timestamp: new Date(),
-          action: { label: 'LOCATE', onClick: () => handleLocateVehicle('scout_2') },
+          action: { label: 'LOCATE', onClick: () => locateVehicleActionRef.current('scout_2') },
         },
         {
           id: 'demo-warning',
@@ -345,11 +355,11 @@ function V2PageContent() {
           timestamp: new Date(),
           action: icViewModeEnabled
             ? undefined
-            : { label: 'VIEW', onClick: () => handleViewFeed('ranger_1') },
+            : { label: 'VIEW', onClick: () => viewFeedActionRef.current('ranger_1') },
         },
       ];
     },
-    [allowMockFallback, handleLocateVehicle, handleViewFeed, icViewModeEnabled]
+    [allowMockFallback, icViewModeEnabled]
   );
   const hasSyncedMockAlerts = useRef(false);
   const areAlertsOpenRef = useRef(false);
