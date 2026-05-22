@@ -24,6 +24,7 @@ export interface Alert {
   };
   timestamp: Date;
   dismissible: boolean;
+  onDismiss?: () => void;
 }
 
 /**
@@ -104,7 +105,7 @@ function playCriticalAlertSound() {
  * @returns The alert ID for programmatic dismissal
  */
 export function showAlert(alert: Omit<Alert, 'timestamp'>, options?: { playSound?: boolean }) {
-  const { id, severity, title, description, action } = alert;
+  const { id, severity, title, description, action, onDismiss } = alert;
   const { playSound = true } = options || {};
 
   if (playSound && severity === 'critical') {
@@ -125,6 +126,7 @@ export function showAlert(alert: Omit<Alert, 'timestamp'>, options?: { playSound
       label: action.label,
       onClick: action.onClick,
     } : undefined,
+    onDismiss: onDismiss ? () => onDismiss() : undefined,
     classNames: {
       toast: cn(
         'group-[.toaster]:border-l-4',

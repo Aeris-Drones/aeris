@@ -326,6 +326,12 @@ function V2PageContent() {
   useEffect(() => {
     viewFeedActionRef.current = handleViewFeed;
   }, [handleViewFeed]);
+  const [mockAlertTimestamps, setMockAlertTimestamps] = useState<Record<(typeof MOCK_ALERT_IDS)[number], Date>>(() => ({
+    'demo-critical': new Date(),
+    'demo-warning': new Date(),
+  }));
+  const dismissedMockAlertIdsRef = useRef<Set<string>>(new Set());
+  const mockAlertDisplayNonceRef = useRef(0);
 
   /**
    * Static alerts for demonstration. In production, these are fed from
@@ -343,7 +349,7 @@ function V2PageContent() {
           title: 'Scout-2 COMMS LOST',
           description: 'Last contact: 45 seconds ago - Initiating recovery',
           dismissible: false,
-          timestamp: new Date(),
+          timestamp: mockAlertTimestamps['demo-critical'],
           action: { label: 'LOCATE', onClick: () => locateVehicleActionRef.current('scout_2') },
         },
         {
@@ -352,36 +358,74 @@ function V2PageContent() {
           title: 'Ranger-1 low battery',
           description: '22% remaining - Auto RTH initiated',
           dismissible: true,
-          timestamp: new Date(),
+          timestamp: mockAlertTimestamps['demo-warning'],
           action: icViewModeEnabled
             ? undefined
             : { label: 'VIEW', onClick: () => viewFeedActionRef.current('ranger_1') },
         },
       ];
     },
-    [allowMockFallback, icViewModeEnabled]
+    [allowMockFallback, icViewModeEnabled, mockAlertTimestamps]
   );
   const hasSyncedMockAlerts = useRef(false);
   const areAlertsOpenRef = useRef(false);
+  const getVisibleStoredAlerts = useCallback(
+    () => storedAlerts.filter((alert) => !dismissedMockAlertIdsRef.current.has(alert.id)),
+    [storedAlerts]
+  );
   const dismissStoredAlerts = useCallback(() => {
+    mockAlertDisplayNonceRef.current += 1;
     MOCK_ALERT_IDS.forEach((alertId) => dismissAlert(alertId));
   }, []);
+  const showVisibleStoredAlerts = useCallback((playSound: boolean) => {
+    const visibleStoredAlerts = getVisibleStoredAlerts();
+    mockAlertDisplayNonceRef.current += 1;
+    const displayNonce = mockAlertDisplayNonceRef.current;
+
+    visibleStoredAlerts.forEach((alert) =>
+      showAlert(
+        {
+          ...alert,
+          onDismiss: alert.dismissible
+            ? () => {
+                if (displayNonce !== mockAlertDisplayNonceRef.current) {
+                  return;
+                }
+                dismissedMockAlertIdsRef.current.add(alert.id);
+                areAlertsOpenRef.current = getVisibleStoredAlerts().length > 0;
+              }
+            : undefined,
+        },
+        { playSound }
+      )
+    );
+
+    areAlertsOpenRef.current = visibleStoredAlerts.length > 0;
+  }, [getVisibleStoredAlerts]);
 
   useEffect(() => {
     if (!allowMockFallback) {
       hasSyncedMockAlerts.current = false;
       areAlertsOpenRef.current = false;
+      dismissedMockAlertIdsRef.current.clear();
+      setMockAlertTimestamps({
+        'demo-critical': new Date(),
+        'demo-warning': new Date(),
+      });
       dismissStoredAlerts();
       return;
     }
 
+    const shouldShowAlerts = areAlertsOpenRef.current || !hasSyncedMockAlerts.current;
+    if (!shouldShowAlerts) {
+      hasSyncedMockAlerts.current = true;
+      return;
+    }
+
     dismissStoredAlerts();
-    storedAlerts.forEach((alert) =>
-      showAlert(alert, { playSound: !hasSyncedMockAlerts.current })
-    );
+    showVisibleStoredAlerts(!hasSyncedMockAlerts.current);
     hasSyncedMockAlerts.current = true;
-    areAlertsOpenRef.current = true;
-  }, [allowMockFallback, dismissStoredAlerts, storedAlerts]);
+  }, [allowMockFallback, dismissStoredAlerts, showVisibleStoredAlerts]);
 
   const handleDroneSelect = (id: string) => {
     setSelectedDroneId(id || null);
@@ -457,11 +501,11 @@ function V2PageContent() {
     }
     areAlertsOpenRef.current = !areAlertsOpenRef.current;
     if (areAlertsOpenRef.current) {
-      storedAlerts.forEach((alert) => showAlert(alert, { playSound: false }));
+      showVisibleStoredAlerts(false);
       return;
     }
     dismissStoredAlerts();
-  }, [allowMockFallback, dismissStoredAlerts, storedAlerts]);
+  }, [allowMockFallback, dismissStoredAlerts, showVisibleStoredAlerts, storedAlerts.length]);
 
   /**
    * Global keyboard shortcuts for mission control.
