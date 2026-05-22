@@ -462,3 +462,49 @@ def test_adapter_rejects_spoofed_partner_messages_on_split_command_port(monkeypa
 
     assert not adapter.send_return_to_launch()
     adapter.close()
+
+
+def test_adapter_does_not_trust_unmatched_udpin_clients(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14541, command_port=14581, stream_hz=20.0)
+    connections[0].clients = {("127.0.0.2", 14581)}
+
+    assert not adapter._ensure_partner_ready(timeout_sec=0.0)
+    assert not adapter._partner_ready
+    adapter.close()
+
+
+def test_adapter_accepts_partner_handshake_from_stream_port(monkeypatch) -> None:
+    connections: list[_FakeConnection] = []
+
+    def _fake_connection(endpoint: str, source_system: int, source_component: int):
+        del source_system, source_component
+        conn = _FakeConnection(endpoint)
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(
+        "aeris_orchestrator.mavlink_adapter.mavutil.mavlink_connection",
+        _fake_connection,
+    )
+
+    adapter = MavlinkAdapter(host="127.0.0.1", port=14541, command_port=14581, stream_hz=20.0)
+    connections[0].messages_by_type.setdefault("__any__", []).append(
+        _FakeHeartbeat(_px4_rtl_custom_mode(), source_addr=("127.0.0.1", 14541))
+    )
+
+    assert adapter._ensure_partner_ready(timeout_sec=0.01)
+    assert adapter._partner_ready
+    adapter.close()

@@ -578,6 +578,19 @@ class MavlinkAdapter:
         return False
 
 
+    def _source_matches_partner(
+        self, source_host: str, source_port: int | None = None
+    ) -> bool:
+        if str(source_host) != self._host:
+            return False
+        if source_port is None:
+            return True
+
+        allowed_ports = {self._command_port}
+        if self._port != self._command_port:
+            allowed_ports.add(self._port)
+        return int(source_port) in allowed_ports
+
     def _message_matches_partner(self, message) -> bool:
         source_addr = getattr(message, "source_addr", None)
         if not isinstance(source_addr, tuple) or not source_addr:
@@ -586,12 +599,25 @@ class MavlinkAdapter:
             return True
 
         source_host = str(source_addr[0])
-        source_port = int(source_addr[1]) if len(source_addr) > 1 else None
-        if source_host != self._host:
+        try:
+            source_port = int(source_addr[1]) if len(source_addr) > 1 else None
+        except (TypeError, ValueError):
             return False
-        if source_port is not None and source_port != self._command_port:
-            return False
-        return True
+        return self._source_matches_partner(source_host, source_port)
+
+    def _clients_include_partner(self, clients: set[object]) -> bool:
+        for client in clients:
+            if isinstance(client, tuple) and client:
+                source_host = str(client[0])
+                try:
+                    source_port = int(client[1]) if len(client) > 1 else None
+                except (TypeError, ValueError):
+                    continue
+                if self._source_matches_partner(source_host, source_port):
+                    return True
+            elif isinstance(client, str) and self._source_matches_partner(client):
+                return True
+        return False
 
     def _message_matches_target(self, message) -> bool:
         """Check if a MAVLink message originates from the target system.
@@ -729,7 +755,7 @@ class MavlinkAdapter:
 
         with self._connection_lock:
             clients = getattr(self._mav_connection, "clients", None)
-            if isinstance(clients, set) and clients:
+            if isinstance(clients, set) and self._clients_include_partner(clients):
                 self._partner_ready = True
                 return True
 
