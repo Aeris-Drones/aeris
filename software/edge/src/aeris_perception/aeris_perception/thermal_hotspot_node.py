@@ -252,7 +252,6 @@ class ThermalHotspotNode(Node):
             min_interval = 1.0 / self._target_publish_rate_hz
             if now - self._last_publish_monotonic < min_interval:
                 return
-        self._last_publish_monotonic = now
 
         frame_celsius = self._image_to_temperature_celsius(message)
         if frame_celsius is None:
@@ -278,6 +277,7 @@ class ThermalHotspotNode(Node):
             output.frame_id = frame_id
             self._publisher.publish(output)
 
+        self._last_publish_monotonic = now
         self._process_times.append(now)
         if now - self._last_rate_log_monotonic >= 5.0 and len(self._process_times) > 2:
             elapsed = self._process_times[-1] - self._process_times[0]
