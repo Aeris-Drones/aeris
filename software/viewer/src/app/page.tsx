@@ -528,23 +528,23 @@ function V2PageContent() {
   const icTacticalSummary = (
     <div className="pointer-events-auto flex max-w-[360px] flex-col gap-3 text-lg">
       <div className="rounded-lg border border-white/25 bg-black/75 px-4 py-3 shadow-[0_0_30px_rgba(0,0,0,0.35)]">
-        <div className="text-base font-semibold uppercase tracking-wide text-white/75">IC VIEW</div>
+        <div className="text-xl font-semibold uppercase tracking-wide text-white/90">IC VIEW</div>
         <div className="mt-2 grid grid-cols-2 gap-3 text-white">
           <div>
-            <div className="font-mono text-2xl font-semibold">{activeVehicles.length}/{fleetVehicles.length}</div>
-            <div className="text-base text-white/75">fleet active</div>
+            <div className="font-mono text-3xl font-semibold">{activeVehicles.length}/{fleetVehicles.length}</div>
+            <div className="text-xl text-white/90">fleet active</div>
           </div>
           <div>
-            <div className="font-mono text-2xl font-semibold">{detectionCounts.pending}</div>
-            <div className="text-base text-white/75">pending alerts</div>
+            <div className="font-mono text-3xl font-semibold">{detectionCounts.pending}</div>
+            <div className="text-xl text-white/90">pending alerts</div>
           </div>
           <div>
-            <div className="font-mono text-2xl font-semibold">{routeRecommendations.length}</div>
-            <div className="text-base text-white/75">entry routes</div>
+            <div className="font-mono text-3xl font-semibold">{routeRecommendations.length}</div>
+            <div className="text-xl text-white/90">entry routes</div>
           </div>
           <div>
-            <div className="font-mono text-2xl font-semibold">{structuralHazardZones.length}</div>
-            <div className="text-base text-white/75">hazard zones</div>
+            <div className="font-mono text-3xl font-semibold">{structuralHazardZones.length}</div>
+            <div className="text-xl text-white/90">hazard zones</div>
           </div>
         </div>
       </div>
@@ -597,7 +597,7 @@ function V2PageContent() {
         icViewModeEnabled ? (
           <div className="space-y-3">
             {icTacticalSummary}
-            <div className="rounded-lg border border-white/20 bg-black/70 px-4 py-3 text-lg text-white/90">
+            <div className="rounded-lg border border-white/20 bg-black/70 px-4 py-3 text-xl text-white/95">
               Read-only shared tactical picture
             </div>
           </div>
@@ -616,8 +616,9 @@ function V2PageContent() {
               vehicles={fleetVehicles}
               selectedVehicleId={selectedDroneId}
               onLocate={handleLocateVehicle}
-              onViewFeed={handleViewFeed}
+              onViewFeed={icViewModeEnabled ? undefined : handleViewFeed}
               onRTH={icViewModeEnabled ? undefined : handleRTH}
+              viewMode={icViewModeEnabled ? 'ic' : 'operator'}
               trigger={
                 <FleetCard
                   vehicles={fleetVehicles}
