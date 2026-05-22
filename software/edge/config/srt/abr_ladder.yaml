@@ -10,8 +10,8 @@
 #   - base_360p:    Minimum viable quality for low-bandwidth links
 #   - perf_540p:    Balanced quality for moderate bandwidth
 #   - detail_720p:  High quality for inspection tasks
-#   - survey_1080p: Maximum quality for detailed survey work
 #   - lowlight_720p: Enhanced bitrate for noise reduction in low light
+#   - survey_1080p: Maximum quality for detailed survey work
 #
 # Configuration Keys:
 #   resolution:           Video dimensions (WIDTHxHEIGHT)
@@ -52,20 +52,20 @@ ladder:
     gop: 60
     fps: 30
 
-  # Maximum quality for detailed survey missions
-  - name: survey_1080p
-    resolution: 1920x1080
-    target_bitrate_kbps: 5200
-    max_bitrate_kbps: 6500
-    gop: 60
-    fps: 30
-
   # Higher bitrate 720p for low-light noise reduction
   - name: lowlight_720p
     resolution: 1280x720
     target_bitrate_kbps: 4200
     max_bitrate_kbps: 5200
     gop: 30  # Shorter GOP for faster recovery
+    fps: 30
+
+  # Maximum quality for detailed survey missions
+  - name: survey_1080p
+    resolution: 1920x1080
+    target_bitrate_kbps: 5200
+    max_bitrate_kbps: 6500
+    gop: 60
     fps: 30
 
 # Global streaming constraints

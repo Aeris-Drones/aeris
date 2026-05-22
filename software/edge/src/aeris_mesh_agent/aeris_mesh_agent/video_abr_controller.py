@@ -115,7 +115,7 @@ class EncoderAck:
             raise ValueError("encoder ack is missing command_id")
         try:
             command_id = int(command_id_raw)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("encoder ack command_id is invalid") from exc
         profile_name = str(raw.get("profile_name", "")).strip()
         applied_raw = raw.get("applied_at_ts")
@@ -124,7 +124,7 @@ class EncoderAck:
         else:
             try:
                 applied_at_ts = float(applied_raw)
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError, OverflowError) as exc:
                 raise ValueError("encoder ack applied_at_ts is invalid") from exc
         status = str(raw.get("status", "ok")).strip().lower() or "ok"
         if not profile_name:
