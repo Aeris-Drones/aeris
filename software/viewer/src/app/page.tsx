@@ -180,6 +180,12 @@ function V2PageContent() {
     });
   }, [icViewModeEnabled, layerVisibility]);
 
+  useEffect(() => {
+    if (icViewModeEnabled) {
+      setPipVehicleId(null);
+    }
+  }, [icViewModeEnabled]);
+
   const setIcModeFromUi = useCallback((enabled: boolean) => {
     const params = new URLSearchParams(searchParams.toString());
     if (enabled) {
@@ -307,6 +313,22 @@ function V2PageContent() {
 
     setPipVehicleId(id);
   }, [icViewModeEnabled]);
+  const locateVehicleActionRef = useRef(handleLocateVehicle);
+  const viewFeedActionRef = useRef(handleViewFeed);
+
+  useEffect(() => {
+    locateVehicleActionRef.current = handleLocateVehicle;
+  }, [handleLocateVehicle]);
+
+  useEffect(() => {
+    viewFeedActionRef.current = handleViewFeed;
+  }, [handleViewFeed]);
+  const [mockAlertTimestamps, setMockAlertTimestamps] = useState<Record<(typeof MOCK_ALERT_IDS)[number], Date>>(() => ({
+    'demo-critical': new Date(),
+    'demo-warning': new Date(),
+  }));
+  const dismissedMockAlertIdsRef = useRef<Set<string>>(new Set());
+  const mockAlertDisplayNonceRef = useRef(0);
 
   /**
    * Static alerts for demonstration. In production, these are fed from
@@ -324,8 +346,8 @@ function V2PageContent() {
           title: 'Scout-2 COMMS LOST',
           description: 'Last contact: 45 seconds ago - Initiating recovery',
           dismissible: false,
-          timestamp: new Date(),
-          action: { label: 'LOCATE', onClick: () => handleLocateVehicle('scout_2') },
+          timestamp: mockAlertTimestamps['demo-critical'],
+          action: { label: 'LOCATE', onClick: () => locateVehicleActionRef.current('scout_2') },
         },
         {
           id: 'demo-warning',
@@ -333,30 +355,74 @@ function V2PageContent() {
           title: 'Ranger-1 low battery',
           description: '22% remaining - Auto RTH initiated',
           dismissible: true,
-          timestamp: new Date(),
-          action: { label: 'VIEW', onClick: () => handleViewFeed('ranger_1') },
+          timestamp: mockAlertTimestamps['demo-warning'],
+          action: icViewModeEnabled
+            ? undefined
+            : { label: 'VIEW', onClick: () => viewFeedActionRef.current('ranger_1') },
         },
       ];
     },
-    [allowMockFallback, handleLocateVehicle, handleViewFeed]
+    [allowMockFallback, icViewModeEnabled, mockAlertTimestamps]
   );
-  const hasAddedInitialAlerts = useRef(false);
+  const hasSyncedMockAlerts = useRef(false);
   const areAlertsOpenRef = useRef(false);
+  const getVisibleStoredAlerts = useCallback(
+    () => storedAlerts.filter((alert) => !dismissedMockAlertIdsRef.current.has(alert.id)),
+    [storedAlerts]
+  );
   const dismissStoredAlerts = useCallback(() => {
+    mockAlertDisplayNonceRef.current += 1;
     MOCK_ALERT_IDS.forEach((alertId) => dismissAlert(alertId));
   }, []);
+  const showVisibleStoredAlerts = useCallback((playSound: boolean) => {
+    const visibleStoredAlerts = getVisibleStoredAlerts();
+    mockAlertDisplayNonceRef.current += 1;
+    const displayNonce = mockAlertDisplayNonceRef.current;
+
+    visibleStoredAlerts.forEach((alert) =>
+      showAlert(
+        {
+          ...alert,
+          onDismiss: alert.dismissible
+            ? () => {
+                if (displayNonce !== mockAlertDisplayNonceRef.current) {
+                  return;
+                }
+                dismissedMockAlertIdsRef.current.add(alert.id);
+                areAlertsOpenRef.current = getVisibleStoredAlerts().length > 0;
+              }
+            : undefined,
+        },
+        { playSound }
+      )
+    );
+
+    areAlertsOpenRef.current = visibleStoredAlerts.length > 0;
+  }, [getVisibleStoredAlerts]);
 
   useEffect(() => {
     if (!allowMockFallback) {
-      hasAddedInitialAlerts.current = false;
+      hasSyncedMockAlerts.current = false;
       areAlertsOpenRef.current = false;
+      dismissedMockAlertIdsRef.current.clear();
+      setMockAlertTimestamps({
+        'demo-critical': new Date(),
+        'demo-warning': new Date(),
+      });
       dismissStoredAlerts();
       return;
     }
-    if (hasAddedInitialAlerts.current) return;
-    hasAddedInitialAlerts.current = true;
-    storedAlerts.forEach((alert) => showAlert(alert));
-  }, [allowMockFallback, dismissStoredAlerts, storedAlerts]);
+
+    const shouldShowAlerts = areAlertsOpenRef.current || !hasSyncedMockAlerts.current;
+    if (!shouldShowAlerts) {
+      hasSyncedMockAlerts.current = true;
+      return;
+    }
+
+    dismissStoredAlerts();
+    showVisibleStoredAlerts(!hasSyncedMockAlerts.current);
+    hasSyncedMockAlerts.current = true;
+  }, [allowMockFallback, dismissStoredAlerts, showVisibleStoredAlerts]);
 
   const handleDroneSelect = (id: string) => {
     setSelectedDroneId(id || null);
@@ -432,11 +498,11 @@ function V2PageContent() {
     }
     areAlertsOpenRef.current = !areAlertsOpenRef.current;
     if (areAlertsOpenRef.current) {
-      storedAlerts.forEach((alert) => showAlert(alert, { playSound: false }));
+      showVisibleStoredAlerts(false);
       return;
     }
     dismissStoredAlerts();
-  }, [allowMockFallback, dismissStoredAlerts, storedAlerts]);
+  }, [allowMockFallback, dismissStoredAlerts, showVisibleStoredAlerts, storedAlerts.length]);
 
   /**
    * Global keyboard shortcuts for mission control.
@@ -528,23 +594,23 @@ function V2PageContent() {
   const icTacticalSummary = (
     <div className="pointer-events-auto flex max-w-[360px] flex-col gap-3 text-lg">
       <div className="rounded-lg border border-white/25 bg-black/75 px-4 py-3 shadow-[0_0_30px_rgba(0,0,0,0.35)]">
-        <div className="text-base font-semibold uppercase tracking-wide text-white/75">IC VIEW</div>
+        <div className="text-xl font-semibold uppercase tracking-wide text-white/90">IC VIEW</div>
         <div className="mt-2 grid grid-cols-2 gap-3 text-white">
           <div>
-            <div className="font-mono text-2xl font-semibold">{activeVehicles.length}/{fleetVehicles.length}</div>
-            <div className="text-base text-white/75">fleet active</div>
+            <div className="font-mono text-3xl font-semibold">{activeVehicles.length}/{fleetVehicles.length}</div>
+            <div className="text-xl text-white/90">fleet active</div>
           </div>
           <div>
-            <div className="font-mono text-2xl font-semibold">{detectionCounts.pending}</div>
-            <div className="text-base text-white/75">pending alerts</div>
+            <div className="font-mono text-3xl font-semibold">{detectionCounts.pending}</div>
+            <div className="text-xl text-white/90">pending alerts</div>
           </div>
           <div>
-            <div className="font-mono text-2xl font-semibold">{routeRecommendations.length}</div>
-            <div className="text-base text-white/75">entry routes</div>
+            <div className="font-mono text-3xl font-semibold">{routeRecommendations.length}</div>
+            <div className="text-xl text-white/90">entry routes</div>
           </div>
           <div>
-            <div className="font-mono text-2xl font-semibold">{structuralHazardZones.length}</div>
-            <div className="text-base text-white/75">hazard zones</div>
+            <div className="font-mono text-3xl font-semibold">{structuralHazardZones.length}</div>
+            <div className="text-xl text-white/90">hazard zones</div>
           </div>
         </div>
       </div>
@@ -597,7 +663,7 @@ function V2PageContent() {
         icViewModeEnabled ? (
           <div className="space-y-3">
             {icTacticalSummary}
-            <div className="rounded-lg border border-white/20 bg-black/70 px-4 py-3 text-lg text-white/90">
+            <div className="rounded-lg border border-white/20 bg-black/70 px-4 py-3 text-xl text-white/95">
               Read-only shared tactical picture
             </div>
           </div>
@@ -616,8 +682,9 @@ function V2PageContent() {
               vehicles={fleetVehicles}
               selectedVehicleId={selectedDroneId}
               onLocate={handleLocateVehicle}
-              onViewFeed={handleViewFeed}
+              onViewFeed={icViewModeEnabled ? undefined : handleViewFeed}
               onRTH={icViewModeEnabled ? undefined : handleRTH}
+              viewMode={icViewModeEnabled ? 'ic' : 'operator'}
               trigger={
                 <FleetCard
                   vehicles={fleetVehicles}

@@ -21,7 +21,7 @@ interface FleetSheetProps {
   /** Callback to center map on vehicle location */
   onLocate: (id: string) => void;
   /** Callback to open video feed for vehicle */
-  onViewFeed: (id: string) => void;
+  onViewFeed?: (id: string) => void;
   /** Callback to initiate return-to-home for vehicle */
   onRTH?: (id: string) => void;
   /** Callback for emergency recall of all vehicles */
@@ -30,6 +30,8 @@ interface FleetSheetProps {
   onHoldPositions?: () => void;
   /** Trigger element that opens the drawer */
   trigger: React.ReactNode;
+  /** Presentation mode adjusts drawer readability for shared displays */
+  viewMode?: 'operator' | 'ic';
 }
 
 /**
@@ -60,10 +62,15 @@ export function FleetSheet({
   onRecallAll,
   onHoldPositions,
   trigger,
+  viewMode = 'operator',
 }: FleetSheetProps) {
   const [open, setOpen] = useState(false);
+  const isIcMode = viewMode === 'ic';
 
   const handleViewFeed = (id: string) => {
+    if (!onViewFeed) {
+      return;
+    }
     onViewFeed(id);
     setOpen(false);
   };
@@ -105,20 +112,20 @@ export function FleetSheet({
                   Fleet
                 </DrawerTitle>
               </div>
-              <div className="flex items-center gap-5 text-base">
+              <div className={cn('flex items-center gap-5', isIcMode ? 'text-xl' : 'text-base')}>
                 <span className="text-emerald-400">
-                  <span className="font-mono text-lg">{activeCount}</span>
+                  <span className={cn('font-mono', isIcMode ? 'text-2xl' : 'text-lg')}>{activeCount}</span>
                   <span className="ml-1 text-white/40">active</span>
                 </span>
                 {warningCount > 0 && (
                   <span className="flex items-center gap-1 text-amber-400">
                     <AlertTriangle className="h-3 w-3" />
-                    <span className="font-mono text-lg">{warningCount}</span>
+                    <span className={cn('font-mono', isIcMode ? 'text-2xl' : 'text-lg')}>{warningCount}</span>
                   </span>
                 )}
                 <span className="flex items-center gap-1.5 text-white/50">
                   <Battery className="h-3.5 w-3.5" />
-                  <span className="font-mono text-lg">
+                  <span className={cn('font-mono', isIcMode ? 'text-2xl' : 'text-lg')}>
                     {avgBattery === null ? '--' : `${avgBattery}%`}
                   </span>
                   <span className="text-white/30">avg</span>
@@ -153,8 +160,9 @@ export function FleetSheet({
                   vehicle={vehicle}
                   isSelected={selectedVehicleId === vehicle.id}
                   onLocate={() => handleLocate(vehicle.id)}
-                  onViewFeed={() => handleViewFeed(vehicle.id)}
+                  onViewFeed={onViewFeed ? () => handleViewFeed(vehicle.id) : undefined}
                   onRTH={onRTH ? () => onRTH(vehicle.id) : undefined}
+                  viewMode={viewMode}
                 />
               ))}
             </div>

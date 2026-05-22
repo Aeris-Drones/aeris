@@ -93,12 +93,12 @@ export function DetectionsCard({
       )}
     >
       <div className="flex items-center justify-between">
-        <span className={cn('font-medium uppercase tracking-wider', isIcMode ? 'text-lg text-white/85' : 'text-xs text-white/50')}>
+        <span className={cn('font-medium uppercase tracking-wider', isIcMode ? 'text-xl text-white/90' : 'text-xs text-white/50')}>
           Detections
         </span>
         {hasPending && (
           <Badge variant="success" className="px-2 py-0.5">
-            <span className={cn(isIcMode ? 'text-base' : 'text-xs')}>{pendingCount} pending</span>
+            <span className={cn(isIcMode ? 'text-xl' : 'text-xs')}>{pendingCount} pending</span>
           </Badge>
         )}
       </div>
@@ -106,21 +106,21 @@ export function DetectionsCard({
       <div className="flex items-center gap-2">
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.thermal.bg)}>
           <Flame className={cn('h-4 w-4', sensorConfig.thermal.color)} />
-          <span className={cn('font-mono font-bold', sensorConfig.thermal.color, isIcMode ? 'text-lg' : 'text-sm')}>
+          <span className={cn('font-mono font-bold', sensorConfig.thermal.color, isIcMode ? 'text-xl' : 'text-sm')}>
             {thermalCount}
           </span>
         </div>
 
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.acoustic.bg)}>
           <AudioLines className={cn('h-4 w-4', sensorConfig.acoustic.color)} />
-          <span className={cn('font-mono font-bold', sensorConfig.acoustic.color, isIcMode ? 'text-lg' : 'text-sm')}>
+          <span className={cn('font-mono font-bold', sensorConfig.acoustic.color, isIcMode ? 'text-xl' : 'text-sm')}>
             {acousticCount}
           </span>
         </div>
 
         <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.gas.bg)}>
           <Wind className={cn('h-4 w-4', sensorConfig.gas.color)} />
-          <span className={cn('font-mono font-bold', sensorConfig.gas.color, isIcMode ? 'text-lg' : 'text-sm')}>
+          <span className={cn('font-mono font-bold', sensorConfig.gas.color, isIcMode ? 'text-xl' : 'text-sm')}>
             {gasCount}
           </span>
         </div>
@@ -128,15 +128,15 @@ export function DetectionsCard({
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className={cn('font-mono text-[var(--success)]', isIcMode ? 'text-lg' : 'text-sm')}>
+          <span className={cn('font-mono text-[var(--success)]', isIcMode ? 'text-xl' : 'text-sm')}>
             {confirmedCount}
           </span>
-          <span className={cn(isIcMode ? 'text-base text-white/55' : 'text-xs text-white/40')}>/</span>
-          <span className={cn('font-mono text-white/70', isIcMode ? 'text-lg' : 'text-sm')}>{totalCount}</span>
+          <span className={cn(isIcMode ? 'text-xl text-white/60' : 'text-xs text-white/40')}>/</span>
+          <span className={cn('font-mono text-white/70', isIcMode ? 'text-xl' : 'text-sm')}>{totalCount}</span>
         </div>
 
         <div className="flex items-center gap-1 text-white/40">
-          <span className={cn(isIcMode ? 'text-base' : 'text-xs')}>Review</span>
+          <span className={cn(isIcMode ? 'text-xl' : 'text-xs')}>Review</span>
           <ChevronRight className="h-4 w-4" />
         </div>
       </div>

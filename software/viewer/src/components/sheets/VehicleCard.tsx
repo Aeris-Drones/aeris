@@ -49,8 +49,9 @@ export interface VehicleCardProps {
   vehicle: VehicleInfo;
   isSelected: boolean;
   onLocate: () => void;
-  onViewFeed: () => void;
+  onViewFeed?: () => void;
   onRTH?: () => void;
+  viewMode?: 'operator' | 'ic';
 }
 
 /**
@@ -199,9 +200,11 @@ export function VehicleCard({
   onLocate,
   onViewFeed,
   onRTH,
+  viewMode = 'operator',
 }: VehicleCardProps) {
   const status = statusConfig[vehicle.status];
   const isOffline = vehicle.status === 'offline';
+  const isIcMode = viewMode === 'ic';
 
   return (
     <div
@@ -210,6 +213,7 @@ export function VehicleCard({
         'bg-white/[0.03] backdrop-blur-md',
         'border border-white/[0.06]',
         status.glow,
+        isIcMode && 'border-white/18 bg-black/60',
         isOffline && 'grayscale opacity-75 bg-zinc-950/60 border-zinc-500/20',
         isSelected && 'ring-2 ring-cyan-500/50',
         vehicle.status === 'error' && 'border-red-500/20'
@@ -217,22 +221,30 @@ export function VehicleCard({
     >
       <div className="flex items-start justify-between p-3 pb-0">
         <div className="flex flex-col gap-0.5">
-          <span className="text-lg font-light text-white">{vehicle.name}</span>
+          <span className={cn(isIcMode ? 'text-xl font-medium text-white' : 'text-lg font-light text-white')}>{vehicle.name}</span>
           <div className="flex items-center gap-2">
             <span className={cn('h-1.5 w-1.5 rounded-full animate-pulse', status.dot)} />
-            <span className={cn('text-base font-semibold tracking-wider', status.color)}>
+            <span className={cn(isIcMode ? 'text-xl font-semibold tracking-wider' : 'text-base font-semibold tracking-wider', status.color)}>
               {status.label}
             </span>
           </div>
           <span
-            className="text-base font-medium tracking-[0.12em] text-white/55"
+            className={cn(
+              isIcMode
+                ? 'text-xl font-medium tracking-[0.12em] text-white/60'
+                : 'text-base font-medium tracking-[0.12em] text-white/55'
+            )}
             data-testid="vehicle-slam-mode"
           >
             SLAM: {formatSlamModeLabel(vehicle.slamMode)}
           </span>
           {isOffline && (
             <span
-              className="text-base font-semibold tracking-[0.12em] text-zinc-200"
+              className={cn(
+                isIcMode
+                  ? 'text-xl font-semibold tracking-[0.12em] text-zinc-100'
+                  : 'text-base font-semibold tracking-[0.12em] text-zinc-200'
+              )}
               data-testid="vehicle-last-known-age"
             >
               LAST CONTACT {formatLastContactAge(vehicle.lastContactAgeMs)}
@@ -243,10 +255,10 @@ export function VehicleCard({
         <div className="relative">
           <BatteryArc battery={vehicle.battery} />
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className={cn('font-mono text-base font-light tabular-nums', getBatteryColor(vehicle.battery))}>
+            <span className={cn(isIcMode ? 'font-mono text-xl font-light tabular-nums' : 'font-mono text-base font-light tabular-nums', getBatteryColor(vehicle.battery))}>
               {vehicle.battery ?? '--'}
             </span>
-            <span className="text-base text-white/45">{vehicle.battery === null ? '' : '%'}</span>
+            <span className={cn(isIcMode ? 'text-xl text-white/50' : 'text-base text-white/45')}>{vehicle.battery === null ? '' : '%'}</span>
           </div>
         </div>
       </div>
@@ -255,18 +267,18 @@ export function VehicleCard({
       <div className="grid grid-cols-3 gap-px bg-white/[0.02] mx-3 my-2 rounded-lg overflow-hidden">
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Gauge className="h-3 w-3 text-white/30" />
-          <span className="font-mono text-base text-white/80">{vehicle.altitude}</span>
-          <span className="text-base text-white/45 uppercase tracking-wide">Alt (m)</span>
+          <span className={cn(isIcMode ? 'font-mono text-xl text-white/85' : 'font-mono text-base text-white/80')}>{vehicle.altitude}</span>
+          <span className={cn(isIcMode ? 'text-xl text-white/50 uppercase tracking-wide' : 'text-base text-white/45 uppercase tracking-wide')}>Alt (m)</span>
         </div>
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Radio className="h-3 w-3 text-white/30" />
-          <span className="font-mono text-base text-white/80">{vehicle.linkQuality ?? '--'}</span>
-          <span className="text-base text-white/45 uppercase tracking-wide">Link %</span>
+          <span className={cn(isIcMode ? 'font-mono text-xl text-white/85' : 'font-mono text-base text-white/80')}>{vehicle.linkQuality ?? '--'}</span>
+          <span className={cn(isIcMode ? 'text-xl text-white/50 uppercase tracking-wide' : 'text-base text-white/45 uppercase tracking-wide')}>Link %</span>
         </div>
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Signal className="h-3 w-3 text-white/30" />
-          <span className="font-mono text-base text-white/80">{vehicle.coverage ?? '--'}</span>
-          <span className="text-base text-white/45 uppercase tracking-wide">Cover %</span>
+          <span className={cn(isIcMode ? 'font-mono text-xl text-white/85' : 'font-mono text-base text-white/80')}>{vehicle.coverage ?? '--'}</span>
+          <span className={cn(isIcMode ? 'text-xl text-white/50 uppercase tracking-wide' : 'text-base text-white/45 uppercase tracking-wide')}>Cover %</span>
         </div>
       </div>
 
@@ -276,7 +288,8 @@ export function VehicleCard({
           variant="ghost"
           size="sm"
           className={cn(
-            'flex-1 h-10 rounded-lg text-base',
+            'flex-1 rounded-lg',
+            isIcMode ? 'h-11 text-lg' : 'h-10 text-base',
             'text-white/50 hover:text-white hover:bg-white/10'
           )}
           onClick={onLocate}
@@ -284,24 +297,28 @@ export function VehicleCard({
           <MapPin className="mr-1 h-3 w-3" />
           Locate
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn(
-            'flex-1 h-10 rounded-lg text-base',
-            'text-white/50 hover:text-white hover:bg-white/10'
-          )}
-          onClick={onViewFeed}
-        >
-          <Video className="mr-1 h-3 w-3" />
-          Feed
-        </Button>
+        {onViewFeed && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'flex-1 rounded-lg',
+              isIcMode ? 'h-11 text-lg' : 'h-10 text-base',
+              'text-white/50 hover:text-white hover:bg-white/10'
+            )}
+            onClick={onViewFeed}
+          >
+            <Video className="mr-1 h-3 w-3" />
+            Feed
+          </Button>
+        )}
         {onRTH && vehicle.status !== 'returning' && vehicle.status !== 'idle' && (
           <Button
             variant="ghost"
             size="sm"
             className={cn(
-              'h-10 px-3 rounded-lg text-base',
+              'px-3 rounded-lg',
+              isIcMode ? 'h-11 text-lg' : 'h-10 text-base',
               'text-amber-400/70 hover:text-amber-400 hover:bg-amber-500/10'
             )}
             onClick={onRTH}

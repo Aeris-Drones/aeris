@@ -117,7 +117,7 @@ export function FleetCard({
       )}
     >
       <div className="flex items-center justify-between">
-        <span className={cn('font-medium uppercase tracking-wider', isIcMode ? 'text-lg text-white/85' : 'text-xs text-white/50')}>
+        <span className={cn('font-medium uppercase tracking-wider', isIcMode ? 'text-xl text-white/90' : 'text-xs text-white/50')}>
           Fleet
         </span>
         {hasWarnings && (
@@ -126,7 +126,7 @@ export function FleetCard({
             className="flex items-center gap-1 px-2 py-0.5"
           >
             <AlertTriangle className="h-3.5 w-3.5" />
-            <span className={cn(isIcMode ? 'text-base' : 'text-xs')}>{warnings.length}</span>
+            <span className={cn(isIcMode ? 'text-xl' : 'text-xs')}>{warnings.length}</span>
           </Badge>
         )}
       </div>
@@ -144,7 +144,7 @@ export function FleetCard({
           />
         ))}
         {vehicles.length > 8 && (
-          <span className="ml-1 text-xs text-white/50">
+          <span className={cn('ml-1 text-white/50', isIcMode ? 'text-lg' : 'text-xs')}>
             +{vehicles.length - 8}
           </span>
         )}
@@ -152,17 +152,17 @@ export function FleetCard({
 
       <div className="flex items-center justify-between">
         <div className="flex items-baseline gap-1.5">
-          <span className={cn('font-mono font-bold text-white', isIcMode ? 'text-3xl' : 'text-xl')}>
+          <span className={cn('font-mono font-bold text-white', isIcMode ? 'text-4xl' : 'text-xl')}>
             {activeCount}
           </span>
-          <span className={cn(isIcMode ? 'text-lg text-white/75' : 'text-sm text-white/50')}>
+          <span className={cn(isIcMode ? 'text-2xl text-white/80' : 'text-sm text-white/50')}>
             /{totalCount}
           </span>
         </div>
 
         <div className={cn('flex items-center gap-1.5', getBatteryColor(avgBattery))}>
           {getBatteryIcon(avgBattery)}
-          <span className={cn('font-mono', isIcMode ? 'text-lg' : 'text-sm')}>
+          <span className={cn('font-mono', isIcMode ? 'text-xl' : 'text-sm')}>
             {avgBattery === null ? '--' : `${avgBattery}%`}
           </span>
         </div>
