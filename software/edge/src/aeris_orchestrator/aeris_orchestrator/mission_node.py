@@ -3530,7 +3530,8 @@ class MissionNode(Node):
             response.message = f"abort_mission rejected while in {self._state}"
             return response
 
-        if request.mission_id.strip() and request.mission_id.strip() != self._mission_id:
+        request_mission_id = request.mission_id.strip()
+        if not request_mission_id or request_mission_id != self._mission_id:
             response.success = False
             response.message = "abort_mission rejected due to mission_id mismatch"
             return response

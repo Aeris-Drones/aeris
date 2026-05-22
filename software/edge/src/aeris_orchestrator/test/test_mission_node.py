@@ -392,6 +392,35 @@ def test_abort_mission_rejects_mission_id_mismatch(mission_harness) -> None:
     assert "ABORTED" not in observer.states
 
 
+def test_abort_mission_rejects_blank_mission_id(mission_harness) -> None:
+    mission_node, observer = mission_harness
+    _publish_scout_telemetry(observer, mission_node)
+
+    start_request = MissionCommand.Request()
+    start_request.command = "START"
+    start_request.mission_id = "blank-abort"
+    start_request.zone_geometry = VALID_ZONE_GEOMETRY
+    start_future = observer.start_client.call_async(start_request)
+
+    assert _wait_until(lambda: start_future.done())
+    assert start_future.result() is not None
+    assert start_future.result().success
+    assert _wait_until(lambda: "SEARCHING" in observer.states)
+
+    abort_request = MissionCommand.Request()
+    abort_request.command = "ABORT"
+    abort_request.mission_id = ""
+    abort_request.zone_geometry = ""
+    abort_future = observer.abort_client.call_async(abort_request)
+
+    assert _wait_until(lambda: abort_future.done())
+    response = abort_future.result()
+    assert response is not None
+    assert not response.success
+    assert "mission_id mismatch" in response.message
+    assert "ABORTED" not in observer.states
+
+
 def test_start_mission_rejects_missing_zone_geometry(mission_harness) -> None:
     _, observer = mission_harness
 
