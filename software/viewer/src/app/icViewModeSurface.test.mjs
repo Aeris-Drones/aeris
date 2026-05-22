@@ -186,13 +186,38 @@ test("IC mode blocks feed launch and operator keyboard shortcuts", () => {
   );
   assert.match(
     source,
+    /const \[mockAlertTimestamps, setMockAlertTimestamps\] = useState<Record<\(typeof MOCK_ALERT_IDS\)\[number\], Date>>\(\(\) => \(\{/,
+    "mock alert timestamps should stay stable across resyncs and IC-mode toggles"
+  );
+  assert.match(
+    source,
+    /const dismissedMockAlertIdsRef = useRef<Set<string>>\(new Set\(\)\);/,
+    "mock alert dismissal state should be tracked separately from visibility state"
+  );
+  assert.match(
+    source,
+    /const shouldShowAlerts = areAlertsOpenRef\.current \|\| !hasSyncedMockAlerts\.current;/,
+    "mock alert resync should respect manual visibility state after the initial seed"
+  );
+  assert.match(
+    source,
+    /const getVisibleStoredAlerts = useCallback\(\s*\(\) => storedAlerts\.filter\(\(alert\) => !dismissedMockAlertIdsRef\.current\.has\(alert\.id\)\)/s,
+    "mock alert replay should exclude alerts the operator already dismissed"
+  );
+  assert.match(
+    source,
+    /if \(displayNonce !== mockAlertDisplayNonceRef\.current\) \{\s*return;\s*\}/s,
+    "programmatic alert resync dismissals should not be recorded as manual dismissals"
+  );
+  assert.match(
+    source,
     /action:\s*icViewModeEnabled\s*\?\s*undefined\s*:\s*\{\s*label:\s*'VIEW',\s*onClick:\s*\(\) => viewFeedActionRef\.current\('ranger_1'\)\s*\}/s,
     "IC mode should remove feed-launch actions from mock alert surfaces as well"
   );
   assert.match(
     source,
-    /\[allowMockFallback, icViewModeEnabled\]\s*\);/,
-    "mock alert definitions should not resubscribe on telemetry-driven handler churn"
+    /showVisibleStoredAlerts\(false\);/,
+    "manually reopening mock alerts should preserve the current dismissed-alert filter"
   );
 
   const keyboardEffect = source.match(/const handleKeyDown = \(e: KeyboardEvent\) => \{([\s\S]*?)\n    \};/);
