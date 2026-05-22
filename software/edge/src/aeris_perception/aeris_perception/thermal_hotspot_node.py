@@ -152,6 +152,7 @@ class ThermalHotspotNode(Node):
         self._subscription = self.create_subscription(
             Image, thermal_image_topic, self._handle_thermal_image, 10
         )
+        self._last_processed_monotonic = 0.0
         self._last_publish_monotonic = 0.0
         self._process_times = deque(maxlen=60)
         self._last_rate_log_monotonic = time.monotonic()
@@ -250,8 +251,9 @@ class ThermalHotspotNode(Node):
         now = time.monotonic()
         if self._target_publish_rate_hz > 0.0:
             min_interval = 1.0 / self._target_publish_rate_hz
-            if now - self._last_publish_monotonic < min_interval:
+            if now - self._last_processed_monotonic < min_interval:
                 return
+        self._last_processed_monotonic = now
 
         frame_celsius = self._image_to_temperature_celsius(message)
         if frame_celsius is None:
