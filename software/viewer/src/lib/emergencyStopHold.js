@@ -20,6 +20,10 @@ export function cancelEmergencyStopHold() {
   return createIdleEmergencyStopHold();
 }
 
+export function cancelEmergencyStopHoldState(state) {
+  return state.phase === "holding" ? cancelEmergencyStopHold() : state;
+}
+
 export function isAbortRequestPending({
   abortRequested,
   abortError,

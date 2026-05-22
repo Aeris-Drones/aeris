@@ -9,7 +9,7 @@ import type { MissionPhase } from '@/components/layout/StatusPill';
 import {
   advanceEmergencyStopHold,
   beginEmergencyStopHold,
-  cancelEmergencyStopHold,
+  cancelEmergencyStopHoldState,
   createIdleEmergencyStopHold,
   isAbortRequestPending,
 } from '@/lib/emergencyStopHold';
@@ -43,9 +43,9 @@ export function EmergencyStopControl({
     canAbort && !abortPending ? holdState : idleHoldState;
 
   const cancelHold = useCallback(() => {
-    setHoldState((current) =>
-      current.phase === 'holding' ? cancelEmergencyStopHold() : current
-    );
+    const nextState = cancelEmergencyStopHoldState(holdStateRef.current);
+    holdStateRef.current = nextState;
+    setHoldState(nextState);
   }, []);
 
   useEffect(() => {

@@ -6,6 +6,7 @@ import {
   HOLD_TO_ABORT_MS,
   beginEmergencyStopHold,
   cancelEmergencyStopHold,
+  cancelEmergencyStopHoldState,
   createIdleEmergencyStopHold,
   isAbortRequestPending,
   tickEmergencyStopHold,
@@ -42,6 +43,14 @@ test("advancing a completed hold emits one abort signal and resets local hold st
 
   assert.deepEqual(result.nextState, createIdleEmergencyStopHold());
   assert.equal(result.shouldDispatchAbort, true);
+});
+
+test("cancelling from the current hold state yields idle state immediately", () => {
+  const holding = beginEmergencyStopHold(250);
+  const idle = createIdleEmergencyStopHold();
+
+  assert.deepEqual(cancelEmergencyStopHoldState(holding), idle);
+  assert.equal(cancelEmergencyStopHoldState(idle), idle);
 });
 
 test("cancel events clear hold progress without dispatching completion", () => {
