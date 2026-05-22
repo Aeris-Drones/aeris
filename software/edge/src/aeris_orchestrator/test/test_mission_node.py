@@ -1623,6 +1623,50 @@ def test_vio_recall_falls_back_to_px4_native_rtl_when_map_is_stale(
     assert trajectory["fallbackReason"]
 
 
+def test_vio_recall_px4_fallback_ack_failure_does_not_mutate_return_state(
+    mission_harness_vio_return, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_vio_return
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "vio-recall-fallback-ack-failure"
+    mission_node._active_scout_vehicle_id = "scout_1"
+    mission_node._scout_plans = {
+        "scout_1": MissionPlanState(
+            pattern_type="lawnmower",
+            zone_id="zone-return",
+            waypoints=[{"x": 100.0, "z": 0.0, "altitude_m": 20.0}],
+            current_waypoint_index=0,
+            scout_position={"x": 0.0, "z": 0.0},
+        )
+    }
+    mission_node._set_scout_assignment("scout_1", "SEARCHING", label="SEARCHING:zone-return")
+    mission_node._return_paths_by_vehicle["scout_1"] = [
+        {"x": 5.0, "z": 0.0, "altitude_m": 20.0},
+        {"x": 0.0, "z": 0.0, "altitude_m": 20.0},
+    ]
+    mission_node._return_path_index_by_vehicle["scout_1"] = 0
+    _publish_scout_telemetry(observer, mission_node, vehicle_id="scout1")
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=0.0, y_m=0.0)
+    _inject_scout_odometry(mission_node, observer, "scout1", x_m=2.0, y_m=0.0)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_return_to_launch", lambda: False)
+
+    request = SimpleNamespace(
+        command="RECALL",
+        vehicle_id="scout1",
+        mission_id="vio-recall-fallback-ack-failure",
+    )
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert not result.success
+    assert "not acknowledged" in result.message
+    assert mission_node._vehicle_assignments["scout_1"] == "SEARCHING"
+    assert mission_node._assignment_labels["scout_1"] == "SEARCHING:zone-return"
+    assert "scout_1" not in mission_node._return_fallback_reasons
+    assert mission_node._return_paths_by_vehicle.get("scout_1")
+    assert mission_node._return_path_index_by_vehicle.get("scout_1") == 0
+
+
 def test_vio_return_waypoint_builder_filters_stale_and_off_mission_breadcrumbs(
     mission_harness_vio_return,
 ) -> None:
