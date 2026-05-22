@@ -1,10 +1,12 @@
 import time
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 rclpy = pytest.importorskip("rclpy")
 sensor_msgs = pytest.importorskip("sensor_msgs.msg")
+import aeris_perception.thermal_hotspot_node as thermal_hotspot_node_module
 from rclpy.parameter import Parameter
 from sensor_msgs.msg import Image
 
@@ -81,6 +83,61 @@ def test_rate_limiter_applies_even_when_no_hotspots_detected() -> None:
         node._handle_thermal_image(message)
 
         assert calls == 1
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_publish_budget_is_consumed_only_when_hotspot_is_published(
+    monkeypatch,
+) -> None:
+    rclpy.init()
+    node = ThermalHotspotNode()
+    recorder = _RecorderPublisher()
+    try:
+        node._target_publish_rate_hz = 2.0
+        node._publisher = recorder
+
+        times = iter((10.0, 10.2, 10.6))
+        monkeypatch.setattr(
+            thermal_hotspot_node_module.time,
+            "monotonic",
+            lambda: next(times),
+        )
+
+        detect_calls = 0
+
+        def fake_image_to_temperature(_message: Image):
+            return np.full((8, 8), 20.0, dtype=np.float32)
+
+        def fake_detect(_frame: np.ndarray):
+            nonlocal detect_calls
+            detect_calls += 1
+            if detect_calls == 1:
+                return []
+            return [
+                SimpleNamespace(
+                    bbox_xyxy=(1, 2, 3, 4),
+                    temp_c=42.0,
+                    confidence=0.9,
+                )
+            ]
+
+        node._image_to_temperature_celsius = fake_image_to_temperature
+        node._detector.detect = fake_detect
+        message = _make_thermal_image_message(np.full((8, 8), 20, dtype=np.uint16))
+
+        node._handle_thermal_image(message)
+        assert node._last_publish_monotonic == pytest.approx(0.0)
+
+        node._handle_thermal_image(message)
+        assert detect_calls == 1
+        assert recorder.messages == []
+
+        node._handle_thermal_image(message)
+        assert detect_calls == 2
+        assert len(recorder.messages) == 1
+        assert node._last_publish_monotonic == pytest.approx(10.6)
     finally:
         node.destroy_node()
         rclpy.shutdown()
