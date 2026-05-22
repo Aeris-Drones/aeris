@@ -2531,6 +2531,15 @@ class MissionNode(Node):
         normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
         if not normalized_vehicle_id:
             return False, "vehicle_id is required for px4 fallback"
+        endpoint = self._resolve_scout_endpoint(normalized_vehicle_id)
+        if endpoint is None:
+            return (
+                False,
+                f"px4 native RTL fallback failed for '{normalized_vehicle_id}': unknown endpoint",
+            )
+        sent, error = self._dispatch_return_to_launch_for_endpoint(endpoint)
+        if not sent:
+            return False, error
         self._set_return_fallback_reason(normalized_vehicle_id, reason)
         self._set_scout_assignment(
             normalized_vehicle_id,
@@ -2540,13 +2549,7 @@ class MissionNode(Node):
         self._return_paths_by_vehicle.pop(normalized_vehicle_id, None)
         self._return_path_index_by_vehicle.pop(normalized_vehicle_id, None)
         self._return_last_updated_sec_by_vehicle[normalized_vehicle_id] = self._now_seconds()
-        endpoint = self._resolve_scout_endpoint(normalized_vehicle_id)
-        if endpoint is None:
-            return (
-                False,
-                f"px4 native RTL fallback failed for '{normalized_vehicle_id}': unknown endpoint",
-            )
-        return self._dispatch_return_to_launch_for_endpoint(endpoint)
+        return True, ""
 
     def _start_vio_return_execution(
         self, endpoint: ScoutEndpoint
