@@ -1,17 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MissionPhase } from '@/components/layout/StatusPill';
 import {
+  advanceEmergencyStopHold,
   beginEmergencyStopHold,
   cancelEmergencyStopHold,
   createIdleEmergencyStopHold,
   isAbortRequestPending,
-  tickEmergencyStopHold,
 } from '@/lib/emergencyStopHold';
 
 interface EmergencyStopControlProps {
@@ -32,6 +32,8 @@ export function EmergencyStopControl({
   const idleHoldState = useMemo(() => createIdleEmergencyStopHold(), []);
   const [holdState, setHoldState] = useState(createIdleEmergencyStopHold);
   const [abortRequested, setAbortRequested] = useState(false);
+  const [abortDispatchNonce, setAbortDispatchNonce] = useState(0);
+  const holdStateRef = useRef(holdState);
   const abortPending = isAbortRequestPending({
     abortRequested,
     abortError,
@@ -47,40 +49,42 @@ export function EmergencyStopControl({
   }, []);
 
   useEffect(() => {
+    holdStateRef.current = holdState;
+  }, [holdState]);
+
+  useEffect(() => {
     if (holdState.phase !== 'holding') {
       return;
     }
 
     const tick = () => {
-      let shouldAbort = false;
-
-      setHoldState((current) => {
-        if (current.phase !== 'holding') {
-          return current;
-        }
-        if (!canAbort || abortPending) {
-          return idleHoldState;
-        }
-
-        const next = tickEmergencyStopHold(current, Date.now());
-        if (next.phase === 'completed') {
-          shouldAbort = true;
-          return idleHoldState;
-        }
-
-        return next;
+      const { nextState, shouldDispatchAbort } = advanceEmergencyStopHold({
+        state: holdStateRef.current,
+        now: Date.now(),
+        canAbort,
+        abortPending,
       });
+      holdStateRef.current = nextState;
+      setHoldState(nextState);
 
-      if (shouldAbort) {
+      if (shouldDispatchAbort) {
         setAbortRequested(true);
-        onAbort();
+        setAbortDispatchNonce((value) => value + 1);
       }
     };
 
     tick();
     const intervalId = window.setInterval(tick, 50);
     return () => window.clearInterval(intervalId);
-  }, [abortPending, canAbort, holdState.phase, idleHoldState, onAbort]);
+  }, [abortPending, canAbort, holdState.phase]);
+
+  useEffect(() => {
+    if (abortDispatchNonce === 0) {
+      return;
+    }
+
+    onAbort();
+  }, [abortDispatchNonce, onAbort]);
 
   useEffect(() => {
     if (holdState.phase !== 'holding') {

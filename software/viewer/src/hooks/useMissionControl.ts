@@ -448,7 +448,6 @@ export function useMissionControl(): MissionControlState {
     const missionId = state.missionId?.trim() ?? '';
     const validationError = getAbortMissionValidationError({
       phase: state.phase,
-      pausedAt: state.pausedAt,
       rosConnected: rosConnected && !!ros,
       missionId,
     });
@@ -485,7 +484,6 @@ export function useMissionControl(): MissionControlState {
     callMissionService,
     ros,
     rosConnected,
-    state.pausedAt,
     state.phase,
     state.missionId,
   ]);
@@ -526,7 +524,6 @@ export function useMissionControl(): MissionControlState {
     });
     const abortUnavailableReason = getAbortMissionUnavailableReason({
       phase: state.phase,
-      pausedAt: state.pausedAt,
       rosConnected,
       missionId,
     });
@@ -536,7 +533,7 @@ export function useMissionControl(): MissionControlState {
       isActive: controlFlags.isActive,
       isPaused: controlFlags.isPaused,
       isComplete: controlFlags.isComplete,
-      missionId: state.missionId,
+      missionId: missionId || undefined,
       canStart: controlFlags.canStart,
       canPause: controlFlags.canPause,
       canResume: controlFlags.canResume,
@@ -544,7 +541,7 @@ export function useMissionControl(): MissionControlState {
       abortUnavailableReason,
       hasValidStartZone,
     };
-  }, [hasValidStartZone, missionId, rosConnected, state.missionId, state.phase, state.pausedAt]);
+  }, [hasValidStartZone, missionId, rosConnected, state.phase, state.pausedAt]);
 
   return {
     ...computedState,

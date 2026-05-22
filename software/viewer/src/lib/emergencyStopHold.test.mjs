@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  advanceEmergencyStopHold,
   HOLD_TO_ABORT_MS,
   beginEmergencyStopHold,
   cancelEmergencyStopHold,
@@ -28,6 +29,19 @@ test("hold progress completes only after the full dwell threshold", () => {
   assert.ok(beforeThreshold.progress < 1);
   assert.equal(completed.phase, "completed");
   assert.equal(completed.progress, 1);
+});
+
+test("advancing a completed hold emits one abort signal and resets local hold state", () => {
+  const started = beginEmergencyStopHold(500);
+  const result = advanceEmergencyStopHold({
+    state: started,
+    now: 500 + HOLD_TO_ABORT_MS,
+    canAbort: true,
+    abortPending: false,
+  });
+
+  assert.deepEqual(result.nextState, createIdleEmergencyStopHold());
+  assert.equal(result.shouldDispatchAbort, true);
 });
 
 test("cancel events clear hold progress without dispatching completion", () => {

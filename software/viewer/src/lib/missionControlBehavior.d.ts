@@ -78,7 +78,6 @@ export function computeMissionControlFlags(args: {
  */
 export function getAbortMissionUnavailableReason(args: {
   phase: MissionControlPhase;
-  pausedAt: number | undefined;
   rosConnected: boolean;
   missionId: string | undefined;
 }): string | null;
@@ -95,7 +94,6 @@ export function getAbortMissionUnavailableReason(args: {
  */
 export function getAbortMissionValidationError(args: {
   phase?: MissionControlPhase | undefined;
-  pausedAt?: number | undefined;
   rosConnected: boolean;
   missionId: string | undefined;
 }): string | null;

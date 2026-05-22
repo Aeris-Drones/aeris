@@ -28,6 +28,35 @@ export function isAbortRequestPending({
   return abortRequested && !abortError && ACTIVE_ABORT_PHASES.has(missionPhase);
 }
 
+export function advanceEmergencyStopHold({
+  state,
+  now,
+  canAbort,
+  abortPending,
+  holdDurationMs = HOLD_TO_ABORT_MS,
+}) {
+  if (state.phase !== "holding") {
+    return {
+      nextState: state,
+      shouldDispatchAbort: false,
+    };
+  }
+
+  if (!canAbort || abortPending) {
+    return {
+      nextState: createIdleEmergencyStopHold(),
+      shouldDispatchAbort: false,
+    };
+  }
+
+  const nextState = tickEmergencyStopHold(state, now, holdDurationMs);
+  return {
+    nextState:
+      nextState.phase === "completed" ? createIdleEmergencyStopHold() : nextState,
+    shouldDispatchAbort: nextState.phase === "completed",
+  };
+}
+
 export function tickEmergencyStopHold(state, now, holdDurationMs = HOLD_TO_ABORT_MS) {
   if (state.phase !== "holding") {
     return state;

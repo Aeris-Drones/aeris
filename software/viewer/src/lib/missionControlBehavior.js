@@ -6,12 +6,10 @@ export function isMissionPaused(phase, pausedAt) {
 
 export function getAbortMissionUnavailableReason({
   phase,
-  pausedAt,
   rosConnected,
   missionId,
 }) {
-  const abortableForPhase =
-    ACTIVE_PHASES.has(phase) || (ACTIVE_PHASES.has(phase) && pausedAt !== undefined);
+  const abortableForPhase = ACTIVE_PHASES.has(phase);
 
   if (!abortableForPhase) {
     return "Emergency stop is unavailable until a mission is active.";
@@ -41,7 +39,6 @@ export function computeMissionControlFlags({
   const isIdle = phase === "IDLE";
   const abortUnavailableReason = getAbortMissionUnavailableReason({
     phase,
-    pausedAt,
     rosConnected,
     missionId,
   });
@@ -59,13 +56,11 @@ export function computeMissionControlFlags({
 
 export function getAbortMissionValidationError({
   phase = "SEARCHING",
-  pausedAt,
   rosConnected,
   missionId,
 }) {
   return getAbortMissionUnavailableReason({
     phase,
-    pausedAt,
     rosConnected,
     missionId,
   });

@@ -57,7 +57,6 @@ test("abort availability reports non-abortable phases before the emergency stop 
   assert.equal(
     getAbortMissionUnavailableReason({
       phase: "IDLE",
-      pausedAt: undefined,
       rosConnected: true,
       missionId: "mission-1",
     }),
@@ -67,7 +66,6 @@ test("abort availability reports non-abortable phases before the emergency stop 
   assert.equal(
     getAbortMissionUnavailableReason({
       phase: "SEARCHING",
-      pausedAt: Date.now(),
       rosConnected: true,
       missionId: "mission-1",
     }),
