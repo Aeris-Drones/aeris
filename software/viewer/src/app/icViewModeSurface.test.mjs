@@ -164,10 +164,10 @@ test("IC mode keeps one canonical page-shell flag and propagates it", () => {
     /<EmergencyStopControl[\s\S]*onAbort=\{abortMission\}/,
     "page should route the persistent control through the existing abortMission callback"
   );
-  assert.match(
+  assert.doesNotMatch(
     source,
     /<EmergencyStopControl[\s\S]*key=\{missionPhase\}/,
-    "mission-phase changes should reset the emergency-stop hold and pending state"
+    "emergency-stop hold state must persist across active mission-phase transitions"
   );
 });
 
