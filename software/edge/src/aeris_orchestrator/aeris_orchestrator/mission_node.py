@@ -2700,13 +2700,12 @@ class MissionNode(Node):
         command_targets_active_ranger = (
             self._active_ranger_vehicle_id == endpoint.vehicle_id
         )
-        if (
+        should_stop_ranger_stream = (
             command_targets_active_ranger
             and command in {"HOLD", "RECALL"}
             and self._ranger_mavlink_adapter is not None
             and self._ranger_mavlink_adapter.is_streaming
-        ):
-            self._ranger_mavlink_adapter.stop_stream()
+        )
 
         previous_host, previous_port = self._mavlink_adapter.endpoint
         previous_command_port = self._mavlink_adapter.command_port
@@ -2798,6 +2797,10 @@ class MissionNode(Node):
                 False,
                 f"vehicle_command '{command}' was not acknowledged by '{endpoint.vehicle_id}'",
             )
+
+        if should_stop_ranger_stream:
+            self._ranger_mavlink_adapter.stop_stream()
+
         return True, ""
 
     def _is_ranger_overwatch_suppressed(self) -> bool:
@@ -2805,8 +2808,8 @@ class MissionNode(Node):
         if not active_ranger_vehicle_id:
             return False
         return self._vehicle_command_states.get(active_ranger_vehicle_id) in {
-            "HOLDING",
-            "RETURNING",
+            self._VEHICLE_COMMAND_STATE_HOLDING,
+            self._VEHICLE_COMMAND_STATE_RETURNING,
         }
 
     def _apply_mavlink_endpoint(self, endpoint: ScoutEndpoint) -> None:

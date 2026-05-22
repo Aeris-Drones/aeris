@@ -2585,6 +2585,81 @@ def test_vehicle_command_hold_stops_active_ranger_overwatch_stream(
     assert stop_calls == [1]
 
 
+def test_vehicle_command_hold_does_not_stop_stream_when_dispatch_fails(
+    mission_harness_multi_vehicle, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_multi_vehicle
+    del observer
+
+    now = time.monotonic()
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "ranger-hold-failure"
+    mission_node._active_ranger_vehicle_id = "ranger_1"
+    mission_node._ranger_endpoints = [
+        ScoutEndpoint(vehicle_id="ranger_1", host="127.0.0.1", port=14543),
+    ]
+    mission_node._reset_vehicle_command_states()
+    mission_node._ranger_last_seen_monotonic = {"ranger_1": now}
+
+    stop_calls: list[int] = []
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_hold_position", lambda: False)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_target", lambda *args, **kwargs: None)
+
+    class _FakeRangerAdapter:
+        is_streaming = True
+
+        def stop_stream(self) -> None:
+            stop_calls.append(1)
+
+    mission_node._ranger_mavlink_adapter = _FakeRangerAdapter()
+
+    request = SimpleNamespace(command="HOLD", vehicle_id="ranger1", mission_id="ranger-hold-failure")
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert not result.success
+    assert stop_calls == []
+
+
+def test_vehicle_command_recall_stops_active_ranger_overwatch_stream(
+    mission_harness_multi_vehicle, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_multi_vehicle
+    del observer
+
+    now = time.monotonic()
+    mission_node._state = "SEARCHING"
+    mission_node._mission_id = "ranger-recall"
+    mission_node._active_ranger_vehicle_id = "ranger_1"
+    mission_node._ranger_endpoints = [
+        ScoutEndpoint(vehicle_id="ranger_1", host="127.0.0.1", port=14543),
+    ]
+    mission_node._reset_vehicle_command_states()
+    mission_node._ranger_last_seen_monotonic = {"ranger_1": now}
+
+    stop_calls: list[int] = []
+    monkeypatch.setattr(mission_node._mavlink_adapter, "send_return_to_launch", lambda: True)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_endpoint", lambda *args, **kwargs: None)
+    monkeypatch.setattr(mission_node._mavlink_adapter, "set_target", lambda *args, **kwargs: None)
+
+    class _FakeRangerAdapter:
+        is_streaming = True
+
+        def stop_stream(self) -> None:
+            stop_calls.append(1)
+            self.is_streaming = False
+
+    mission_node._ranger_mavlink_adapter = _FakeRangerAdapter()
+
+    request = SimpleNamespace(command="RECALL", vehicle_id="ranger1", mission_id="ranger-recall")
+    response = SimpleNamespace(success=False, message="")
+    result = mission_node._handle_vehicle_command(request, response)
+
+    assert result.success
+    assert stop_calls == [1]
+
+
 def test_update_ranger_overwatch_orbit_respects_holding_state(
     mission_harness_multi_vehicle, monkeypatch
 ) -> None:
@@ -2593,6 +2668,28 @@ def test_update_ranger_overwatch_orbit_respects_holding_state(
 
     mission_node._active_ranger_vehicle_id = "ranger_1"
     mission_node._vehicle_command_states["ranger_1"] = mission_node._VEHICLE_COMMAND_STATE_HOLDING
+    mission_node._ranger_orbit_waypoints = [{"x": 1.0, "z": 2.0, "altitude_m": 30.0}]
+
+    start_calls: list[int] = []
+    monkeypatch.setattr(
+        mission_node,
+        "_start_ranger_overwatch_execution",
+        lambda: start_calls.append(1),
+    )
+
+    mission_node._update_ranger_overwatch_orbit()
+
+    assert start_calls == []
+
+
+def test_update_ranger_overwatch_orbit_respects_returning_state(
+    mission_harness_multi_vehicle, monkeypatch
+) -> None:
+    mission_node, observer = mission_harness_multi_vehicle
+    del observer
+
+    mission_node._active_ranger_vehicle_id = "ranger_1"
+    mission_node._vehicle_command_states["ranger_1"] = mission_node._VEHICLE_COMMAND_STATE_RETURNING
     mission_node._ranger_orbit_waypoints = [{"x": 1.0, "z": 2.0, "altitude_m": 30.0}]
 
     start_calls: list[int] = []
