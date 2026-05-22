@@ -1,4 +1,5 @@
 export const HOLD_TO_ABORT_MS = 1500;
+const ACTIVE_ABORT_PHASES = new Set(["SEARCHING", "TRACKING"]);
 
 export function createIdleEmergencyStopHold() {
   return {
@@ -17,6 +18,14 @@ export function beginEmergencyStopHold(now) {
 
 export function cancelEmergencyStopHold() {
   return createIdleEmergencyStopHold();
+}
+
+export function isAbortRequestPending({
+  abortRequested,
+  abortError,
+  missionPhase,
+}) {
+  return abortRequested && !abortError && ACTIVE_ABORT_PHASES.has(missionPhase);
 }
 
 export function tickEmergencyStopHold(state, now, holdDurationMs = HOLD_TO_ABORT_MS) {

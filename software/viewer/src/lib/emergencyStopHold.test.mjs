@@ -6,6 +6,7 @@ import {
   beginEmergencyStopHold,
   cancelEmergencyStopHold,
   createIdleEmergencyStopHold,
+  isAbortRequestPending,
   tickEmergencyStopHold,
 } from "./emergencyStopHold.js";
 
@@ -39,4 +40,39 @@ test("cancel events clear hold progress without dispatching completion", () => {
   assert.ok(ticking.progress > 0);
   assert.deepEqual(cancelled, createIdleEmergencyStopHold());
   assert.deepEqual(afterCancel, createIdleEmergencyStopHold());
+});
+
+test("abort request state clears once the mission leaves the active abort path", () => {
+  assert.equal(
+    isAbortRequestPending({
+      abortRequested: true,
+      abortError: null,
+      missionPhase: "SEARCHING",
+    }),
+    true
+  );
+  assert.equal(
+    isAbortRequestPending({
+      abortRequested: true,
+      abortError: null,
+      missionPhase: "ABORTED",
+    }),
+    false
+  );
+  assert.equal(
+    isAbortRequestPending({
+      abortRequested: true,
+      abortError: null,
+      missionPhase: "IDLE",
+    }),
+    false
+  );
+  assert.equal(
+    isAbortRequestPending({
+      abortRequested: true,
+      abortError: "Mission abort was rejected by orchestrator.",
+      missionPhase: "SEARCHING",
+    }),
+    false
+  );
 });

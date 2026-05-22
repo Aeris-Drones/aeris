@@ -10,6 +10,7 @@ import {
   beginEmergencyStopHold,
   cancelEmergencyStopHold,
   createIdleEmergencyStopHold,
+  isAbortRequestPending,
   tickEmergencyStopHold,
 } from '@/lib/emergencyStopHold';
 
@@ -31,10 +32,11 @@ export function EmergencyStopControl({
   const idleHoldState = useMemo(() => createIdleEmergencyStopHold(), []);
   const [holdState, setHoldState] = useState(createIdleEmergencyStopHold);
   const [abortRequested, setAbortRequested] = useState(false);
-  const abortPending =
-    abortRequested &&
-    !abortError &&
-    missionPhase !== 'ABORTED';
+  const abortPending = isAbortRequestPending({
+    abortRequested,
+    abortError,
+    missionPhase,
+  });
   const displayHoldState =
     canAbort && !abortPending ? holdState : idleHoldState;
 
