@@ -2697,6 +2697,16 @@ class MissionNode(Node):
         if dispatch is None:
             return False, f"unsupported command '{command}'"
 
+        command_targets_active_ranger = (
+            self._active_ranger_vehicle_id == endpoint.vehicle_id
+        )
+        should_stop_ranger_stream = (
+            command_targets_active_ranger
+            and command in {"HOLD", "RECALL"}
+            and self._ranger_mavlink_adapter is not None
+            and self._ranger_mavlink_adapter.is_streaming
+        )
+
         previous_host, previous_port = self._mavlink_adapter.endpoint
         previous_command_port = self._mavlink_adapter.command_port
         previous_target_system, previous_target_component = self._mavlink_adapter.target
@@ -2787,7 +2797,20 @@ class MissionNode(Node):
                 False,
                 f"vehicle_command '{command}' was not acknowledged by '{endpoint.vehicle_id}'",
             )
+
+        if should_stop_ranger_stream:
+            self._ranger_mavlink_adapter.stop_stream()
+
         return True, ""
+
+    def _is_ranger_overwatch_suppressed(self) -> bool:
+        active_ranger_vehicle_id = self._active_ranger_vehicle_id
+        if not active_ranger_vehicle_id:
+            return False
+        return self._vehicle_command_states.get(active_ranger_vehicle_id) in {
+            self._VEHICLE_COMMAND_STATE_HOLDING,
+            self._VEHICLE_COMMAND_STATE_RETURNING,
+        }
 
     def _apply_mavlink_endpoint(self, endpoint: ScoutEndpoint) -> None:
         command_port = endpoint.command_port if endpoint.command_port > 0 else endpoint.port
@@ -3322,6 +3345,13 @@ class MissionNode(Node):
             return
         if not self._mission_id or not self._active_ranger_vehicle_id:
             return
+        if self._is_ranger_overwatch_suppressed():
+            if (
+                self._ranger_mavlink_adapter is not None
+                and self._ranger_mavlink_adapter.is_streaming
+            ):
+                self._ranger_mavlink_adapter.stop_stream()
+            return
         if not self._ranger_orbit_waypoints:
             return
 
@@ -3351,6 +3381,8 @@ class MissionNode(Node):
 
     def _update_ranger_overwatch_orbit(self) -> None:
         if not self._active_ranger_vehicle_id:
+            return
+        if self._is_ranger_overwatch_suppressed():
             return
         if not self._ranger_orbit_waypoints:
             return
