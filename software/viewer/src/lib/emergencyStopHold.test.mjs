@@ -9,6 +9,7 @@ import {
   cancelEmergencyStopHoldState,
   createIdleEmergencyStopHold,
   isAbortRequestPending,
+  shouldResetAbortRequest,
   tickEmergencyStopHold,
 } from "./emergencyStopHold.js";
 
@@ -95,6 +96,37 @@ test("abort request state clears once the mission leaves the active abort path",
       abortRequested: true,
       abortError: "Mission abort was rejected by orchestrator.",
       missionPhase: "SEARCHING",
+    }),
+    false
+  );
+});
+
+test("abort request resets once the mission leaves active abort phases", () => {
+  assert.equal(
+    shouldResetAbortRequest({
+      abortRequested: true,
+      missionPhase: "ABORTED",
+    }),
+    true
+  );
+  assert.equal(
+    shouldResetAbortRequest({
+      abortRequested: true,
+      missionPhase: "IDLE",
+    }),
+    true
+  );
+  assert.equal(
+    shouldResetAbortRequest({
+      abortRequested: true,
+      missionPhase: "SEARCHING",
+    }),
+    false
+  );
+  assert.equal(
+    shouldResetAbortRequest({
+      abortRequested: false,
+      missionPhase: "ABORTED",
     }),
     false
   );
