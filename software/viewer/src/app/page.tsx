@@ -180,6 +180,12 @@ function V2PageContent() {
     });
   }, [icViewModeEnabled, layerVisibility]);
 
+  useEffect(() => {
+    if (icViewModeEnabled) {
+      setPipVehicleId(null);
+    }
+  }, [icViewModeEnabled]);
+
   const setIcModeFromUi = useCallback((enabled: boolean) => {
     const params = new URLSearchParams(searchParams.toString());
     if (enabled) {
@@ -334,13 +340,15 @@ function V2PageContent() {
           description: '22% remaining - Auto RTH initiated',
           dismissible: true,
           timestamp: new Date(),
-          action: { label: 'VIEW', onClick: () => handleViewFeed('ranger_1') },
+          action: icViewModeEnabled
+            ? undefined
+            : { label: 'VIEW', onClick: () => handleViewFeed('ranger_1') },
         },
       ];
     },
-    [allowMockFallback, handleLocateVehicle, handleViewFeed]
+    [allowMockFallback, handleLocateVehicle, handleViewFeed, icViewModeEnabled]
   );
-  const hasAddedInitialAlerts = useRef(false);
+  const hasSyncedMockAlerts = useRef(false);
   const areAlertsOpenRef = useRef(false);
   const dismissStoredAlerts = useCallback(() => {
     MOCK_ALERT_IDS.forEach((alertId) => dismissAlert(alertId));
@@ -348,14 +356,18 @@ function V2PageContent() {
 
   useEffect(() => {
     if (!allowMockFallback) {
-      hasAddedInitialAlerts.current = false;
+      hasSyncedMockAlerts.current = false;
       areAlertsOpenRef.current = false;
       dismissStoredAlerts();
       return;
     }
-    if (hasAddedInitialAlerts.current) return;
-    hasAddedInitialAlerts.current = true;
-    storedAlerts.forEach((alert) => showAlert(alert));
+
+    dismissStoredAlerts();
+    storedAlerts.forEach((alert) =>
+      showAlert(alert, { playSound: !hasSyncedMockAlerts.current })
+    );
+    hasSyncedMockAlerts.current = true;
+    areAlertsOpenRef.current = true;
   }, [allowMockFallback, dismissStoredAlerts, storedAlerts]);
 
   const handleDroneSelect = (id: string) => {

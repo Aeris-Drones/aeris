@@ -164,6 +164,16 @@ test("IC mode blocks feed launch and operator keyboard shortcuts", () => {
     /onViewFeed=\{icViewModeEnabled \? undefined : handleViewFeed\}/,
     "page should hide the feed action entirely in IC mode instead of leaving a dead button behind"
   );
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{\s*if \(icViewModeEnabled\) \{\s*setPipVehicleId\(null\);\s*\}\s*\}, \[icViewModeEnabled\]\);/s,
+    "entering IC mode should clear any already-open PiP feed"
+  );
+  assert.match(
+    source,
+    /action:\s*icViewModeEnabled\s*\?\s*undefined\s*:\s*\{\s*label:\s*'VIEW',\s*onClick:\s*\(\) => handleViewFeed\('ranger_1'\)\s*\}/s,
+    "IC mode should remove feed-launch actions from mock alert surfaces as well"
+  );
 
   const keyboardEffect = source.match(/const handleKeyDown = \(e: KeyboardEvent\) => \{([\s\S]*?)\n    \};/);
   assert.ok(keyboardEffect, "page should keep keyboard handling localized");
