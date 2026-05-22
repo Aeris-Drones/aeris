@@ -1,8 +1,9 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createElement } from "react";
 import ts from "typescript";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,6 +11,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RENDER_TEMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "aeris-ic-view-render-"));
 const VIEWER_NODE_MODULES = path.resolve(ROOT, "..", "node_modules");
+
+after(() => {
+  fs.rmSync(RENDER_TEMP_ROOT, { recursive: true, force: true });
+});
 
 fs.symlinkSync(VIEWER_NODE_MODULES, path.join(RENDER_TEMP_ROOT, "node_modules"), "dir");
 
@@ -136,7 +141,7 @@ async function renderComponent(relativePath, exportName, props) {
   const loaded = await import(pathToFileURL(modulePath).href);
   const Component = loaded[exportName];
   assert.ok(Component, `${exportName} should be exported from ${relativePath}`);
-  return renderToStaticMarkup(Component(props));
+  return renderToStaticMarkup(createElement(Component, props));
 }
 
 test("IC mode keeps one canonical page-shell flag and propagates it", () => {
