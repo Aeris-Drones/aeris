@@ -10,8 +10,8 @@
 #   - base_360p:    Minimum viable quality for low-bandwidth links
 #   - perf_540p:    Balanced quality for moderate bandwidth
 #   - detail_720p:  High quality for inspection tasks
-#   - survey_1080p: Maximum quality for detailed survey work
 #   - lowlight_720p: Enhanced bitrate for noise reduction in low light
+#   - survey_1080p: Maximum quality for detailed survey work
 #
 # Configuration Keys:
 #   resolution:           Video dimensions (WIDTHxHEIGHT)
