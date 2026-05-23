@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -8,10 +8,12 @@ import { cn } from '@/lib/utils';
 import type { MissionPhase } from '@/components/layout/StatusPill';
 import {
   advanceEmergencyStopHold,
+  advanceAbortRequestWindow,
   beginEmergencyStopHold,
   cancelEmergencyStopHoldState,
   createIdleEmergencyStopHold,
   isAbortRequestPending,
+  resolveAbortRequestWindowId,
 } from '@/lib/emergencyStopHold';
 
 interface EmergencyStopControlProps {
@@ -20,6 +22,72 @@ interface EmergencyStopControlProps {
   abortUnavailableReason: string | null;
   abortError?: string | null;
   onAbort: () => void;
+}
+
+interface AbortLifecycleState {
+  activeWindowId: number;
+  isActiveWindow: boolean;
+  pendingWindowId: number | null;
+  resolvedWindowId: number | null;
+}
+
+type AbortLifecycleAction =
+  | {
+      type: 'sync-lifecycle';
+      missionPhase: MissionPhase;
+      abortError: string | null;
+    }
+  | {
+      type: 'mark-pending';
+      windowId: number;
+    }
+  | {
+      type: 'clear-for-retry';
+    };
+
+function abortLifecycleReducer(
+  state: AbortLifecycleState,
+  action: AbortLifecycleAction
+): AbortLifecycleState {
+  if (action.type === 'mark-pending') {
+    return {
+      ...state,
+      pendingWindowId: action.windowId,
+      resolvedWindowId: null,
+    };
+  }
+
+  if (action.type === 'clear-for-retry') {
+    return {
+      ...state,
+      pendingWindowId: null,
+      resolvedWindowId:
+        state.resolvedWindowId === state.activeWindowId
+          ? null
+          : state.resolvedWindowId,
+    };
+  }
+
+  const abortWindow = advanceAbortRequestWindow(
+    {
+      id: state.activeWindowId,
+      isActive: state.isActiveWindow,
+    },
+    action.missionPhase
+  );
+  const resolvedWindowId = resolveAbortRequestWindowId({
+    abortWindow,
+    pendingWindowId: state.pendingWindowId,
+    resolvedWindowId: state.resolvedWindowId,
+    abortError: action.abortError,
+  });
+
+  return {
+    ...state,
+    activeWindowId: abortWindow.id,
+    isActiveWindow: abortWindow.isActive,
+    resolvedWindowId,
+  };
 }
 
 export function EmergencyStopControl({
@@ -31,15 +99,31 @@ export function EmergencyStopControl({
 }: EmergencyStopControlProps) {
   const idleHoldState = useMemo(() => createIdleEmergencyStopHold(), []);
   const [holdState, setHoldState] = useState(createIdleEmergencyStopHold);
-  const [abortRequestedPhase, setAbortRequestedPhase] = useState<MissionPhase | null>(null);
+  const [abortLifecycle, dispatchAbortLifecycle] = useReducer(
+    abortLifecycleReducer,
+    {
+      activeWindowId: 0,
+      isActiveWindow: false,
+      pendingWindowId: null,
+      resolvedWindowId: null,
+    }
+  );
   const [abortDispatchNonce, setAbortDispatchNonce] = useState(0);
   const holdStateRef = useRef(holdState);
   const onAbortRef = useRef(onAbort);
-  const abortRequested = abortRequestedPhase === missionPhase;
+  const abortLifecycleRef = useRef(abortLifecycle);
+  const abortWindow = useMemo(
+    () => ({
+      id: abortLifecycle.activeWindowId,
+      isActive: abortLifecycle.isActiveWindow,
+    }),
+    [abortLifecycle.activeWindowId, abortLifecycle.isActiveWindow]
+  );
   const abortPending = isAbortRequestPending({
-    abortRequested,
+    abortWindow,
+    pendingWindowId: abortLifecycle.pendingWindowId,
+    resolvedWindowId: abortLifecycle.resolvedWindowId,
     abortError,
-    missionPhase,
   });
   const displayHoldState =
     canAbort && !abortPending ? holdState : idleHoldState;
@@ -59,6 +143,18 @@ export function EmergencyStopControl({
   }, [onAbort]);
 
   useEffect(() => {
+    abortLifecycleRef.current = abortLifecycle;
+  }, [abortLifecycle]);
+
+  useEffect(() => {
+    dispatchAbortLifecycle({
+      type: 'sync-lifecycle',
+      missionPhase,
+      abortError,
+    });
+  }, [abortError, missionPhase]);
+
+  useEffect(() => {
     if (holdState.phase !== 'holding') {
       return;
     }
@@ -74,7 +170,10 @@ export function EmergencyStopControl({
       setHoldState(nextState);
 
       if (shouldDispatchAbort) {
-        setAbortRequestedPhase(missionPhase);
+        dispatchAbortLifecycle({
+          type: 'mark-pending',
+          windowId: abortLifecycleRef.current.activeWindowId,
+        });
         setAbortDispatchNonce((value) => value + 1);
       }
     };
@@ -82,7 +181,7 @@ export function EmergencyStopControl({
     tick();
     const intervalId = window.setInterval(tick, 50);
     return () => window.clearInterval(intervalId);
-  }, [abortPending, canAbort, holdState.phase, missionPhase]);
+  }, [abortPending, canAbort, holdState.phase]);
 
   useEffect(() => {
     if (abortDispatchNonce === 0) {
@@ -158,9 +257,7 @@ export function EmergencyStopControl({
           if (!canAbort || abortPending) {
             return;
           }
-          if (abortRequestedPhase !== null) {
-            setAbortRequestedPhase(null);
-          }
+          dispatchAbortLifecycle({ type: 'clear-for-retry' });
           setHoldState(beginEmergencyStopHold(Date.now()));
         }}
         onPointerUp={cancelHold}

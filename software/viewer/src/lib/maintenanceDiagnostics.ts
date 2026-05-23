@@ -144,8 +144,11 @@ function classifyPodState(pod: MaintenancePodSnapshot): { state: DiagnosticState
   ) {
     return { state: 'warning', lifecycleLabel: titleCaseLifecycle(lifecycle) };
   }
-  if (lifecycle === 'registered' && pod.connected && pod.powerReady && pod.linkReady) {
-    return { state: 'healthy', lifecycleLabel: 'Registered' };
+  if (lifecycle === 'registered') {
+    if (pod.connected && pod.powerReady && pod.linkReady) {
+      return { state: 'healthy', lifecycleLabel: 'Registered' };
+    }
+    return { state: 'warning', lifecycleLabel: 'Registered' };
   }
   if (lifecycle === 'detected') {
     return { state: 'warning', lifecycleLabel: 'Detected' };

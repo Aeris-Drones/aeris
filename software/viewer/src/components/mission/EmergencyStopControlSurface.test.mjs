@@ -138,22 +138,27 @@ test("EmergencyStopControl dispatches abort only from nonce changes", () => {
   );
   assert.match(
     source,
-    /const \[abortRequestedPhase, setAbortRequestedPhase\] = useState<MissionPhase \| null>\(null\);/,
-    "control should scope abort requests to the mission phase that triggered them"
+    /const \[abortLifecycle, dispatchAbortLifecycle\] = useReducer\(/,
+    "control should track pending abort state in a lifecycle reducer"
   );
   assert.match(
     source,
-    /const abortRequested = abortRequestedPhase === missionPhase;/,
-    "control should derive pending abort state from the current mission phase"
+    /advanceAbortRequestWindow/,
+    "control should advance a continuous abort window across active mission phases"
   );
   assert.match(
     source,
-    /setAbortRequestedPhase\(missionPhase\);[\s\S]*setAbortDispatchNonce\(\(value\) => value \+ 1\);/s,
-    "control should only mark an abort request active when the hold flow actually dispatches"
+    /resolveAbortRequestWindowId/,
+    "control should resolve pending abort state when the request completes or fails"
   );
   assert.match(
     source,
-    /if \(abortRequestedPhase !== null\) \{\s*setAbortRequestedPhase\(null\);\s*\}/s,
-    "control should clear any stale abort-request phase before a fresh hold begins"
+    /dispatchAbortLifecycle\(\{\s*type: 'mark-pending',\s*windowId: abortLifecycleRef\.current\.activeWindowId,\s*\}\);[\s\S]*setAbortDispatchNonce\(\(value\) => value \+ 1\);/s,
+    "control should only mark the current abort window pending when the hold actually dispatches"
+  );
+  assert.match(
+    source,
+    /dispatchAbortLifecycle\(\{ type: 'clear-for-retry' \}\);/,
+    "control should clear the previous pending lifecycle state before starting a fresh hold attempt"
   );
 });

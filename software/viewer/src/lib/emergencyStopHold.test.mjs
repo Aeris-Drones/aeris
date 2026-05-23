@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  advanceAbortRequestWindow,
   advanceEmergencyStopHold,
   HOLD_TO_ABORT_MS,
   beginEmergencyStopHold,
@@ -9,7 +10,7 @@ import {
   cancelEmergencyStopHoldState,
   createIdleEmergencyStopHold,
   isAbortRequestPending,
-  shouldResetAbortRequest,
+  resolveAbortRequestWindowId,
   tickEmergencyStopHold,
 } from "./emergencyStopHold.js";
 
@@ -66,67 +67,79 @@ test("cancel events clear hold progress without dispatching completion", () => {
   assert.deepEqual(afterCancel, createIdleEmergencyStopHold());
 });
 
-test("abort request state clears once the mission leaves the active abort path", () => {
+test("abort request state stays pending across active abort phases and drops outside the abort window", () => {
+  let abortWindow = advanceAbortRequestWindow({ id: 0, isActive: false }, "SEARCHING");
   assert.equal(
     isAbortRequestPending({
-      abortRequested: true,
+      abortWindow,
+      pendingWindowId: abortWindow.id,
+      resolvedWindowId: null,
       abortError: null,
-      missionPhase: "SEARCHING",
     }),
     true
   );
+
+  abortWindow = advanceAbortRequestWindow(abortWindow, "TRACKING");
   assert.equal(
     isAbortRequestPending({
-      abortRequested: true,
+      abortWindow,
+      pendingWindowId: abortWindow.id,
+      resolvedWindowId: null,
       abortError: null,
-      missionPhase: "ABORTED",
     }),
-    false
+    true
   );
+
+  abortWindow = advanceAbortRequestWindow(abortWindow, "ABORTED");
   assert.equal(
     isAbortRequestPending({
-      abortRequested: true,
+      abortWindow,
+      pendingWindowId: abortWindow.id,
+      resolvedWindowId: null,
       abortError: null,
-      missionPhase: "IDLE",
-    }),
-    false
-  );
-  assert.equal(
-    isAbortRequestPending({
-      abortRequested: true,
-      abortError: "Mission abort was rejected by orchestrator.",
-      missionPhase: "SEARCHING",
     }),
     false
   );
 });
 
-test("abort request resets once the mission leaves active abort phases", () => {
+test("abort request resolution prevents stale lockout when the same phase name returns later", () => {
+  let abortWindow = advanceAbortRequestWindow({ id: 0, isActive: false }, "SEARCHING");
+  const firstWindowId = abortWindow.id;
+  const resolvedWindowId = resolveAbortRequestWindowId({
+    abortWindow: advanceAbortRequestWindow(abortWindow, "ABORTED"),
+    pendingWindowId: firstWindowId,
+    resolvedWindowId: null,
+    abortError: null,
+  });
+
+  abortWindow = advanceAbortRequestWindow({ id: firstWindowId, isActive: false }, "SEARCHING");
+  assert.equal(abortWindow.id, firstWindowId + 1);
   assert.equal(
-    shouldResetAbortRequest({
-      abortRequested: true,
-      missionPhase: "ABORTED",
-    }),
-    true
-  );
-  assert.equal(
-    shouldResetAbortRequest({
-      abortRequested: true,
-      missionPhase: "IDLE",
-    }),
-    true
-  );
-  assert.equal(
-    shouldResetAbortRequest({
-      abortRequested: true,
-      missionPhase: "SEARCHING",
+    isAbortRequestPending({
+      abortWindow,
+      pendingWindowId: firstWindowId,
+      resolvedWindowId,
+      abortError: "Mission abort was rejected by orchestrator.",
     }),
     false
   );
+});
+
+test("abort request resolution latches failures until a new hold starts", () => {
+  const abortWindow = advanceAbortRequestWindow({ id: 0, isActive: false }, "SEARCHING");
+  const resolvedWindowId = resolveAbortRequestWindowId({
+    abortWindow,
+    pendingWindowId: abortWindow.id,
+    resolvedWindowId: null,
+    abortError: "Mission abort was rejected by orchestrator.",
+  });
+
   assert.equal(
-    shouldResetAbortRequest({
-      abortRequested: false,
-      missionPhase: "ABORTED",
+    isAbortRequestPending({
+      abortWindow,
+      pendingWindowId: abortWindow.id,
+      resolvedWindowId,
+      abortError: null,
     }),
     false
   );

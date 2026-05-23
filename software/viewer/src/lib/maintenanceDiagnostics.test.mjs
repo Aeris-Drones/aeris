@@ -190,6 +190,7 @@ test("projectFleetDiagnostics merges telemetry, pods, and maintenance diagnostic
   assert.equal(ranger.summaryChecks.motor.state, "blocked");
   assert.equal(ranger.detailChecks[0].label, "IMU calibration");
   assert.equal(ranger.pods[0].lifecycleLabel, "Faulted");
+  assert.equal(scoutTwo.pods[0].state, "warning");
 });
 
 test("createDemoFleetDiagnostics keeps the maintenance route populated during disconnected local development", () => {
@@ -199,4 +200,38 @@ test("createDemoFleetDiagnostics keeps the maintenance route populated during di
   assert.equal(projected.summary.readyCount, 1);
   assert.equal(projected.summary.warningCount, 1);
   assert.equal(projected.summary.blockedCount, 1);
+});
+
+test("registered pods with explicit readiness failures stay actionable as degraded warnings", () => {
+  const projected = projectFleetDiagnostics({
+    nowMs: 5_000,
+    telemetry: [
+      {
+        id: "scout_3",
+        name: "SCOUT 3",
+        batteryPercent: 73,
+        altitudeMeters: 0,
+        linkQualityPercent: 79,
+        lastUpdate: 4_500,
+        missionOnline: true,
+      },
+    ],
+    diagnostics: [],
+    pods: [
+      {
+        vehicleId: "scout_3",
+        slotId: "top-rail",
+        podSerial: "THM-11",
+        podType: "thermal",
+        lifecycleState: "registered",
+        connected: true,
+        powerReady: true,
+        linkReady: false,
+        capabilities: ["thermal"],
+      },
+    ],
+  });
+
+  assert.equal(projected.vehicles[0].pods[0].state, "warning");
+  assert.equal(projected.vehicles[0].summaryChecks.sensors.state, "warning");
 });

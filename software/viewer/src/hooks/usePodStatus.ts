@@ -13,7 +13,13 @@ const EMPTY_STATE: PodStatusArrayMessage = {
 
 export function usePodStatus(): PodStatusArrayMessage {
   const { ros, isConnected } = useSharedROSConnection();
-  const [state, setState] = useState<PodStatusArrayMessage>(EMPTY_STATE);
+  const [state, setState] = useState<{
+    connection: ROSLIB.Ros | null;
+    payload: PodStatusArrayMessage;
+  }>({
+    connection: null,
+    payload: EMPTY_STATE,
+  });
 
   useEffect(() => {
     if (!ros || !isConnected) {
@@ -28,15 +34,26 @@ export function usePodStatus(): PodStatusArrayMessage {
 
     const handleMessage = (message: ROSLIB.Message) => {
       try {
-        setState(parsePodStatusArray(message));
+        setState({
+          connection: ros,
+          payload: parsePodStatusArray(message),
+        });
       } catch (error) {
         console.warn('[usePodStatus] Ignoring invalid pod status payload:', error);
       }
     };
 
     topic.subscribe(handleMessage);
-    return () => topic.unsubscribe(handleMessage);
+    return () => {
+      topic.unsubscribe(handleMessage);
+      setState({
+        connection: null,
+        payload: EMPTY_STATE,
+      });
+    };
   }, [ros, isConnected]);
 
-  return ros && isConnected ? state : EMPTY_STATE;
+  return ros && isConnected && state.connection === ros
+    ? state.payload
+    : EMPTY_STATE;
 }
