@@ -2,7 +2,7 @@
 <package format="3">
   <name>aeris_msgs</name>
   <version>0.1.0</version>
-  <description>ROS 2 interfaces for Aeris map, thermal, acoustic, and gas sensing data products.</description>
+  <description>ROS 2 interfaces for Aeris mapping, mission, perception, and pod lifecycle contracts.</description>
   <maintainer email="dev@aeris.local">Aeris Developers</maintainer>
   <license>proprietary</license>
 

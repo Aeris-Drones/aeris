@@ -13,6 +13,7 @@ from aeris_msgs.msg import (
     GasIsopleth,
     MissionProgress,
     MissionState,
+    PodStatusArray,
     Telemetry,
     ThermalHotspot,
 )
@@ -28,6 +29,11 @@ from .search_patterns import (
     generate_waypoints,
     partition_polygon_for_scouts,
     validate_polygon,
+)
+from .pod_capability_registry import (
+    PodCapabilityRecord,
+    PodCapabilityRegistry,
+    PodCapabilityState,
 )
 from .vehicle_ids import normalize_vehicle_id
 
@@ -218,6 +224,8 @@ class MissionNode(Node):
         self._vehicle_slam_mode_overrides = self._parse_vehicle_slam_mode_overrides(
             self._vehicle_slam_modes_json
         )
+        self._pod_capability_registry = PodCapabilityRegistry()
+        self._logged_lidar_downgrades: set[str] = set()
         self._vio_odom_stale_sec = max(
             0.0, float(self.declare_parameter("vio_odom_stale_sec", 1.0).value)
         )
@@ -466,6 +474,13 @@ class MissionNode(Node):
             String,
             "/mission/tracking_resolution",
             self._handle_tracking_resolution_signal,
+            queue_depth,
+            callback_group=self._serialized_callback_group,
+        )
+        self._pod_status_subscription = self.create_subscription(
+            PodStatusArray,
+            "/device_manager/pods",
+            self._handle_pod_status_array,
             queue_depth,
             callback_group=self._serialized_callback_group,
         )
@@ -1275,9 +1290,26 @@ class MissionNode(Node):
         normalized_vehicle_id = self._normalize_vehicle_id(vehicle_id)
         if not normalized_vehicle_id:
             return self._SLAM_MODE_UNKNOWN
-        return self._vehicle_slam_mode_overrides.get(
+        requested_mode = self._vehicle_slam_mode_overrides.get(
             normalized_vehicle_id, self._slam_mode
         )
+        effective_mode = self._pod_capability_registry.effective_slam_mode(
+            normalized_vehicle_id, requested_mode
+        )
+        requested_lidar_mode = str(requested_mode).strip().lower() in {
+            "liosam",
+            "lio_sam",
+        }
+        if requested_lidar_mode and effective_mode != "liosam":
+            if normalized_vehicle_id not in self._logged_lidar_downgrades:
+                self.get_logger().warning(
+                    "LiDAR-backed SLAM unavailable for %s; falling back to vio"
+                    % normalized_vehicle_id
+                )
+                self._logged_lidar_downgrades.add(normalized_vehicle_id)
+        else:
+            self._logged_lidar_downgrades.discard(normalized_vehicle_id)
+        return effective_mode
 
     def _vehicle_position_source_snapshot(self) -> dict[str, str]:
         sources: dict[str, str] = {}
@@ -1544,6 +1576,38 @@ class MissionNode(Node):
             return
         if signal in {"resolved", "clear", "cleared", "complete", "done"}:
             self._complete_tracking("resolution signal")
+
+    def _handle_pod_status_array(self, message: PodStatusArray) -> None:
+        records: list[PodCapabilityRecord] = []
+        for pod in message.pods:
+            lifecycle_state = self._pod_capability_state_from_message(pod)
+            if lifecycle_state is None:
+                continue
+            records.append(
+                PodCapabilityRecord(
+                    vehicle_id=pod.vehicle_id,
+                    slot_id=pod.slot_id,
+                    pod_serial=pod.pod_serial,
+                    lifecycle_state=lifecycle_state,
+                    capabilities=tuple(pod.capabilities),
+                    rejection_code=pod.rejection_code,
+                    fault_code=pod.fault_code,
+                )
+            )
+        self._pod_capability_registry.apply_records(records)
+
+    @staticmethod
+    def _pod_capability_state_from_message(pod) -> PodCapabilityState | None:
+        state_value = int(getattr(pod, "lifecycle_state", -1))
+        if state_value == int(getattr(pod, "STATE_REGISTERED", 5)):
+            return PodCapabilityState.REGISTERED
+        if state_value == int(getattr(pod, "STATE_REJECTED", 6)):
+            return PodCapabilityState.REJECTED
+        if state_value == int(getattr(pod, "STATE_DISCONNECTED", 7)):
+            return PodCapabilityState.DISCONNECTED
+        if state_value == int(getattr(pod, "STATE_FAULTED", 8)):
+            return PodCapabilityState.FAULTED
+        return None
 
     def _time_message_to_seconds(self, stamp) -> float:
         sec = float(getattr(stamp, "sec", 0))
