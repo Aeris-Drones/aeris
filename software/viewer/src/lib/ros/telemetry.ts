@@ -56,12 +56,18 @@ export interface VehicleTelemetryMessage {
   };
   /** Optional telemetry fields for UI summaries */
   batteryPercent?: number;
+  remainingFlightTimeSec?: number;
+  remainingFlightTimeAvailable?: boolean;
   linkQualityPercent?: number;
   coveragePercent?: number;
   /** Optional replay provenance from store-forward transport */
   replay?: ReplayDeliveryMetadata;
   /** Optional battery percentage (0-100) from telemetry extensions */
   battery_percent?: number;
+  /** Optional remaining battery endurance in seconds when telemetry marks it trustworthy */
+  remaining_flight_time_sec?: number;
+  /** Optional availability flag for the battery endurance estimate */
+  remaining_flight_time_available?: boolean;
   /** Optional link quality percentage (0-100) from telemetry extensions */
   link_quality?: number;
   /** Optional mission coverage percentage (0-100) from telemetry/progress bridges */
@@ -162,6 +168,13 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
   const messageTimestampMs = (timestamp.sec as number) * 1000 + ((timestamp.nanosec as number) / 1_000_000);
   const replay = parseReplayDeliveryMetadata(data, messageTimestampMs);
   const batteryPercent = parsePercent(data.battery_percent ?? data.batteryPercent);
+  const remainingFlightTimeAvailable = parseOptionalBoolean(
+    data.remaining_flight_time_available ?? data.remainingFlightTimeAvailable
+  );
+  const remainingFlightTimeSec = parseRemainingFlightTimeSeconds(
+    data.remaining_flight_time_sec ?? data.remainingFlightTimeSec,
+    remainingFlightTimeAvailable
+  );
   const linkQualityPercent = parsePercent(
     data.link_quality ?? data.linkQuality ?? data.link_quality_percent ?? data.linkQualityPercent
   );
@@ -190,10 +203,14 @@ export function parseVehicleTelemetry(raw: unknown): VehicleTelemetryMessage {
       z: velocity.z as number,
     },
     batteryPercent: batteryPercent ?? undefined,
+    remainingFlightTimeSec: remainingFlightTimeSec ?? undefined,
+    remainingFlightTimeAvailable: remainingFlightTimeAvailable ?? undefined,
     linkQualityPercent: linkQualityPercent ?? undefined,
     coveragePercent: coveragePercent ?? undefined,
     replay: replay ?? undefined,
     battery_percent: batteryPercent ?? undefined,
+    remaining_flight_time_sec: remainingFlightTimeSec ?? undefined,
+    remaining_flight_time_available: remainingFlightTimeAvailable ?? undefined,
     link_quality: linkQualityPercent ?? undefined,
     coverage_percent: coveragePercent ?? undefined,
   };
@@ -216,6 +233,35 @@ function parsePercent(value: unknown): number | null {
     return null;
   }
   return Math.max(0, Math.min(100, numeric));
+}
+
+function parseOptionalBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return null;
+}
+
+function parseRemainingFlightTimeSeconds(
+  value: unknown,
+  isAvailable: boolean | null
+): number | null {
+  if (isAvailable === false) {
+    return null;
+  }
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const numeric =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : NaN;
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return null;
+  }
+  return numeric;
 }
 
 function parseReplayDeliveryMetadata(

@@ -35,6 +35,11 @@ import { applyVehicleMissionMeta } from '@/lib/fleetVehicleProjection';
 import { normalizeMissionMetaForVehicle } from '@/lib/degradedVehicleState';
 import { isIcViewModeQueryValue } from '@/lib/icViewMode';
 import {
+  deriveBatteryAlertTransitions,
+  formatRemainingFlightTime,
+  LOW_BATTERY_WARNING_THRESHOLD_PERCENT,
+} from '@/lib/batteryMonitoring';
+import {
   deriveRouteRecommendations,
 } from '@/lib/routeRecommendations';
 
@@ -250,7 +255,7 @@ function V2PageContent() {
           id: vehicle.id,
           name: vehicle.id.replace(/[_-]/g, ' ').toUpperCase(),
           battery: typeof vehicle.batteryPercent === 'number'
-            ? Math.round(vehicle.batteryPercent)
+            ? vehicle.batteryPercent
             : null,
           altitude: Math.round(vehicle.position.y),
           linkQuality: typeof vehicle.linkQualityPercent === 'number'
@@ -259,6 +264,10 @@ function V2PageContent() {
           coverage: typeof vehicle.coveragePercent === 'number'
             ? Math.round(vehicle.coveragePercent)
             : undefined,
+          remainingFlightTimeSec:
+            typeof vehicle.remainingFlightTimeSec === 'number'
+              ? vehicle.remainingFlightTimeSec
+              : null,
           slamMode: vehicleSlamModes[normalizeVehicleId(vehicle.id)],
           lastUpdate: vehicle.lastUpdate,
           deliveryMode: vehicle.deliveryMode,
@@ -289,12 +298,11 @@ function V2PageContent() {
   const fleetWarnings = useMemo<VehicleWarning[]>(
     () =>
       fleetVehicles
-        .filter((vehicle) => vehicle.battery !== null && vehicle.battery <= 50)
+        .filter((vehicle) => vehicle.battery !== null && vehicle.battery <= LOW_BATTERY_WARNING_THRESHOLD_PERCENT)
         .map((vehicle) => ({
           vehicleId: vehicle.id,
-          message:
-            (vehicle.battery ?? 0) <= 25 ? 'Battery critical' : 'Battery below 50%',
-          severity: (vehicle.battery ?? 0) <= 25 ? 'critical' : 'warning',
+          message: 'Battery low',
+          severity: 'critical',
         })),
     [fleetVehicles]
   );
@@ -326,6 +334,7 @@ function V2PageContent() {
   useEffect(() => {
     viewFeedActionRef.current = handleViewFeed;
   }, [handleViewFeed]);
+  const lowBatteryAlertStateRef = useRef<Map<string, boolean>>(new Map());
   const [mockAlertTimestamps] = useState<Record<(typeof MOCK_ALERT_IDS)[number], Date>>(() => ({
     'demo-critical': new Date(),
     'demo-warning': new Date(),
@@ -356,7 +365,7 @@ function V2PageContent() {
           id: 'demo-warning',
           severity: 'warning',
           title: 'Ranger-1 low battery',
-          description: '22% remaining - Auto RTH initiated',
+          description: '22% remaining - Return home recommended',
           dismissible: true,
           timestamp: mockAlertTimestamps['demo-warning'],
           action: icViewModeEnabled
@@ -402,6 +411,54 @@ function V2PageContent() {
 
     areAlertsOpenRef.current = visibleStoredAlerts.length > 0;
   }, [getVisibleStoredAlerts]);
+
+  useEffect(() => {
+    const derived = deriveBatteryAlertTransitions(
+      lowBatteryAlertStateRef.current,
+      fleetVehicles.map((vehicle) => ({
+        id: vehicle.id,
+        name: vehicle.name,
+        battery: vehicle.battery,
+        remainingFlightTimeSec: vehicle.remainingFlightTimeSec,
+      }))
+    );
+
+    lowBatteryAlertStateRef.current = derived.state;
+
+    derived.transitions.forEach((transition) => {
+      if (transition.type === 'entered_low') {
+        const remainingCopy =
+          transition.remainingFlightTimeSec == null
+            ? 'Remaining flight time unavailable'
+            : `Estimated remaining flight time ${formatRemainingFlightTime(transition.remainingFlightTimeSec)}`;
+
+        showAlert({
+          id: transition.alertId,
+          severity: 'critical',
+          title: `${transition.vehicleName} low battery`,
+          description: `${transition.battery}% remaining - ${remainingCopy}`,
+          dismissible: false,
+          action: {
+            label: 'LOCATE',
+            onClick: () => locateVehicleActionRef.current(transition.vehicleId),
+          },
+        });
+        return;
+      }
+
+      dismissAlert(transition.alertId);
+      if (transition.type === 'cleared') {
+        return;
+      }
+      showAlert({
+        id: `battery-recovered-${transition.vehicleId}-${Date.now()}`,
+        severity: 'info',
+        title: `${transition.vehicleName ?? transition.vehicleId} battery recovered`,
+        description: transition.battery == null ? 'Telemetry restored' : `${Math.round(transition.battery)}% remaining`,
+        dismissible: true,
+      }, { playSound: false });
+    });
+  }, [fleetVehicles]);
 
   useEffect(() => {
     if (!allowMockFallback) {

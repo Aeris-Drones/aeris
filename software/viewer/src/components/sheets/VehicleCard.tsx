@@ -1,9 +1,10 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { MapPin, Video, Home, Signal, Gauge, Radio } from 'lucide-react';
+import { MapPin, Video, Home, Signal, Gauge, Radio, TimerReset } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatLastContactAge } from '@/lib/degradedVehicleState';
+import { formatRemainingFlightTime, getBatteryLevel } from '@/lib/batteryMonitoring';
 
 /**
  * Vehicle operational status for UI display.
@@ -30,6 +31,7 @@ export interface VehicleInfo {
   altitude: number;
   linkQuality?: number;
   coverage?: number;
+  remainingFlightTimeSec?: number | null;
   slamMode?: string;
   lastContactAgeMs?: number | null;
   isLastKnown?: boolean;
@@ -108,14 +110,20 @@ const statusConfig: Record<VehicleStatus, {
 /**
  * Returns the appropriate color class for a given battery percentage.
  *
- * Thresholds align with operator training: <20% requires immediate RTH
- * per flight safety protocols. Colors match statusConfig for consistency.
+ * Colors match the shared getBatteryLevel thresholds so cards, fleet summary,
+ * and alerts all classify battery health the same way.
  */
 function getBatteryColor(battery: number | null): string {
-  if (battery === null) return 'text-white/40';
-  if (battery > 50) return 'text-emerald-400';
-  if (battery > 20) return 'text-amber-400';
-  return 'text-red-400';
+  switch (getBatteryLevel(battery)) {
+    case 'healthy':
+      return 'text-emerald-400';
+    case 'warning':
+      return 'text-amber-400';
+    case 'critical':
+      return 'text-red-400';
+    default:
+      return 'text-white/40';
+  }
 }
 
 /**
@@ -123,10 +131,16 @@ function getBatteryColor(battery: number | null): string {
  * Mirrors getBatteryColor logic for visual consistency.
  */
 function getBatteryStroke(battery: number | null): string {
-  if (battery === null) return 'stroke-white/40';
-  if (battery > 50) return 'stroke-emerald-400';
-  if (battery > 20) return 'stroke-amber-400';
-  return 'stroke-red-400';
+  switch (getBatteryLevel(battery)) {
+    case 'healthy':
+      return 'stroke-emerald-400';
+    case 'warning':
+      return 'stroke-amber-400';
+    case 'critical':
+      return 'stroke-red-400';
+    default:
+      return 'stroke-white/40';
+  }
 }
 
 function formatSlamModeLabel(slamMode?: string): string {
@@ -205,6 +219,9 @@ export function VehicleCard({
   const status = statusConfig[vehicle.status];
   const isOffline = vehicle.status === 'offline';
   const isIcMode = viewMode === 'ic';
+  const batteryDisplay = typeof vehicle.battery === 'number' ? Math.round(vehicle.battery) : null;
+  const remainingFlightTimeLabel = formatRemainingFlightTime(vehicle.remainingFlightTimeSec);
+  const remainingFlightTimeUnavailable = vehicle.remainingFlightTimeSec == null;
 
   return (
     <div
@@ -256,15 +273,15 @@ export function VehicleCard({
           <BatteryArc battery={vehicle.battery} />
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span className={cn(isIcMode ? 'font-mono text-xl font-light tabular-nums' : 'font-mono text-base font-light tabular-nums', getBatteryColor(vehicle.battery))}>
-              {vehicle.battery ?? '--'}
+              {batteryDisplay ?? '--'}
             </span>
-            <span className={cn(isIcMode ? 'text-xl text-white/50' : 'text-base text-white/45')}>{vehicle.battery === null ? '' : '%'}</span>
+            <span className={cn(isIcMode ? 'text-xl text-white/50' : 'text-base text-white/45')}>{batteryDisplay === null ? '' : '%'}</span>
           </div>
         </div>
       </div>
 
       {/* Telemetry metrics grid */}
-      <div className="grid grid-cols-3 gap-px bg-white/[0.02] mx-3 my-2 rounded-lg overflow-hidden">
+      <div className="grid grid-cols-4 gap-px bg-white/[0.02] mx-3 my-2 rounded-lg overflow-hidden">
         <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] py-2">
           <Gauge className="h-3 w-3 text-white/30" />
           <span className={cn(isIcMode ? 'font-mono text-xl text-white/85' : 'font-mono text-base text-white/80')}>{vehicle.altitude}</span>
@@ -279,6 +296,20 @@ export function VehicleCard({
           <Signal className="h-3 w-3 text-white/30" />
           <span className={cn(isIcMode ? 'font-mono text-xl text-white/85' : 'font-mono text-base text-white/80')}>{vehicle.coverage ?? '--'}</span>
           <span className={cn(isIcMode ? 'text-xl text-white/50 uppercase tracking-wide' : 'text-base text-white/45 uppercase tracking-wide')}>Cover %</span>
+        </div>
+        <div className="flex flex-col items-center gap-0.5 bg-white/[0.02] px-1 py-2">
+          <TimerReset className="h-3 w-3 text-white/30" />
+          <span
+            className={cn(
+              'text-center text-white/85',
+              remainingFlightTimeUnavailable
+                ? (isIcMode ? 'text-base font-medium leading-tight' : 'text-[11px] font-medium leading-tight')
+                : (isIcMode ? 'font-mono text-xl' : 'font-mono text-base')
+            )}
+          >
+            {remainingFlightTimeLabel}
+          </span>
+          <span className={cn(isIcMode ? 'text-xl text-white/50 uppercase tracking-wide' : 'text-base text-white/45 uppercase tracking-wide')}>Flight</span>
         </div>
       </div>
 
