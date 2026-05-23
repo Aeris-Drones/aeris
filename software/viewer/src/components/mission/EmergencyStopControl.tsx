@@ -12,7 +12,6 @@ import {
   cancelEmergencyStopHoldState,
   createIdleEmergencyStopHold,
   isAbortRequestPending,
-  shouldResetAbortRequest,
 } from '@/lib/emergencyStopHold';
 
 interface EmergencyStopControlProps {
@@ -32,10 +31,11 @@ export function EmergencyStopControl({
 }: EmergencyStopControlProps) {
   const idleHoldState = useMemo(() => createIdleEmergencyStopHold(), []);
   const [holdState, setHoldState] = useState(createIdleEmergencyStopHold);
-  const [abortRequested, setAbortRequested] = useState(false);
+  const [abortRequestedPhase, setAbortRequestedPhase] = useState<MissionPhase | null>(null);
   const [abortDispatchNonce, setAbortDispatchNonce] = useState(0);
   const holdStateRef = useRef(holdState);
   const onAbortRef = useRef(onAbort);
+  const abortRequested = abortRequestedPhase === missionPhase;
   const abortPending = isAbortRequestPending({
     abortRequested,
     abortError,
@@ -59,13 +59,6 @@ export function EmergencyStopControl({
   }, [onAbort]);
 
   useEffect(() => {
-    if (!shouldResetAbortRequest({ abortRequested, missionPhase })) {
-      return;
-    }
-    setAbortRequested(false);
-  }, [abortRequested, missionPhase]);
-
-  useEffect(() => {
     if (holdState.phase !== 'holding') {
       return;
     }
@@ -81,7 +74,7 @@ export function EmergencyStopControl({
       setHoldState(nextState);
 
       if (shouldDispatchAbort) {
-        setAbortRequested(true);
+        setAbortRequestedPhase(missionPhase);
         setAbortDispatchNonce((value) => value + 1);
       }
     };
@@ -89,7 +82,7 @@ export function EmergencyStopControl({
     tick();
     const intervalId = window.setInterval(tick, 50);
     return () => window.clearInterval(intervalId);
-  }, [abortPending, canAbort, holdState.phase]);
+  }, [abortPending, canAbort, holdState.phase, missionPhase]);
 
   useEffect(() => {
     if (abortDispatchNonce === 0) {
@@ -165,7 +158,9 @@ export function EmergencyStopControl({
           if (!canAbort || abortPending) {
             return;
           }
-          setAbortRequested(false);
+          if (abortRequestedPhase !== null) {
+            setAbortRequestedPhase(null);
+          }
           setHoldState(beginEmergencyStopHold(Date.now()));
         }}
         onPointerUp={cancelHold}

@@ -136,13 +136,24 @@ test("EmergencyStopControl dispatches abort only from nonce changes", () => {
     /onAbortRef\.current\(\);\s*\}, \[abortDispatchNonce\]\);/s,
     "abort dispatch effect should only depend on the dispatch nonce"
   );
-  assert.ok(
-    source.includes("shouldResetAbortRequest({ abortRequested, missionPhase })"),
-    "control should explicitly clear stale abort-request state when the mission leaves the active abort lifecycle"
+  assert.match(
+    source,
+    /const \[abortRequestedPhase, setAbortRequestedPhase\] = useState<MissionPhase \| null>\(null\);/,
+    "control should scope abort requests to the mission phase that triggered them"
   );
   assert.match(
     source,
-    /useEffect\(\(\) => \{\s*if \(!shouldResetAbortRequest\([\s\S]*?\)\) \{\s*return;\s*\}\s*setAbortRequested\(false\);\s*\}, \[abortRequested, missionPhase\]\);/s,
-    "control should reset abortRequested from a phase-change effect instead of waiting for a remount"
+    /const abortRequested = abortRequestedPhase === missionPhase;/,
+    "control should derive pending abort state from the current mission phase"
+  );
+  assert.match(
+    source,
+    /setAbortRequestedPhase\(missionPhase\);[\s\S]*setAbortDispatchNonce\(\(value\) => value \+ 1\);/s,
+    "control should only mark an abort request active when the hold flow actually dispatches"
+  );
+  assert.match(
+    source,
+    /if \(abortRequestedPhase !== null\) \{\s*setAbortRequestedPhase\(null\);\s*\}/s,
+    "control should clear any stale abort-request phase before a fresh hold begins"
   );
 });

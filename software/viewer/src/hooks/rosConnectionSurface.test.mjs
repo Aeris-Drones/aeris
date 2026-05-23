@@ -54,7 +54,14 @@ test("viewer ROS socket creation stays centralized in the shared connection hook
 });
 
 test("viewer app provides a shared ROS connection provider", () => {
+  const providersPath = path.join(ROOT, "app", "ViewerAppProviders.tsx");
   const pagePath = path.join(ROOT, "app", "page.tsx");
-  const source = fs.readFileSync(pagePath, "utf8");
-  assert.match(source, /ROSConnectionProvider/, "page.tsx should include ROSConnectionProvider");
+  const maintenancePagePath = path.join(ROOT, "app", "maintenance", "page.tsx");
+  const providersSource = fs.readFileSync(providersPath, "utf8");
+  const pageSource = fs.readFileSync(pagePath, "utf8");
+  const maintenanceSource = fs.readFileSync(maintenancePagePath, "utf8");
+
+  assert.match(providersSource, /ROSConnectionProvider/, "ViewerAppProviders should include ROSConnectionProvider");
+  assert.match(pageSource, /ViewerAppProviders/, "page.tsx should use the shared viewer providers");
+  assert.match(maintenanceSource, /ViewerAppProviders/, "maintenance route should use the shared viewer providers");
 });

@@ -3,6 +3,7 @@
 import { Suspense, useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { GCSLayout } from '@/components/layout/GCSLayout';
+import { ViewerRouteNav } from '@/components/layout/ViewerRouteNav';
 import { StatusPill, MissionPhase } from '@/components/layout/StatusPill';
 import { CommandDock } from '@/components/layout/CommandDock';
 import { FleetCard, VehicleWarning } from '@/components/cards/FleetCard';
@@ -17,10 +18,7 @@ import { VehicleInfo } from '@/components/sheets/VehicleCard';
 import { LayersPanel } from '@/components/layers/LayersPanel';
 import { LayerVisibilityProvider } from '@/context/LayerVisibilityContext';
 import { useLayerVisibility } from '@/context/LayerVisibilityContext';
-import { ZoneProvider, useZoneContext } from '@/context/ZoneContext';
-import { CoordinateOriginProvider } from '@/context/CoordinateOriginContext';
-import { ROSConnectionProvider } from '@/context/ROSConnectionContext';
-import { MissionProvider } from '@/context/MissionContext';
+import { useZoneContext } from '@/context/ZoneContext';
 import { ZoneToolbar } from '@/components/zones/ZoneToolbar';
 import { PiPVideoFeed } from '@/components/pip/PiPVideoFeed';
 import { AlertToaster, showAlert, dismissAlert, type Alert } from '@/components/alerts';
@@ -42,6 +40,7 @@ import {
 import {
   deriveRouteRecommendations,
 } from '@/lib/routeRecommendations';
+import { ViewerAppProviders } from '@/app/ViewerAppProviders';
 
 /**
  * Mock detections for UI demonstration when ROS telemetry is unavailable.
@@ -92,21 +91,15 @@ const MOCK_ALERT_IDS = ['demo-critical', 'demo-warning'] as const;
  */
 export default function V2Page() {
   return (
-    <CoordinateOriginProvider>
-      <ROSConnectionProvider>
-        <LayerVisibilityProvider>
-          <ZoneProvider>
-            <MissionProvider>
-              <Suspense fallback={null}>
-                <V2PageContent />
-              </Suspense>
-              <AlertToaster visibleToasts={5} />
-              <KeyboardShortcutsOverlay />
-            </MissionProvider>
-          </ZoneProvider>
-        </LayerVisibilityProvider>
-      </ROSConnectionProvider>
-    </CoordinateOriginProvider>
+    <ViewerAppProviders>
+      <LayerVisibilityProvider>
+        <Suspense fallback={null}>
+          <V2PageContent />
+        </Suspense>
+        <AlertToaster visibleToasts={5} />
+        <KeyboardShortcutsOverlay />
+      </LayerVisibilityProvider>
+    </ViewerAppProviders>
   );
 }
 
@@ -729,13 +722,16 @@ function V2PageContent() {
       }
 
       topRightOverlay={icViewModeEnabled ? undefined : (
-        <EmergencyStopControl
-          missionPhase={missionPhase}
-          canAbort={canAbort}
-          abortUnavailableReason={abortUnavailableReason}
-          abortError={abortMissionError}
-          onAbort={abortMission}
-        />
+        <div className="flex flex-col items-end gap-3">
+          <ViewerRouteNav currentRoute="operations" />
+          <EmergencyStopControl
+            missionPhase={missionPhase}
+            canAbort={canAbort}
+            abortUnavailableReason={abortUnavailableReason}
+            abortError={abortMissionError}
+            onAbort={abortMission}
+          />
+        </div>
       )}
 
       zoneToolbar={icViewModeEnabled ? undefined : <ZoneToolbar />}
