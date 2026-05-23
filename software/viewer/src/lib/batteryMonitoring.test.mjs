@@ -32,8 +32,10 @@ test("shared battery thresholds stay anchored at the story contract", () => {
   assert.equal(BATTERY_HEALTHY_THRESHOLD_PERCENT, 50);
   assert.equal(LOW_BATTERY_WARNING_THRESHOLD_PERCENT, 25);
   assert.equal(getBatteryLevel(51), "healthy");
+  assert.equal(getBatteryLevel(50.1), "healthy");
   assert.equal(getBatteryLevel(50), "warning");
   assert.equal(getBatteryLevel(26), "warning");
+  assert.equal(getBatteryLevel(25.4), "warning");
   assert.equal(getBatteryLevel(25), "critical");
   assert.equal(getBatteryLevel(null), "unknown");
 });
@@ -80,6 +82,66 @@ test("deriveBatteryAlertTransitions emits a recovery event when the vehicle clim
       vehicleName: "RANGER 1",
       battery: 33,
       remainingFlightTimeSec: null,
+      alertId: getLowBatteryAlertId("ranger_1"),
+    },
+  ]);
+});
+
+test("deriveBatteryAlertTransitions does not emit a duplicate alert when low battery telemetry goes missing temporarily", () => {
+  const first = deriveBatteryAlertTransitions(
+    new Map(),
+    [{ id: "scout_1", name: "SCOUT 1", battery: 24, remainingFlightTimeSec: 420 }]
+  );
+
+  const missing = deriveBatteryAlertTransitions(
+    first.state,
+    [{ id: "scout_1", name: "SCOUT 1", battery: null, remainingFlightTimeSec: null }]
+  );
+
+  assert.equal(missing.transitions.length, 0);
+
+  const resumedLow = deriveBatteryAlertTransitions(
+    missing.state,
+    [{ id: "scout_1", name: "SCOUT 1", battery: 19, remainingFlightTimeSec: 300 }]
+  );
+
+  assert.equal(resumedLow.transitions.length, 0);
+});
+
+test("deriveBatteryAlertTransitions emits recovery and allows a later low crossing after recovery", () => {
+  const first = deriveBatteryAlertTransitions(
+    new Map(),
+    [{ id: "ranger_1", name: "RANGER 1", battery: 20, remainingFlightTimeSec: 600 }]
+  );
+
+  const recovered = deriveBatteryAlertTransitions(
+    first.state,
+    [{ id: "ranger_1", name: "RANGER 1", battery: 25.4, remainingFlightTimeSec: 540 }]
+  );
+
+  assert.deepEqual(recovered.transitions, [
+    {
+      type: "recovered",
+      vehicleId: "ranger_1",
+      vehicleName: "RANGER 1",
+      battery: 25.4,
+      remainingFlightTimeSec: 540,
+      alertId: getLowBatteryAlertId("ranger_1"),
+    },
+  ]);
+
+  const enteredAgain = deriveBatteryAlertTransitions(
+    recovered.state,
+    [{ id: "ranger_1", name: "RANGER 1", battery: 24.9, remainingFlightTimeSec: 480 }]
+  );
+
+  assert.deepEqual(enteredAgain.transitions, [
+    {
+      type: "entered_low",
+      vehicleId: "ranger_1",
+      vehicleName: "RANGER 1",
+      battery: 24.9,
+      remainingFlightTimeSec: 480,
       alertId: getLowBatteryAlertId("ranger_1"),
     },
   ]);

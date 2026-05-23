@@ -219,6 +219,7 @@ export function VehicleCard({
   const status = statusConfig[vehicle.status];
   const isOffline = vehicle.status === 'offline';
   const isIcMode = viewMode === 'ic';
+  const batteryDisplay = typeof vehicle.battery === 'number' ? Math.round(vehicle.battery) : null;
   const remainingFlightTimeLabel = formatRemainingFlightTime(vehicle.remainingFlightTimeSec);
   const remainingFlightTimeUnavailable = remainingFlightTimeLabel === 'Unavailable';
 
@@ -272,9 +273,9 @@ export function VehicleCard({
           <BatteryArc battery={vehicle.battery} />
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span className={cn(isIcMode ? 'font-mono text-xl font-light tabular-nums' : 'font-mono text-base font-light tabular-nums', getBatteryColor(vehicle.battery))}>
-              {vehicle.battery ?? '--'}
+              {batteryDisplay ?? '--'}
             </span>
-            <span className={cn(isIcMode ? 'text-xl text-white/50' : 'text-base text-white/45')}>{vehicle.battery === null ? '' : '%'}</span>
+            <span className={cn(isIcMode ? 'text-xl text-white/50' : 'text-base text-white/45')}>{batteryDisplay === null ? '' : '%'}</span>
           </div>
         </div>
       </div>

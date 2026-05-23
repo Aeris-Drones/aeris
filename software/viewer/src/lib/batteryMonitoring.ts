@@ -78,15 +78,16 @@ export function deriveBatteryAlertTransitions(
 
   for (const vehicle of vehicles) {
     const battery = vehicle.battery;
+    const hasBatteryReading =
+      typeof battery === "number" && Number.isFinite(battery);
     const isLowBattery =
-      typeof battery === "number" &&
-      Number.isFinite(battery) &&
+      hasBatteryReading &&
       battery <= lowBatteryThresholdPercent;
     const wasLowBattery = previousState.get(vehicle.id) === true;
 
-    nextState.set(vehicle.id, isLowBattery);
+    nextState.set(vehicle.id, hasBatteryReading ? isLowBattery : wasLowBattery);
 
-    if (typeof battery !== "number" || !Number.isFinite(battery)) {
+    if (!hasBatteryReading) {
       continue;
     }
 

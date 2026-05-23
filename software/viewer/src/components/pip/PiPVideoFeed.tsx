@@ -94,6 +94,7 @@ export function PiPVideoFeed({
   onExpand,
 }: PiPVideoFeedProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const batteryDisplay = typeof batteryPercent === 'number' ? Math.round(batteryPercent) : null;
 
   const handleExpand = () => {
     onExpand();
@@ -161,7 +162,7 @@ export function PiPVideoFeed({
                 <div className="flex items-center gap-6">
                   <div className={cn('flex items-center gap-2', getBatteryColor(batteryPercent))}>
                     <Battery className="h-4 w-4" />
-                    <span>{batteryPercent === null ? '--' : `${batteryPercent}%`}</span>
+                    <span>{batteryDisplay === null ? '--' : `${batteryDisplay}%`}</span>
                   </div>
                   <div className="flex items-center gap-2 text-white/60">
                     <ArrowUp className="h-4 w-4" />
@@ -274,7 +275,7 @@ export function PiPVideoFeed({
             <div className="flex items-center gap-3">
               <div className={cn('flex items-center gap-1', getBatteryColor(batteryPercent))}>
                 <Battery className="h-3 w-3" />
-                <span>{batteryPercent === null ? '--' : `${batteryPercent}%`}</span>
+                <span>{batteryDisplay === null ? '--' : `${batteryDisplay}%`}</span>
               </div>
               <div className="flex items-center gap-1 text-white/60">
                 <ArrowUp className="h-3 w-3" />

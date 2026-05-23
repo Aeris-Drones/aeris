@@ -255,7 +255,7 @@ function V2PageContent() {
           id: vehicle.id,
           name: vehicle.id.replace(/[_-]/g, ' ').toUpperCase(),
           battery: typeof vehicle.batteryPercent === 'number'
-            ? Math.round(vehicle.batteryPercent)
+            ? vehicle.batteryPercent
             : null,
           altitude: Math.round(vehicle.position.y),
           linkQuality: typeof vehicle.linkQualityPercent === 'number'

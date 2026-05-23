@@ -305,7 +305,7 @@ test("VehicleCard uses the shared battery thresholds and explicit remaining-flig
       id: "scout-1",
       name: "Scout 1",
       status: "active",
-      battery: 51,
+      battery: 50.1,
       altitude: 46,
       linkQuality: 77,
       coverage: 64,
@@ -317,6 +317,7 @@ test("VehicleCard uses the shared battery thresholds and explicit remaining-flig
     viewMode: "operator",
   });
   assert.match(healthyMarkup, /text-emerald-400/);
+  assert.match(healthyMarkup, />50</, "battery display may round at the visual edge while status logic stays healthy");
   assert.match(healthyMarkup, />9m</);
 
   const warningMarkup = await renderComponent("components/sheets/VehicleCard.tsx", "VehicleCard", {
@@ -324,7 +325,7 @@ test("VehicleCard uses the shared battery thresholds and explicit remaining-flig
       id: "scout-2",
       name: "Scout 2",
       status: "warning",
-      battery: 40,
+      battery: 25.4,
       altitude: 46,
       linkQuality: 77,
       coverage: 64,
@@ -336,6 +337,7 @@ test("VehicleCard uses the shared battery thresholds and explicit remaining-flig
     viewMode: "operator",
   });
   assert.match(warningMarkup, /text-amber-400/);
+  assert.match(warningMarkup, />25</, "warning-state display may still round to 25 without tripping the low-battery threshold early");
   assert.match(warningMarkup, />3m</);
 
   const criticalMarkup = await renderComponent("components/sheets/VehicleCard.tsx", "VehicleCard", {
