@@ -33,6 +33,7 @@ export interface VehicleState {
   lastContactAgeMs?: number | null;
   staleSinceMs?: number | null;
   batteryPercent?: number;
+  remainingFlightTimeSec?: number | null;
   linkQualityPercent?: number;
   coveragePercent?: number;
   /** Vehicle color based on type (SCOUT=blue, RANGER=orange, UNKNOWN=gray) */
@@ -159,6 +160,10 @@ export class VehicleManager {
       originalEventTsMs: message.replay?.originalEventTsMs ?? messageTimestampMs,
       replayedAtTsMs: message.replay?.replayedAtTsMs ?? null,
       batteryPercent: message.batteryPercent ?? message.battery_percent,
+      remainingFlightTimeSec:
+        message.remainingFlightTimeSec ??
+        message.remaining_flight_time_sec ??
+        null,
       linkQualityPercent: message.linkQualityPercent ?? message.link_quality,
       coveragePercent: message.coveragePercent ?? message.coverage_percent,
       color: color

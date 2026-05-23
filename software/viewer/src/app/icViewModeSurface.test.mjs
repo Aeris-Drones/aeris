@@ -51,6 +51,23 @@ fs.writeFileSync(path.join(RENDER_TEMP_ROOT, "degradedVehicleState.mjs"), `
   }
 `, "utf8");
 
+fs.writeFileSync(path.join(RENDER_TEMP_ROOT, "batteryMonitoring.mjs"), `
+  export function getBatteryLevel(percent) {
+    if (typeof percent !== "number" || !Number.isFinite(percent)) return "unknown";
+    if (percent > 50) return "healthy";
+    if (percent > 25) return "warning";
+    return "critical";
+  }
+  export function formatRemainingFlightTime(value) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "Unavailable";
+    if (value < 60) return Math.round(value) + "s";
+    if (value < 3600) return Math.floor(value / 60) + "m";
+    const hours = Math.floor(value / 3600);
+    const minutes = Math.floor((value % 3600) / 60);
+    return minutes > 0 ? hours + "h " + minutes + "m" : hours + "h";
+  }
+`, "utf8");
+
 fs.writeFileSync(path.join(RENDER_TEMP_ROOT, "detectionViewState.mjs"), `
   export function getConfidenceTextClass() {
     return "text-emerald-300";
@@ -81,6 +98,7 @@ fs.writeFileSync(path.join(RENDER_TEMP_ROOT, "lucide-react.mjs"), `
   export const MapPin = icon("MapPin");
   export const Radio = icon("Radio");
   export const Signal = icon("Signal");
+  export const TimerReset = icon("TimerReset");
   export const Video = icon("Video");
   export const Wind = icon("Wind");
   export const X = icon("X");
@@ -123,6 +141,7 @@ async function renderComponent(relativePath, exportName, props) {
     .replaceAll("@/components/ui/badge", "./badge.mjs")
     .replaceAll("@/lib/utils", "./utils.mjs")
     .replaceAll("@/lib/degradedVehicleState", "./degradedVehicleState.mjs")
+    .replaceAll("@/lib/batteryMonitoring", "./batteryMonitoring.mjs")
     .replaceAll("@/lib/detectionViewState", "./detectionViewState.mjs")
     .replaceAll("lucide-react", "./lucide-react.mjs");
 
@@ -258,6 +277,7 @@ test("VehicleCard only renders the feed action when a feed callback is provided"
     altitude: 46,
     linkQuality: 77,
     coverage: 64,
+    remainingFlightTimeSec: 540,
     slamMode: "vio",
   };
 
@@ -277,6 +297,65 @@ test("VehicleCard only renders the feed action when a feed callback is provided"
     viewMode: "operator",
   });
   assert.match(operatorMarkup, />Feed</, "operator vehicle cards should still expose the feed action");
+});
+
+test("VehicleCard uses the shared battery thresholds and explicit remaining-flight fallback copy", async () => {
+  const healthyMarkup = await renderComponent("components/sheets/VehicleCard.tsx", "VehicleCard", {
+    vehicle: {
+      id: "scout-1",
+      name: "Scout 1",
+      status: "active",
+      battery: 51,
+      altitude: 46,
+      linkQuality: 77,
+      coverage: 64,
+      remainingFlightTimeSec: 540,
+      slamMode: "vio",
+    },
+    isSelected: false,
+    onLocate: () => {},
+    viewMode: "operator",
+  });
+  assert.match(healthyMarkup, /text-emerald-400/);
+  assert.match(healthyMarkup, />9m</);
+
+  const warningMarkup = await renderComponent("components/sheets/VehicleCard.tsx", "VehicleCard", {
+    vehicle: {
+      id: "scout-2",
+      name: "Scout 2",
+      status: "warning",
+      battery: 40,
+      altitude: 46,
+      linkQuality: 77,
+      coverage: 64,
+      remainingFlightTimeSec: 180,
+      slamMode: "vio",
+    },
+    isSelected: false,
+    onLocate: () => {},
+    viewMode: "operator",
+  });
+  assert.match(warningMarkup, /text-amber-400/);
+  assert.match(warningMarkup, />3m</);
+
+  const criticalMarkup = await renderComponent("components/sheets/VehicleCard.tsx", "VehicleCard", {
+    vehicle: {
+      id: "ranger-1",
+      name: "Ranger 1",
+      status: "error",
+      battery: 25,
+      altitude: 46,
+      linkQuality: 77,
+      coverage: 64,
+      remainingFlightTimeSec: null,
+      slamMode: "liosam",
+    },
+    isSelected: false,
+    onLocate: () => {},
+    viewMode: "operator",
+  });
+  assert.match(criticalMarkup, /text-red-400/);
+  assert.match(criticalMarkup, />Unavailable</);
 });
 
 test("IC mode render branches use large, distance-readable tactical typography", async () => {

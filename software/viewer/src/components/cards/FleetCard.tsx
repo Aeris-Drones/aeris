@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, BatteryFull, BatteryMedium, BatteryLow, BatteryWarning } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getBatteryLevel } from '@/lib/batteryMonitoring';
 
 /**
  * Vehicle operational states for the fleet monitoring system.
@@ -63,7 +64,7 @@ function getBatteryIcon(percent: number | null) {
   if (percent === null) return <BatteryMedium className="h-4 w-4 opacity-50" />;
   if (percent > 75) return <BatteryFull className="h-4 w-4" />;
   if (percent > 50) return <BatteryMedium className="h-4 w-4" />;
-  if (percent > 20) return <BatteryLow className="h-4 w-4" />;
+  if (percent > 25) return <BatteryLow className="h-4 w-4" />;
   return <BatteryWarning className="h-4 w-4" />;
 }
 
@@ -73,10 +74,16 @@ function getBatteryIcon(percent: number | null) {
  * that may require immediate RTL (Return to Launch) decisions.
  */
 function getBatteryColor(percent: number | null) {
-  if (percent === null) return 'text-white/40';
-  if (percent > 50) return 'text-[var(--success)]';
-  if (percent > 20) return 'text-[var(--warning)]';
-  return 'text-[var(--danger)]';
+  switch (getBatteryLevel(percent)) {
+    case 'healthy':
+      return 'text-[var(--success)]';
+    case 'warning':
+      return 'text-[var(--warning)]';
+    case 'critical':
+      return 'text-[var(--danger)]';
+    default:
+      return 'text-white/40';
+  }
 }
 
 /**

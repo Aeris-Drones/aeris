@@ -20,6 +20,8 @@ The script connects to a rosbridge server at localhost:9090 and publishes:
 Two vehicles are simulated:
     - scout_1: Smaller radius (50m), lower altitude (30m), faster speed
     - ranger_1: Larger radius (80m), higher altitude (60m), slower speed
+    - both publish battery percentage; only scout_1 publishes a trustworthy
+      remaining-flight-time estimate to exercise the explicit unavailable path
 
 Coordinate Frames:
     All positions use geodetic coordinates (WGS84).
@@ -53,7 +55,9 @@ VEHICLES = [
         "speed": 0.5,            # Angular velocity in rad/s
         "altitude_base": 30.0,   # Base altitude in meters
         "altitude_var": 5.0,     # Altitude variation amplitude
-        "phase": 0.0             # Initial orbital phase
+        "phase": 0.0,            # Initial orbital phase
+        "battery_drain_rate": 0.45,
+        "remaining_time_available": True,
     },
     {
         "id": "ranger_1",
@@ -62,7 +66,9 @@ VEHICLES = [
         "speed": 0.3,
         "altitude_base": 60.0,
         "altitude_var": 2.0,
-        "phase": 3.14            # Start opposite to scout_1
+        "phase": 3.14,           # Start opposite to scout_1
+        "battery_drain_rate": 0.30,
+        "remaining_time_available": False,
     }
 ]
 
@@ -180,6 +186,11 @@ def run_publisher():
                 # Construct ROS timestamp
                 sec = int(now)
                 nanosec = int((now - sec) * 1e9)
+                battery_percent = max(8.0, 100.0 - ((elapsed * v['battery_drain_rate']) % 92.0))
+                remaining_flight_time_available = bool(v['remaining_time_available'])
+                remaining_flight_time_sec = (
+                    battery_percent * 18.0 if remaining_flight_time_available else 0.0
+                )
 
                 # Construct Telemetry message
                 msg = {
@@ -203,7 +214,10 @@ def run_publisher():
                         "x": vx,  # East velocity (m/s)
                         "y": vy,  # North velocity (m/s)
                         "z": vz   # Up velocity (m/s)
-                    }
+                    },
+                    "battery_percent": battery_percent,
+                    "remaining_flight_time_sec": remaining_flight_time_sec,
+                    "remaining_flight_time_available": remaining_flight_time_available,
                 }
 
                 vehicle_publisher.publish(roslibpy.Message(msg))

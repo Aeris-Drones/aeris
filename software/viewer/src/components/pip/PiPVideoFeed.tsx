@@ -13,6 +13,7 @@ import {
   VideoOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getBatteryLevel } from '@/lib/batteryMonitoring';
 
 interface Vehicle {
   id: string;
@@ -34,10 +35,16 @@ interface PiPVideoFeedProps {
 }
 
 function getBatteryColor(percent: number | null): string {
-  if (percent === null) return 'text-white/40';
-  if (percent > 60) return 'text-emerald-400';
-  if (percent > 30) return 'text-amber-400';
-  return 'text-red-400';
+  switch (getBatteryLevel(percent)) {
+    case 'healthy':
+      return 'text-emerald-400';
+    case 'warning':
+      return 'text-amber-400';
+    case 'critical':
+      return 'text-red-400';
+    default:
+      return 'text-white/40';
+  }
 }
 
 function getSignalIcon(isLive: boolean) {

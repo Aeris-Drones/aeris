@@ -83,3 +83,65 @@ test("parseVehicleTelemetry leaves optional percentages unset when telemetry rep
   assert.equal(parsed.link_quality, undefined);
   assert.equal(parsed.coverage_percent, undefined);
 });
+
+test("parseVehicleTelemetry keeps remaining flight time only when telemetry marks it available", () => {
+  const parsed = parseVehicleTelemetry({
+    vehicle_id: "scout_3",
+    vehicle_type: "scout",
+    timestamp: { sec: 1_700_000_002, nanosec: 0 },
+    position: {
+      latitude: 33.2,
+      longitude: -87.5,
+      altitude: 150,
+    },
+    orientation: {
+      roll: 0,
+      pitch: 0,
+      yaw: 0.1,
+    },
+    velocity: {
+      x: 1,
+      y: 2,
+      z: 3,
+    },
+    battery_percent: 36,
+    remaining_flight_time_available: true,
+    remaining_flight_time_sec: 540,
+  });
+
+  assert.equal(parsed.remaining_flight_time_available, true);
+  assert.equal(parsed.remaining_flight_time_sec, 540);
+  assert.equal(parsed.remainingFlightTimeAvailable, true);
+  assert.equal(parsed.remainingFlightTimeSec, 540);
+});
+
+test("parseVehicleTelemetry drops remaining flight time when telemetry marks the estimate unavailable", () => {
+  const parsed = parseVehicleTelemetry({
+    vehicle_id: "ranger_2",
+    vehicle_type: "ranger",
+    timestamp: { sec: 1_700_000_003, nanosec: 0 },
+    position: {
+      latitude: 33.2,
+      longitude: -87.5,
+      altitude: 160,
+    },
+    orientation: {
+      roll: 0,
+      pitch: 0,
+      yaw: 0.1,
+    },
+    velocity: {
+      x: 1,
+      y: 2,
+      z: 3,
+    },
+    battery_percent: 18,
+    remaining_flight_time_available: false,
+    remaining_flight_time_sec: 120,
+  });
+
+  assert.equal(parsed.remaining_flight_time_available, false);
+  assert.equal(parsed.remaining_flight_time_sec, undefined);
+  assert.equal(parsed.remainingFlightTimeAvailable, false);
+  assert.equal(parsed.remainingFlightTimeSec, undefined);
+});
