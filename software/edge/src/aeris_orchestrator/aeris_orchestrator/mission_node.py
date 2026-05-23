@@ -1296,7 +1296,11 @@ class MissionNode(Node):
         effective_mode = self._pod_capability_registry.effective_slam_mode(
             normalized_vehicle_id, requested_mode
         )
-        if requested_mode == "liosam" and effective_mode != requested_mode:
+        requested_lidar_mode = str(requested_mode).strip().lower() in {
+            "liosam",
+            "lio_sam",
+        }
+        if requested_lidar_mode and effective_mode != "liosam":
             if normalized_vehicle_id not in self._logged_lidar_downgrades:
                 self.get_logger().warning(
                     "LiDAR-backed SLAM unavailable for %s; falling back to vio"

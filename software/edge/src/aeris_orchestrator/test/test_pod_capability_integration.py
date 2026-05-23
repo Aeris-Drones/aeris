@@ -41,12 +41,14 @@ def test_mission_node_withdraws_lidar_backed_mode_on_disconnect_or_fault() -> No
         )
         node._handle_pod_status_array(disconnected)
         assert node._slam_mode_for_vehicle("scout1") == "vio"
+        assert "scout_1" in node._logged_lidar_downgrades
 
         faulted = PodStatusArray()
         pod = _pod_status(lifecycle_state=PodStatus.STATE_FAULTED)
         pod.fault_code = "link_enumeration_failed"
         faulted.pods.append(pod)
         node._handle_pod_status_array(faulted)
+        node._vehicle_slam_mode_overrides["scout_1"] = "lio_sam"
         assert node._slam_mode_for_vehicle("scout_1") == "vio"
     finally:
         if node is not None:

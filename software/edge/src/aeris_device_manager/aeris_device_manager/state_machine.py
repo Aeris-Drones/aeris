@@ -1,7 +1,7 @@
 """Deterministic pod lifecycle controller for the Aeris device manager."""
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Callable, Protocol, TypeVar
 
 from .adapters import (
     DeviceManagerError,
@@ -18,15 +18,17 @@ from .models import (
     PodStatusSnapshot,
 )
 
+_StageResult = TypeVar("_StageResult")
+
 
 class DeviceManagerClock(Protocol):
     """Minimal clock abstraction for deterministic time and timestamp handling."""
 
     def monotonic(self) -> float:
-        ...
+        pass
 
     def wall_time(self) -> float:
-        ...
+        pass
 
 
 @dataclass(frozen=True)
@@ -77,7 +79,7 @@ class DeviceManagerStateMachine:
         self._adapter = adapter
         self._clock = clock
         self._enumeration_budget_sec = float(max(0.1, enumeration_budget_sec))
-        self._runtimes: dict[tuple[str, str], _PodRuntime] = {}
+        self._runtimes: dict[tuple[str, str, str], _PodRuntime] = {}
 
     def reconcile(self) -> ReconcileResult:
         transitions: list[tuple[PodStatusSnapshot, ...]] = []
@@ -197,7 +199,12 @@ class DeviceManagerStateMachine:
         runtime.fault_detail = ""
         self._emit_transition(runtime, PodLifecycleState.REGISTERED, transitions)
 
-    def _timed_stage(self, runtime: _PodRuntime, stage: str, action):
+    def _timed_stage(
+        self,
+        runtime: _PodRuntime,
+        stage: str,
+        action: Callable[[], _StageResult],
+    ) -> _StageResult:
         started = self._clock.monotonic()
         result = action()
         elapsed = self._clock.monotonic() - started
@@ -246,8 +253,9 @@ class DeviceManagerStateMachine:
         detail: str,
         transitions: list[tuple[PodStatusSnapshot, ...]],
     ) -> None:
-        if runtime.power_ready or runtime.link_ready:
-            self._adapter.power_off(runtime.detected_pod)
+        power_off_error = self._power_off_safely(runtime)
+        if power_off_error:
+            detail = f"{detail}; power_off_failed={power_off_error}"
         runtime.power_ready = False
         runtime.link_ready = False
         runtime.fault_code = code
@@ -261,13 +269,22 @@ class DeviceManagerStateMachine:
         runtime: _PodRuntime,
         transitions: list[tuple[PodStatusSnapshot, ...]],
     ) -> None:
-        if runtime.power_ready or runtime.link_ready:
-            self._adapter.power_off(runtime.detected_pod)
+        power_off_error = self._power_off_safely(runtime)
+        if power_off_error:
+            runtime.fault_code = "power_off_failed"
+            runtime.fault_detail = power_off_error
         runtime.connected = False
         runtime.power_ready = False
         runtime.link_ready = False
         runtime.last_seen_sec = self._clock.wall_time()
         self._emit_transition(runtime, PodLifecycleState.DISCONNECTED, transitions)
+
+    def _power_off_safely(self, runtime: _PodRuntime) -> str:
+        try:
+            self._adapter.power_off(runtime.detected_pod)
+        except Exception as error:
+            return str(error) or error.__class__.__name__
+        return ""
 
     def _emit_transition(
         self,
@@ -315,8 +332,8 @@ class DeviceManagerStateMachine:
         )
 
     @staticmethod
-    def _pod_key(pod: DetectedPod) -> tuple[str, str]:
-        return (pod.vehicle_id.strip(), pod.slot_id.strip())
+    def _pod_key(pod: DetectedPod) -> tuple[str, str, str]:
+        return (pod.vehicle_id.strip(), pod.slot_id.strip(), pod.one_wire_id.strip())
 
     @staticmethod
     def _unique_capabilities(capabilities: tuple[str, ...] | list[str]) -> tuple[str, ...]:

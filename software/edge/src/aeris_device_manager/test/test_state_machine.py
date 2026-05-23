@@ -4,6 +4,7 @@ from aeris_device_manager.adapters import (
     InvalidEepromError,
     PodHardwareAdapter,
     PowerBudgetDeniedError,
+    SoftStartError,
     UnsupportedPodError,
 )
 from aeris_device_manager.models import (
@@ -41,6 +42,7 @@ class FakeHardwareAdapter(PodHardwareAdapter):
         stage_durations: dict[str, float] | None = None,
         scan_pods: list[DetectedPod] | None = None,
         failure: str | None = None,
+        power_off_failure: Exception | None = None,
     ) -> None:
         self.clock = clock
         self.metadata = metadata or PodMetadata(
@@ -62,12 +64,15 @@ class FakeHardwareAdapter(PodHardwareAdapter):
             DetectedPod(vehicle_id="scout_1", slot_id="bay_a", one_wire_id="28-0001")
         ]
         self.failure = failure
+        self.power_off_failure = power_off_failure
         self.power_off_calls: list[tuple[str, str]] = []
+        self.eeprom_reads: list[str] = []
 
     def scan(self) -> list[DetectedPod]:
         return list(self.scan_pods)
 
     def read_eeprom(self, pod: DetectedPod) -> PodMetadata:
+        self.eeprom_reads.append(pod.one_wire_id)
         self.clock.advance(self.stage_durations["eeprom_crc"])
         if self.failure == "invalid_eeprom":
             raise InvalidEepromError(
@@ -91,6 +96,11 @@ class FakeHardwareAdapter(PodHardwareAdapter):
 
     def soft_start(self, pod: DetectedPod, metadata: PodMetadata) -> None:
         self.clock.advance(self.stage_durations["soft_start"])
+        if self.failure == "soft_start":
+            raise SoftStartError(
+                code="soft_start_failed",
+                detail=f"soft-start failed for {pod.one_wire_id}",
+            )
 
     def enumerate_link(self, pod: DetectedPod, metadata: PodMetadata) -> PodLinkInfo:
         self.clock.advance(self.stage_durations["link_enumeration"])
@@ -103,6 +113,8 @@ class FakeHardwareAdapter(PodHardwareAdapter):
         return tuple(link.capabilities or metadata.capabilities)
 
     def power_off(self, pod: DetectedPod) -> None:
+        if self.power_off_failure is not None:
+            raise self.power_off_failure
         self.power_off_calls.append((pod.vehicle_id, pod.slot_id))
 
 
@@ -166,6 +178,36 @@ def test_marks_registered_pod_disconnected_and_powers_it_off() -> None:
     assert second_result.current[0].power_ready is False
     assert second_result.current[0].link_ready is False
     assert second_result.current[0].capabilities == ("lidar", "mapping")
+    assert adapter.power_off_calls == [("scout_1", "bay_a")]
+
+
+def test_reenumerates_when_same_slot_reports_new_one_wire_id() -> None:
+    clock = FakeClock()
+    adapter = FakeHardwareAdapter(clock)
+    machine = DeviceManagerStateMachine(adapter, clock=clock, enumeration_budget_sec=15.0)
+
+    first_result = machine.reconcile()
+    assert first_result.current[0].pod_serial == "LDR-001"
+
+    adapter.metadata = PodMetadata(
+        serial="GAS-002",
+        pod_type="gas",
+        capabilities=("gas",),
+        nominal_power_watts=18.0,
+    )
+    adapter.capabilities = adapter.metadata.capabilities
+    adapter.scan_pods = [
+        DetectedPod(vehicle_id="scout_1", slot_id="bay_a", one_wire_id="28-0002")
+    ]
+
+    second_result = machine.reconcile()
+
+    current_by_one_wire = {pod.one_wire_id: pod for pod in second_result.current}
+    assert current_by_one_wire["28-0001"].lifecycle_state is PodLifecycleState.DISCONNECTED
+    assert current_by_one_wire["28-0002"].lifecycle_state is PodLifecycleState.REGISTERED
+    assert current_by_one_wire["28-0002"].pod_serial == "GAS-002"
+    assert current_by_one_wire["28-0002"].capabilities == ("gas",)
+    assert adapter.eeprom_reads == ["28-0001", "28-0002"]
     assert adapter.power_off_calls == [("scout_1", "bay_a")]
 
 
@@ -242,3 +284,66 @@ def test_faults_when_enumeration_exceeds_budget() -> None:
     assert pod.fault_code == "enumeration_timeout"
     assert pod.enumeration_elapsed_sec == pytest.approx(16.0)
     assert adapter.power_off_calls == [("scout_1", "bay_a")]
+
+
+def test_soft_start_fault_powers_off_before_power_ready() -> None:
+    clock = FakeClock()
+    adapter = FakeHardwareAdapter(clock, failure="soft_start")
+    machine = DeviceManagerStateMachine(adapter, clock=clock, enumeration_budget_sec=15.0)
+
+    result = machine.reconcile()
+
+    pod = result.current[0]
+    assert pod.lifecycle_state is PodLifecycleState.FAULTED
+    assert pod.fault_code == "soft_start_failed"
+    assert pod.power_ready is False
+    assert pod.link_ready is False
+    assert adapter.power_off_calls == [("scout_1", "bay_a")]
+
+
+def test_pre_power_timeout_still_attempts_power_off() -> None:
+    clock = FakeClock()
+    adapter = FakeHardwareAdapter(clock, stage_durations={"eeprom_crc": 16.0})
+    machine = DeviceManagerStateMachine(adapter, clock=clock, enumeration_budget_sec=15.0)
+
+    result = machine.reconcile()
+
+    pod = result.current[0]
+    assert pod.lifecycle_state is PodLifecycleState.FAULTED
+    assert pod.fault_code == "enumeration_timeout"
+    assert adapter.power_off_calls == [("scout_1", "bay_a")]
+
+
+def test_power_off_failure_does_not_prevent_fault_publication() -> None:
+    clock = FakeClock()
+    adapter = FakeHardwareAdapter(
+        clock,
+        failure="soft_start",
+        power_off_failure=RuntimeError("relay unavailable"),
+    )
+    machine = DeviceManagerStateMachine(adapter, clock=clock, enumeration_budget_sec=15.0)
+
+    result = machine.reconcile()
+
+    pod = result.current[0]
+    assert pod.lifecycle_state is PodLifecycleState.FAULTED
+    assert pod.fault_code == "soft_start_failed"
+    assert "power_off_failed=relay unavailable" in pod.fault_detail
+
+
+def test_power_off_failure_does_not_prevent_disconnect_publication() -> None:
+    clock = FakeClock()
+    adapter = FakeHardwareAdapter(
+        clock,
+        power_off_failure=RuntimeError("relay unavailable"),
+    )
+    machine = DeviceManagerStateMachine(adapter, clock=clock, enumeration_budget_sec=15.0)
+
+    machine.reconcile()
+    adapter.scan_pods = []
+    result = machine.reconcile()
+
+    pod = result.current[0]
+    assert pod.lifecycle_state is PodLifecycleState.DISCONNECTED
+    assert pod.fault_code == "power_off_failed"
+    assert pod.fault_detail == "relay unavailable"

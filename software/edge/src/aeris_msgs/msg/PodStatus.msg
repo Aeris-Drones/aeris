@@ -23,7 +23,7 @@ bool power_ready
 bool link_ready
 builtin_interfaces/Time first_seen
 builtin_interfaces/Time last_seen
-float32 enumeration_elapsed_sec
+float64 enumeration_elapsed_sec
 aeris_msgs/PodStageTiming[] stage_timings
 string rejection_code
 string rejection_detail
