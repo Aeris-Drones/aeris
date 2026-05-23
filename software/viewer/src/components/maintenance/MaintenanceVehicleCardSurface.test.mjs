@@ -166,3 +166,19 @@ test("MaintenanceVehicleCard renders expanded calibration and pod detail states"
   assert.match(markup, /GAS-9/);
   assert.match(markup, /aria-expanded="true"/);
 });
+
+test("MaintenanceVehicleCard tolerates missing calibration detail rows", async () => {
+  const markup = await renderCard({
+    vehicle: {
+      ...vehicle,
+      detailChecks: [vehicle.detailChecks[0]],
+    },
+    expanded: true,
+    onToggle: () => {},
+  });
+
+  assert.match(markup, /IMU calibration/);
+  assert.doesNotMatch(markup, /Compass calibration/);
+  assert.doesNotMatch(markup, /Accelerometer/);
+  assert.match(markup, /Attached pods/);
+});

@@ -59,6 +59,7 @@ export function MaintenanceVehicleCard({
   const lastContactLabel = vehicle.isOffline
     ? `Last contact ${formatLastContactAge(vehicle.lastContactAgeMs)} ago`
     : 'Live telemetry';
+  const [imuCheck, compassCheck, accelerometerCheck] = vehicle.detailChecks;
 
   return (
     <Card
@@ -129,9 +130,15 @@ export function MaintenanceVehicleCard({
             Calibration detail
           </div>
           <div className="space-y-1">
-            <DetailRow check={vehicle.detailChecks[0]} icon={<Cpu className="h-4 w-4" />} testId="maintenance-detail-imu" />
-            <DetailRow check={vehicle.detailChecks[1]} icon={<Compass className="h-4 w-4" />} testId="maintenance-detail-compass" />
-            <DetailRow check={vehicle.detailChecks[2]} icon={<Gauge className="h-4 w-4" />} testId="maintenance-detail-accelerometer" />
+            {imuCheck ? (
+              <DetailRow check={imuCheck} icon={<Cpu className="h-4 w-4" />} testId="maintenance-detail-imu" />
+            ) : null}
+            {compassCheck ? (
+              <DetailRow check={compassCheck} icon={<Compass className="h-4 w-4" />} testId="maintenance-detail-compass" />
+            ) : null}
+            {accelerometerCheck ? (
+              <DetailRow check={accelerometerCheck} icon={<Gauge className="h-4 w-4" />} testId="maintenance-detail-accelerometer" />
+            ) : null}
           </div>
 
           <div className="mt-4 border-t border-white/8 pt-4">
