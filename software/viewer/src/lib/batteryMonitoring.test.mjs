@@ -40,6 +40,12 @@ test("shared battery thresholds stay anchored at the story contract", () => {
   assert.equal(getBatteryLevel(null), "unknown");
 });
 
+test("shared battery thresholds sanitize custom low-battery values above the healthy boundary", () => {
+  assert.equal(getBatteryLevel(55, 60), "healthy");
+  assert.equal(getBatteryLevel(50, 60), "warning");
+  assert.equal(getBatteryLevel(49.9, 60), "critical");
+});
+
 test("deriveBatteryAlertTransitions only emits one low-battery alert while a vehicle stays below threshold", () => {
   const first = deriveBatteryAlertTransitions(
     new Map(),
@@ -145,6 +151,34 @@ test("deriveBatteryAlertTransitions emits recovery and allows a later low crossi
       alertId: getLowBatteryAlertId("ranger_1"),
     },
   ]);
+});
+
+test("deriveBatteryAlertTransitions clears a stuck low-battery alert when the vehicle leaves the active fleet", () => {
+  const first = deriveBatteryAlertTransitions(
+    new Map(),
+    [{ id: "scout_1", name: "SCOUT 1", battery: 22, remainingFlightTimeSec: 420 }]
+  );
+
+  const missingVehicle = deriveBatteryAlertTransitions(first.state, []);
+
+  assert.deepEqual(missingVehicle.transitions, [
+    {
+      type: "cleared",
+      vehicleId: "scout_1",
+      vehicleName: null,
+      battery: null,
+      remainingFlightTimeSec: null,
+      alertId: getLowBatteryAlertId("scout_1"),
+    },
+  ]);
+  assert.equal(missingVehicle.state.has("scout_1"), false);
+
+  const healthyReconnect = deriveBatteryAlertTransitions(
+    missingVehicle.state,
+    [{ id: "scout_1", name: "SCOUT 1", battery: 61, remainingFlightTimeSec: 600 }]
+  );
+
+  assert.equal(healthyReconnect.transitions.length, 0);
 });
 
 test("formatRemainingFlightTime uses an explicit unavailable fallback", () => {

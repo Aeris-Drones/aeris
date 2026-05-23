@@ -11,25 +11,44 @@ export interface BatteryAlertVehicle {
 }
 
 export interface BatteryAlertTransition {
-  type: "entered_low" | "recovered";
+  type: "entered_low" | "recovered" | "cleared";
   vehicleId: string;
-  vehicleName: string;
-  battery: number;
+  vehicleName: string | null;
+  battery: number | null;
   remainingFlightTimeSec: number | null;
   alertId: string;
+}
+
+function getEffectiveLowBatteryThresholdPercent(
+  lowBatteryThresholdPercent: number
+): number {
+  if (!Number.isFinite(lowBatteryThresholdPercent)) {
+    return LOW_BATTERY_WARNING_THRESHOLD_PERCENT;
+  }
+
+  return Math.max(
+    0,
+    Math.min(
+      lowBatteryThresholdPercent,
+      BATTERY_HEALTHY_THRESHOLD_PERCENT - 0.01
+    )
+  );
 }
 
 export function getBatteryLevel(
   batteryPercent: number | null | undefined,
   lowBatteryThresholdPercent: number = LOW_BATTERY_WARNING_THRESHOLD_PERCENT
 ): BatteryLevel {
+  const effectiveLowBatteryThresholdPercent = getEffectiveLowBatteryThresholdPercent(
+    lowBatteryThresholdPercent
+  );
   if (typeof batteryPercent !== "number" || !Number.isFinite(batteryPercent)) {
     return "unknown";
   }
   if (batteryPercent > BATTERY_HEALTHY_THRESHOLD_PERCENT) {
     return "healthy";
   }
-  if (batteryPercent > lowBatteryThresholdPercent) {
+  if (batteryPercent > effectiveLowBatteryThresholdPercent) {
     return "warning";
   }
   return "critical";
@@ -75,8 +94,10 @@ export function deriveBatteryAlertTransitions(
 } {
   const nextState = new Map<string, boolean>();
   const transitions: BatteryAlertTransition[] = [];
+  const currentVehicleIds = new Set<string>();
 
   for (const vehicle of vehicles) {
+    currentVehicleIds.add(vehicle.id);
     const battery = vehicle.battery;
     const hasBatteryReading =
       typeof battery === "number" && Number.isFinite(battery);
@@ -113,6 +134,21 @@ export function deriveBatteryAlertTransitions(
         alertId: getLowBatteryAlertId(vehicle.id),
       });
     }
+  }
+
+  for (const [vehicleId, wasLowBattery] of previousState.entries()) {
+    if (!wasLowBattery || currentVehicleIds.has(vehicleId)) {
+      continue;
+    }
+
+    transitions.push({
+      type: "cleared",
+      vehicleId,
+      vehicleName: null,
+      battery: null,
+      remainingFlightTimeSec: null,
+      alertId: getLowBatteryAlertId(vehicleId),
+    });
   }
 
   return {

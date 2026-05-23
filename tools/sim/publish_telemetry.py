@@ -35,8 +35,7 @@ import sys
 try:
     import roslibpy
 except ImportError:
-    print("Error: roslibpy not installed. Please install it.")
-    sys.exit(1)
+    roslibpy = None
 
 # ROS bridge connection settings
 HOST = 'localhost'
@@ -106,6 +105,24 @@ def meters_to_lon(meters, lat):
     return meters / (111111.0 * math.cos(math.radians(lat)))
 
 
+def compute_remaining_flight_time_seconds(
+    battery_percent, battery_drain_rate, remaining_time_available
+):
+    """Return a simulated battery-endurance estimate in seconds.
+
+    When the estimate is unavailable, publish -1.0 as an explicit sentinel so
+    raw rosbridge consumers do not confuse the value with an actual zero-second
+    estimate.
+    """
+    if not remaining_time_available:
+      return -1.0
+
+    if battery_drain_rate <= 0:
+      return -1.0
+
+    return battery_percent / battery_drain_rate
+
+
 def run_publisher():
     """Main publisher loop for vehicle telemetry and mission state.
 
@@ -117,6 +134,10 @@ def run_publisher():
     ENU coordinate frame conventions. Velocities are computed as derivatives
     of the position equations.
     """
+    if roslibpy is None:
+        print("Error: roslibpy not installed. Please install it.")
+        return
+
     client = roslibpy.Ros(host=HOST, port=PORT)
 
     try:
@@ -188,8 +209,10 @@ def run_publisher():
                 nanosec = int((now - sec) * 1e9)
                 battery_percent = max(8.0, 100.0 - ((elapsed * v['battery_drain_rate']) % 92.0))
                 remaining_flight_time_available = bool(v['remaining_time_available'])
-                remaining_flight_time_sec = (
-                    battery_percent * 18.0 if remaining_flight_time_available else 0.0
+                remaining_flight_time_sec = compute_remaining_flight_time_seconds(
+                    battery_percent,
+                    v['battery_drain_rate'],
+                    remaining_flight_time_available,
                 )
 
                 # Construct Telemetry message

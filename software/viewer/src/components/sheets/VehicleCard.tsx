@@ -110,8 +110,8 @@ const statusConfig: Record<VehicleStatus, {
 /**
  * Returns the appropriate color class for a given battery percentage.
  *
- * Thresholds align with operator training: <20% requires immediate RTH
- * per flight safety protocols. Colors match statusConfig for consistency.
+ * Colors match the shared getBatteryLevel thresholds so cards, fleet summary,
+ * and alerts all classify battery health the same way.
  */
 function getBatteryColor(battery: number | null): string {
   switch (getBatteryLevel(battery)) {
@@ -221,7 +221,7 @@ export function VehicleCard({
   const isIcMode = viewMode === 'ic';
   const batteryDisplay = typeof vehicle.battery === 'number' ? Math.round(vehicle.battery) : null;
   const remainingFlightTimeLabel = formatRemainingFlightTime(vehicle.remainingFlightTimeSec);
-  const remainingFlightTimeUnavailable = remainingFlightTimeLabel === 'Unavailable';
+  const remainingFlightTimeUnavailable = vehicle.remainingFlightTimeSec == null;
 
   return (
     <div

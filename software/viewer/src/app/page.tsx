@@ -447,11 +447,14 @@ function V2PageContent() {
       }
 
       dismissAlert(transition.alertId);
+      if (transition.type === 'cleared') {
+        return;
+      }
       showAlert({
         id: `battery-recovered-${transition.vehicleId}-${Date.now()}`,
         severity: 'info',
-        title: `${transition.vehicleName} battery recovered`,
-        description: `${transition.battery}% remaining`,
+        title: `${transition.vehicleName ?? transition.vehicleId} battery recovered`,
+        description: transition.battery == null ? 'Telemetry restored' : `${Math.round(transition.battery)}% remaining`,
         dismissible: true,
       }, { playSound: false });
     });

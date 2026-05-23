@@ -57,7 +57,7 @@ const statusColors: Record<VehicleStatus, string> = {
 
 /**
  * Returns battery icon based on charge level.
- * Icon changes at 75%, 50%, and 20% thresholds to provide
+ * Icon changes at 75%, 50%, and 25% thresholds to provide
  * at-a-glance status assessment during high-tempo operations.
  */
 function getBatteryIcon(percent: number | null) {

@@ -174,7 +174,7 @@ export function getVehicleStatusConfig(status: VehicleStatus): {
 /**
  * Returns CSS class for battery level indicator.
  *
- * Thresholds: >50% success, >20% warning, <=20% danger.
+ * Thresholds: >50% success, >25% warning, <=25% danger.
  */
 export function getBatteryColor(percent: number): string {
   switch (getBatteryLevel(percent)) {
