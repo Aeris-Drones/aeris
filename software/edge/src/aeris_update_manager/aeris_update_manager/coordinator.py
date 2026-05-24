@@ -29,7 +29,6 @@ class FirmwareUpdateCoordinator:
             inactive_slot="unknown",
             current_version="unknown",
         )
-        original_state = unknown_state
         last_known_state = unknown_state
         last_known_version = unknown_state.current_version
 
