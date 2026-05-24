@@ -1,6 +1,8 @@
 from aeris_update_manager.adapters import (
     FirmwareUpdateAdapter,
     HealthcheckError,
+    FirmwareUpdateError,
+    RollbackError,
     SignatureValidationError,
 )
 from aeris_update_manager.coordinator import FirmwareUpdateCoordinator
@@ -21,6 +23,8 @@ class FakeFirmwareUpdateAdapter(FirmwareUpdateAdapter):
         inactive_slot: str = "B",
         signature_valid: bool = True,
         healthcheck_passes: bool = True,
+        partition_state_failure: FirmwareUpdateError | None = None,
+        rollback_failure: RollbackError | None = None,
     ) -> None:
         self.partition_state = FirmwarePartitionState(
             active_slot=active_slot,
@@ -29,12 +33,16 @@ class FakeFirmwareUpdateAdapter(FirmwareUpdateAdapter):
         )
         self.signature_valid = signature_valid
         self.healthcheck_passes = healthcheck_passes
+        self.partition_state_failure = partition_state_failure
+        self.rollback_failure = rollback_failure
         self.downloaded_packages: list[str] = []
         self.applied_slots: list[str] = []
         self.boot_switches: list[str] = []
         self.rollbacks: list[str] = []
 
     def get_partition_state(self, vehicle_id: str) -> FirmwarePartitionState:
+        if self.partition_state_failure is not None:
+            raise self.partition_state_failure
         return self.partition_state
 
     def download_package(self, command: FirmwareUpdateCommand) -> StagedFirmwarePackage:
@@ -82,6 +90,8 @@ class FakeFirmwareUpdateAdapter(FirmwareUpdateAdapter):
         )
 
     def rollback_boot_slot(self, vehicle_id: str, slot: str) -> None:
+        if self.rollback_failure is not None:
+            raise self.rollback_failure
         self.rollbacks.append(slot)
         self.partition_state = FirmwarePartitionState(
             active_slot=slot,
@@ -115,6 +125,27 @@ def test_rejects_invalid_signatures_before_slot_swap() -> None:
     assert history[-1].rollback_performed is False
     assert adapter.applied_slots == []
     assert adapter.boot_switches == []
+
+
+def test_returns_structured_failed_status_when_partition_state_lookup_fails() -> None:
+    adapter = FakeFirmwareUpdateAdapter(
+        partition_state_failure=FirmwareUpdateError(
+            code="partition_state_unavailable",
+            detail="boot metadata unavailable",
+        )
+    )
+    coordinator = FirmwareUpdateCoordinator(adapter)
+
+    history = coordinator.execute_update(_command())
+
+    assert [snapshot.lifecycle_state for snapshot in history] == [
+        FirmwareUpdateLifecycleState.FAILED,
+    ]
+    assert history[-1].active_slot == "unknown"
+    assert history[-1].inactive_slot == "unknown"
+    assert history[-1].current_version == "unknown"
+    assert history[-1].error_code == "partition_state_unavailable"
+    assert history[-1].error_detail == "boot metadata unavailable"
 
 
 def test_progresses_through_ab_update_and_reports_complete() -> None:
@@ -157,3 +188,30 @@ def test_rolls_back_when_healthcheck_fails_after_boot_swap() -> None:
     assert history[-1].current_version == "2026.04.9"
     assert history[-1].error_code == "healthcheck_failed"
     assert adapter.rollbacks == ["A"]
+
+
+def test_reports_last_known_slot_and_version_when_rollback_fails() -> None:
+    adapter = FakeFirmwareUpdateAdapter(
+        healthcheck_passes=False,
+        rollback_failure=RollbackError(
+            code="rollback_unavailable",
+            detail="bootloader rejected rollback target",
+        ),
+    )
+    coordinator = FirmwareUpdateCoordinator(adapter)
+
+    history = coordinator.execute_update(_command())
+
+    assert [snapshot.lifecycle_state for snapshot in history] == [
+        FirmwareUpdateLifecycleState.DOWNLOADING,
+        FirmwareUpdateLifecycleState.VALIDATING,
+        FirmwareUpdateLifecycleState.APPLYING,
+        FirmwareUpdateLifecycleState.VERIFYING,
+        FirmwareUpdateLifecycleState.ROLLING_BACK,
+        FirmwareUpdateLifecycleState.FAILED,
+    ]
+    assert history[-1].active_slot == "B"
+    assert history[-1].inactive_slot == "A"
+    assert history[-1].current_version == "2026.05.23"
+    assert history[-1].error_code == "rollback_unavailable"
+    assert history[-1].error_detail == "bootloader rejected rollback target"

@@ -52,6 +52,9 @@ fs.writeFileSync(path.join(TEMP_ROOT, "firmwareUpdateStatus.mjs"), `
     if (state === "failed") return "danger";
     return "info";
   }
+  export function hasFreshFirmwareUpdateStatus(status) {
+    return ["applying", "verifying", "complete", "failed", "rolling_back", "rolled_back"].includes(status?.lifecycleState);
+  }
   export function isFirmwareUpdateActive(status) {
     return status?.lifecycleState === "applying" || status?.lifecycleState === "verifying";
   }
@@ -151,4 +154,22 @@ test("FirmwareUpdatePanel surfaces rollback outcomes with terminal detail", asyn
   assert.match(markup, /Vehicle returned to slot A/);
   assert.match(markup, /Post-update healthcheck failed/);
   assert.doesNotMatch(markup, /disabled=""/);
+});
+
+test("FirmwareUpdatePanel suppresses stale action errors when a fresher live status is present", async () => {
+  const markup = await renderPanel({
+    vehicleName: "SCOUT 2",
+    status: {
+      ...baseStatus,
+      lifecycleState: "verifying",
+      lifecycleLabel: "Verifying",
+      statusDetail: "Booted slot B; running healthcheck",
+    },
+    isSubmitting: false,
+    actionError: "firmware update service call timed out after 8000ms",
+    onSubmit: () => {},
+  });
+
+  assert.match(markup, /Booted slot B; running healthcheck/);
+  assert.doesNotMatch(markup, /timed out after 8000ms/);
 });

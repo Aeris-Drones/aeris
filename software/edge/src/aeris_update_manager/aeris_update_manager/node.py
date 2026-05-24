@@ -14,6 +14,7 @@ from .models import (
     FirmwareUpdateLifecycleState,
     FirmwareUpdateStatusSnapshot,
 )
+from .time_utils import is_successful_terminal_state, split_nanoseconds
 
 
 class FirmwareUpdateManagerNode(Node):
@@ -63,7 +64,15 @@ class FirmwareUpdateManagerNode(Node):
             package_uri=request.package_uri,
             package_signature=request.package_signature,
         )
-        history = self._coordinator.execute_update(command)
+        try:
+            history = self._coordinator.execute_update(command)
+        except Exception as error:
+            self.get_logger().error(
+                "Firmware update failed unexpectedly: %s" % error
+            )
+            response.accepted = False
+            response.message = str(error)
+            return response
         for snapshot in history:
             self._latest_statuses[snapshot.vehicle_id] = snapshot
             self._status_publisher.publish(
@@ -71,7 +80,9 @@ class FirmwareUpdateManagerNode(Node):
             )
 
         final_snapshot = history[-1]
-        response.accepted = final_snapshot.lifecycle_state is not FirmwareUpdateLifecycleState.FAILED
+        response.accepted = is_successful_terminal_state(
+            final_snapshot.lifecycle_state
+        )
         response.message = (
             final_snapshot.error_detail
             or final_snapshot.status_detail
@@ -83,7 +94,8 @@ class FirmwareUpdateManagerNode(Node):
         self, snapshots: tuple[FirmwareUpdateStatusSnapshot, ...]
     ) -> FirmwareUpdateStatusArray:
         message = FirmwareUpdateStatusArray()
-        message.observed_at = self._seconds_to_time(self.get_clock().now().nanoseconds / 1e9)
+        sec, nanosec = split_nanoseconds(self.get_clock().now().nanoseconds)
+        message.observed_at = self._time_from_parts(sec, nanosec)
         for snapshot in snapshots:
             message.updates.append(self._to_status(snapshot))
         return message
@@ -121,11 +133,10 @@ class FirmwareUpdateManagerNode(Node):
         }[state]
 
     @staticmethod
-    def _seconds_to_time(value: float) -> Time:
-        seconds = max(0.0, float(value))
+    def _time_from_parts(sec: int, nanosec: int) -> Time:
         time_message = Time()
-        time_message.sec = int(seconds)
-        time_message.nanosec = int((seconds - time_message.sec) * 1_000_000_000)
+        time_message.sec = max(0, int(sec))
+        time_message.nanosec = max(0, int(nanosec))
         return time_message
 
 

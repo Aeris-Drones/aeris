@@ -1,20 +1,80 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import ROSLIB from 'roslib';
 import { useSharedROSConnection } from '@/context/ROSConnectionContext';
 import { withServiceTimeout } from '@/lib/missionControlBehavior.js';
-import type { FirmwareUpdateCommandInput } from '@/lib/ros/firmwareUpdateStatus';
+import {
+  hasFreshFirmwareUpdateStatus,
+  type FirmwareUpdateCommandInput,
+  type FirmwareUpdateStatusSnapshot,
+} from '@/lib/ros/firmwareUpdateStatus';
 
-const FIRMWARE_UPDATE_SERVICE_TIMEOUT_MS = 8_000;
+const FIRMWARE_UPDATE_SERVICE_TIMEOUT_MS = 300_000; // Coordinator runs download, apply, reboot, and healthcheck synchronously.
 
 interface FirmwareUpdateActionResult {
   accepted: boolean;
   message: string;
 }
 
-export function useFirmwareUpdateAction() {
+export function reconcileFirmwareUpdateActionState(args: {
+  errorsByVehicle: Record<string, string | null>;
+  submittingVehicleId: string | null;
+  statuses: Pick<FirmwareUpdateStatusSnapshot, 'vehicleId' | 'lifecycleState'>[];
+}) {
+  const { errorsByVehicle, submittingVehicleId, statuses } = args;
+
+  let nextErrors = errorsByVehicle;
+  for (const status of statuses) {
+    if (!hasFreshFirmwareUpdateStatus(status)) {
+      continue;
+    }
+    if (nextErrors[status.vehicleId] == null) {
+      continue;
+    }
+    if (nextErrors === errorsByVehicle) {
+      nextErrors = { ...errorsByVehicle };
+    }
+    nextErrors[status.vehicleId] = null;
+  }
+
+  const nextSubmittingVehicleId =
+    submittingVehicleId &&
+    statuses.some(
+      (status) =>
+        status.vehicleId === submittingVehicleId &&
+        hasFreshFirmwareUpdateStatus(status)
+    )
+      ? null
+      : submittingVehicleId;
+
+  return {
+    errorsByVehicle: nextErrors,
+    submittingVehicleId: nextSubmittingVehicleId,
+  };
+}
+
+export function useFirmwareUpdateAction(
+  statuses: FirmwareUpdateStatusSnapshot[] = []
+) {
   const { ros, isConnected: rosConnected } = useSharedROSConnection();
   const [submittingVehicleId, setSubmittingVehicleId] = useState<string | null>(null);
   const [errorsByVehicle, setErrorsByVehicle] = useState<Record<string, string | null>>({});
+
+  useEffect(() => {
+    if (statuses.length === 0) {
+      return;
+    }
+    const reconciled = reconcileFirmwareUpdateActionState({
+      errorsByVehicle,
+      submittingVehicleId,
+      statuses,
+    });
+    if (reconciled.errorsByVehicle !== errorsByVehicle) {
+      setErrorsByVehicle(reconciled.errorsByVehicle);
+    }
+    if (reconciled.submittingVehicleId !== submittingVehicleId) {
+      setSubmittingVehicleId(reconciled.submittingVehicleId);
+    }
+  }, [errorsByVehicle, statuses, submittingVehicleId]);
 
   const requestUpdate = useCallback(
     async (request: FirmwareUpdateCommandInput): Promise<FirmwareUpdateActionResult> => {

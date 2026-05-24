@@ -53,7 +53,7 @@ export function MaintenanceDashboardPage() {
   const podStatus = usePodStatus();
   const diagnostics = useVehicleMaintenanceDiagnostics();
   const firmwareUpdates = useFirmwareUpdateStatus();
-  const { requestUpdate, submittingVehicleId, errorsByVehicle } = useFirmwareUpdateAction();
+  const { requestUpdate, submittingVehicleId, errorsByVehicle } = useFirmwareUpdateAction(firmwareUpdates.updates);
   const [expandedVehicleIds, setExpandedVehicleIds] = useState<string[]>([]);
 
   const liveDashboard = useMemo(

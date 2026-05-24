@@ -15,6 +15,7 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import {
   getFirmwareUpdateBadgeVariant,
+  hasFreshFirmwareUpdateStatus,
   isFirmwareUpdateActive,
   type FirmwareUpdateCommandInput,
   type FirmwareUpdateStatusSnapshot,
@@ -60,13 +61,15 @@ export function FirmwareUpdatePanel({
   const inactiveSlot = status?.inactiveSlot ?? '--';
   const statusVariant = getFirmwareUpdateBadgeVariant(status?.lifecycleState ?? 'idle');
   const statusLabel = status?.lifecycleLabel ?? 'Idle';
+  const displayActionError =
+    actionError && hasFreshFirmwareUpdateStatus(status) ? null : actionError;
   const detail =
-    actionError ??
+    displayActionError ??
     status?.statusDetail ??
     status?.errorDetail ??
     'No edge firmware status reported yet.';
   const secondaryDetail =
-    !actionError &&
+    !displayActionError &&
     status?.statusDetail &&
     status?.errorDetail &&
     status.statusDetail !== status.errorDetail
@@ -141,7 +144,7 @@ export function FirmwareUpdatePanel({
       <div
         className={cn(
           'mt-3 rounded-lg border px-3 py-3 text-sm',
-          actionError
+          displayActionError
             ? 'border-red-500/25 bg-red-500/10 text-red-100'
             : status?.lifecycleState === 'rolled_back' || status?.lifecycleState === 'failed'
               ? 'border-amber-400/25 bg-amber-500/10 text-amber-50'
@@ -149,7 +152,7 @@ export function FirmwareUpdatePanel({
         )}
       >
         <div className="flex items-start gap-2">
-          {actionError || status?.lifecycleState === 'failed' ? (
+          {displayActionError || status?.lifecycleState === 'failed' ? (
             <ShieldX className="mt-0.5 h-4 w-4 shrink-0" />
           ) : status?.lifecycleState === 'rolled_back' ? (
             <RotateCcw className="mt-0.5 h-4 w-4 shrink-0" />

@@ -24,7 +24,14 @@ class FirmwareUpdateCoordinator:
         self, command: FirmwareUpdateCommand
     ) -> tuple[FirmwareUpdateStatusSnapshot, ...]:
         history: list[FirmwareUpdateStatusSnapshot] = []
-        original_state = self._adapter.get_partition_state(command.vehicle_id)
+        unknown_state = FirmwarePartitionState(
+            active_slot="unknown",
+            inactive_slot="unknown",
+            current_version="unknown",
+        )
+        original_state = unknown_state
+        last_known_state = unknown_state
+        last_known_version = unknown_state.current_version
 
         def emit(
             lifecycle_state: FirmwareUpdateLifecycleState,
@@ -37,6 +44,7 @@ class FirmwareUpdateCoordinator:
             error_code: str = "",
             error_detail: str = "",
         ) -> FirmwareUpdateStatusSnapshot:
+            nonlocal last_known_state, last_known_version
             snapshot = FirmwareUpdateStatusSnapshot(
                 vehicle_id=command.vehicle_id,
                 package_id=command.package_id,
@@ -54,9 +62,14 @@ class FirmwareUpdateCoordinator:
                 error_detail=error_detail,
             )
             history.append(snapshot)
+            last_known_state = partition_state
+            last_known_version = snapshot.current_version
             return snapshot
 
         try:
+            original_state = self._adapter.get_partition_state(command.vehicle_id)
+            last_known_state = original_state
+            last_known_version = original_state.current_version
             emit(
                 FirmwareUpdateLifecycleState.DOWNLOADING,
                 10.0,
@@ -108,6 +121,12 @@ class FirmwareUpdateCoordinator:
                     error_detail=error.detail,
                 )
                 self._adapter.rollback_boot_slot(command.vehicle_id, original_state.active_slot)
+                last_known_state = FirmwarePartitionState(
+                    active_slot=original_state.active_slot,
+                    inactive_slot=verifying_state.active_slot,
+                    current_version=original_state.current_version,
+                )
+                last_known_version = original_state.current_version
                 rolled_back_state = self._adapter.get_partition_state(command.vehicle_id)
                 emit(
                     FirmwareUpdateLifecycleState.ROLLED_BACK,
@@ -133,7 +152,8 @@ class FirmwareUpdateCoordinator:
             emit(
                 FirmwareUpdateLifecycleState.FAILED,
                 history[-1].progress_percent if history else 0.0,
-                original_state,
+                last_known_state,
+                current_version=last_known_version,
                 status_detail="Firmware update failed before completion",
                 error_code=error.code,
                 error_detail=error.detail,

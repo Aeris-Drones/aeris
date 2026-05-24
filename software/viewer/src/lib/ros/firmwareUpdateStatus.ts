@@ -143,6 +143,21 @@ export function isFirmwareUpdateActive(
   );
 }
 
+export function hasFreshFirmwareUpdateStatus(
+  status?: Pick<FirmwareUpdateStatusSnapshot, 'lifecycleState'> | null
+): boolean {
+  if (!status) {
+    return false;
+  }
+  return (
+    isFirmwareUpdateActive(status) ||
+    status.lifecycleState === 'complete' ||
+    status.lifecycleState === 'failed' ||
+    status.lifecycleState === 'rolling_back' ||
+    status.lifecycleState === 'rolled_back'
+  );
+}
+
 export function getFirmwareUpdateBadgeVariant(
   state: FirmwareUpdateLifecycleState
 ): 'outline' | 'info' | 'success' | 'warning' | 'danger' {
