@@ -1,5 +1,7 @@
 """ROS 2 node wrapper for the Aeris firmware update coordinator."""
 
+import threading
+
 import rclpy
 from aeris_msgs.msg import FirmwareUpdateStatus, FirmwareUpdateStatusArray
 from aeris_msgs.srv import FirmwareUpdateCommand as FirmwareUpdateCommandService
@@ -14,7 +16,7 @@ from .models import (
     FirmwareUpdateLifecycleState,
     FirmwareUpdateStatusSnapshot,
 )
-from .time_utils import is_successful_terminal_state, split_nanoseconds
+from .time_utils import split_nanoseconds
 
 
 class FirmwareUpdateManagerNode(Node):
@@ -41,6 +43,9 @@ class FirmwareUpdateManagerNode(Node):
             adapter or NullFirmwareUpdateAdapter()
         )
         self._latest_statuses: dict[str, FirmwareUpdateStatusSnapshot] = {}
+        self._status_lock = threading.Lock()
+        self._active_updates: set[str] = set()
+        self._active_updates_lock = threading.Lock()
         self._command_service = self.create_service(
             FirmwareUpdateCommandService,
             self.COMMAND_SERVICE,
@@ -64,8 +69,50 @@ class FirmwareUpdateManagerNode(Node):
             package_uri=request.package_uri,
             package_signature=request.package_signature,
         )
+
+        with self._active_updates_lock:
+            if command.vehicle_id in self._active_updates:
+                response.accepted = False
+                response.message = (
+                    f"Firmware update already in progress for {command.vehicle_id}"
+                )
+                return response
+            self._active_updates.add(command.vehicle_id)
+
         try:
-            history = self._coordinator.execute_update(
+            self._start_update_worker(command)
+        except Exception as error:
+            with self._active_updates_lock:
+                self._active_updates.discard(command.vehicle_id)
+            self.get_logger().error(
+                "Firmware update could not be started: %s" % error
+            )
+            response.accepted = False
+            response.message = str(error)
+            return response
+
+        response.accepted = True
+        response.message = f"Firmware update started for {command.vehicle_id}"
+        return response
+
+    def _publish_snapshot(self, snapshot: FirmwareUpdateStatusSnapshot) -> None:
+        with self._status_lock:
+            self._latest_statuses[snapshot.vehicle_id] = snapshot
+            snapshots = tuple(self._latest_statuses.values())
+        self._status_publisher.publish(self._to_status_array(snapshots))
+
+    def _start_update_worker(self, command: FirmwareUpdateCommand) -> None:
+        worker = threading.Thread(
+            target=self._run_update,
+            args=(command,),
+            daemon=True,
+            name=f"firmware-update-{command.vehicle_id}",
+        )
+        worker.start()
+
+    def _run_update(self, command: FirmwareUpdateCommand) -> None:
+        try:
+            self._coordinator.execute_update(
                 command,
                 on_snapshot=self._publish_snapshot,
             )
@@ -73,25 +120,31 @@ class FirmwareUpdateManagerNode(Node):
             self.get_logger().error(
                 "Firmware update failed unexpectedly: %s" % error
             )
-            response.accepted = False
-            response.message = str(error)
-            return response
+            self._publish_snapshot(
+                self._unexpected_failure_snapshot(command, str(error))
+            )
+        finally:
+            with self._active_updates_lock:
+                self._active_updates.discard(command.vehicle_id)
 
-        final_snapshot = history[-1]
-        response.accepted = is_successful_terminal_state(
-            final_snapshot.lifecycle_state
-        )
-        response.message = (
-            final_snapshot.error_detail
-            or final_snapshot.status_detail
-            or final_snapshot.lifecycle_state.value
-        )
-        return response
-
-    def _publish_snapshot(self, snapshot: FirmwareUpdateStatusSnapshot) -> None:
-        self._latest_statuses[snapshot.vehicle_id] = snapshot
-        self._status_publisher.publish(
-            self._to_status_array(tuple(self._latest_statuses.values()))
+    def _unexpected_failure_snapshot(
+        self, command: FirmwareUpdateCommand, detail: str
+    ) -> FirmwareUpdateStatusSnapshot:
+        with self._status_lock:
+            latest = self._latest_statuses.get(command.vehicle_id)
+        return FirmwareUpdateStatusSnapshot(
+            vehicle_id=command.vehicle_id,
+            package_id=command.package_id,
+            current_version=latest.current_version if latest else "unknown",
+            target_version=command.target_version,
+            lifecycle_state=FirmwareUpdateLifecycleState.FAILED,
+            progress_percent=float(latest.progress_percent if latest else 0.0),
+            active_slot=latest.active_slot if latest else "unknown",
+            inactive_slot=latest.inactive_slot if latest else "unknown",
+            rollback_performed=latest.rollback_performed if latest else False,
+            status_detail="Firmware update failed before completion",
+            error_code="unexpected_execution_error",
+            error_detail=detail,
         )
 
     def _to_status_array(

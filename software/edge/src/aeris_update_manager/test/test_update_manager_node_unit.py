@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from types import ModuleType, SimpleNamespace
 import sys
 
@@ -141,33 +142,80 @@ class StreamingCoordinator:
         return tuple(history)
 
 
-def test_handle_command_publishes_snapshots_during_execution() -> None:
-    published = []
-    coordinator = StreamingCoordinator(published)
+def _build_node(coordinator, published) -> FirmwareUpdateManagerNode:
     node = FirmwareUpdateManagerNode.__new__(FirmwareUpdateManagerNode)
     node._coordinator = coordinator
     node._latest_statuses = {}
+    node._status_lock = threading.Lock()
+    node._active_updates = set()
+    node._active_updates_lock = threading.Lock()
     node._status_publisher = SimpleNamespace(publish=published.append)
     node.get_clock = lambda: SimpleNamespace(
         now=lambda: SimpleNamespace(nanoseconds=1_234_567_890)
     )
     node.get_logger = lambda: SimpleNamespace(error=lambda *_args, **_kwargs: None)
+    return node
 
-    request = SimpleNamespace(
+
+def _request():
+    return SimpleNamespace(
         vehicle_id="scout_2",
         package_id="fw-2026.05.23",
         target_version="2026.05.23",
         package_uri="s3://updates/fw-2026.05.23.bin",
         package_signature="signed-manifest",
     )
+
+
+def test_handle_command_returns_prompt_started_response_and_background_worker_streams_status() -> None:
+    published = []
+    coordinator = StreamingCoordinator(published)
+    node = _build_node(coordinator, published)
+    pending = []
+    node._start_update_worker = lambda command: pending.append(  # type: ignore[method-assign]
+        lambda: node._run_update(command)
+    )
+
+    request = _request()
     response = SimpleNamespace(accepted=False, message="")
 
     result = node._handle_command(request, response)
+
+    assert result is response
+    assert result.accepted is True
+    assert result.message == "Firmware update started for scout_2"
+    assert published == []
+    assert pending
+    assert "scout_2" in node._active_updates
+
+    pending[0]()
 
     assert coordinator.publish_counts_during_execution == [1, 2]
     assert [message.updates[0].lifecycle_state_label for message in published] == [
         "downloading",
         "complete",
     ]
-    assert result.accepted is True
-    assert result.message == "Vehicle healthy on slot B"
+    assert "scout_2" not in node._active_updates
+
+
+def test_handle_command_rejects_duplicate_inflight_updates_for_same_vehicle() -> None:
+    published = []
+    coordinator = StreamingCoordinator(published)
+    node = _build_node(coordinator, published)
+    pending = []
+    node._start_update_worker = lambda command: pending.append(  # type: ignore[method-assign]
+        lambda: node._run_update(command)
+    )
+
+    first = node._handle_command(_request(), SimpleNamespace(accepted=False, message=""))
+    second = node._handle_command(_request(), SimpleNamespace(accepted=False, message=""))
+
+    assert first.accepted is True
+    assert second.accepted is False
+    assert second.message == "Firmware update already in progress for scout_2"
+    assert len(pending) == 1
+
+    pending[0]()
+
+    third = node._handle_command(_request(), SimpleNamespace(accepted=False, message=""))
+    assert third.accepted is True

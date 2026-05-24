@@ -115,7 +115,9 @@ class FirmwareUpdateCoordinator:
             try:
                 verifying_state = self._adapter.get_partition_state(command.vehicle_id)
             except FirmwareUpdateError:
-                pass
+                # The vehicle may still be rebooting into the switched slot; keep
+                # the best known switched state and continue into healthcheck.
+                verifying_state = last_known_state
             emit(
                 FirmwareUpdateLifecycleState.VERIFYING,
                 85.0,

@@ -19,6 +19,11 @@ def test_update_manager_node_publishes_structured_statuses_for_service_requests(
 
         published = []
         monkeypatch.setattr(node._status_publisher, "publish", published.append)
+        monkeypatch.setattr(
+            node,
+            "_start_update_worker",
+            lambda command: node._run_update(command),
+        )
 
         request = node._command_type.Request()
         request.vehicle_id = "scout_2"
@@ -40,7 +45,7 @@ def test_update_manager_node_publishes_structured_statuses_for_service_requests(
         rclpy.shutdown()
 
 
-def test_update_manager_node_marks_rolled_back_updates_unsuccessful(monkeypatch) -> None:
+def test_update_manager_node_accepts_requests_that_later_roll_back(monkeypatch) -> None:
     rclpy.init()
     node = None
     try:
@@ -49,6 +54,11 @@ def test_update_manager_node_marks_rolled_back_updates_unsuccessful(monkeypatch)
         )
         published = []
         monkeypatch.setattr(node._status_publisher, "publish", published.append)
+        monkeypatch.setattr(
+            node,
+            "_start_update_worker",
+            lambda command: node._run_update(command),
+        )
 
         request = node._command_type.Request()
         request.vehicle_id = "scout_2"
@@ -60,7 +70,7 @@ def test_update_manager_node_marks_rolled_back_updates_unsuccessful(monkeypatch)
         response = node._command_type.Response()
         result = node._handle_command(request, response)
 
-        assert result.accepted is False
+        assert result.accepted is True
         assert published[-1].updates[0].lifecycle_state_label == "rolled_back"
     finally:
         if node is not None:
