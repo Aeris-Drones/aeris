@@ -67,7 +67,11 @@ class FirmwareUpdateCoordinator:
             )
             history.append(snapshot)
             if on_snapshot is not None:
-                on_snapshot(snapshot)
+                try:
+                    on_snapshot(snapshot)
+                except Exception:
+                    # Snapshot publication is best-effort; lifecycle safety must continue.
+                    pass
             last_known_state = partition_state
             last_known_version = snapshot.current_version
             return snapshot
@@ -111,7 +115,6 @@ class FirmwareUpdateCoordinator:
             )
             last_known_version = command.target_version
 
-            verifying_state = last_known_state
             try:
                 verifying_state = self._adapter.get_partition_state(command.vehicle_id)
             except FirmwareUpdateError:

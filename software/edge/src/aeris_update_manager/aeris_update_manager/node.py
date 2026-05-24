@@ -24,6 +24,7 @@ class FirmwareUpdateManagerNode(Node):
 
     STATUS_TOPIC = "/vehicle/firmware_update_status"
     COMMAND_SERVICE = "/vehicle/request_firmware_update"
+    WORKER_JOIN_TIMEOUT_SEC = 1.0
 
     def __init__(
         self,
@@ -46,6 +47,8 @@ class FirmwareUpdateManagerNode(Node):
         self._status_lock = threading.Lock()
         self._active_updates: set[str] = set()
         self._active_updates_lock = threading.Lock()
+        self._worker_threads: dict[str, threading.Thread] = {}
+        self._worker_threads_lock = threading.Lock()
         self._command_service = self.create_service(
             FirmwareUpdateCommandService,
             self.COMMAND_SERVICE,
@@ -105,9 +108,11 @@ class FirmwareUpdateManagerNode(Node):
         worker = threading.Thread(
             target=self._run_update,
             args=(command,),
-            daemon=True,
+            daemon=False,
             name=f"firmware-update-{command.vehicle_id}",
         )
+        with self._worker_threads_lock:
+            self._worker_threads[command.vehicle_id] = worker
         worker.start()
 
     def _run_update(self, command: FirmwareUpdateCommand) -> None:
@@ -126,6 +131,8 @@ class FirmwareUpdateManagerNode(Node):
         finally:
             with self._active_updates_lock:
                 self._active_updates.discard(command.vehicle_id)
+            with self._worker_threads_lock:
+                self._worker_threads.pop(command.vehicle_id, None)
 
     def _unexpected_failure_snapshot(
         self, command: FirmwareUpdateCommand, detail: str
@@ -195,6 +202,24 @@ class FirmwareUpdateManagerNode(Node):
         time_message.sec = max(0, int(sec))
         time_message.nanosec = max(0, int(nanosec))
         return time_message
+
+    def destroy_node(self):
+        current_thread = threading.current_thread()
+        with self._worker_threads_lock:
+            workers = list(self._worker_threads.values())
+        for worker in workers:
+            if worker is current_thread:
+                continue
+            worker.join(timeout=self.WORKER_JOIN_TIMEOUT_SEC)
+            if worker.is_alive():
+                self.get_logger().warning(
+                    "Firmware update worker still running during shutdown: %s"
+                    % worker.name
+                )
+        destroy = getattr(super(), "destroy_node", None)
+        if destroy is None:
+            return None
+        return destroy()
 
 
 def main(args=None) -> None:

@@ -179,7 +179,7 @@ test("FirmwareUpdatePanel surfaces rollback outcomes with terminal detail", asyn
   assert.match(markup, /Rolled back/);
   assert.match(markup, /Vehicle returned to slot A/);
   assert.match(markup, /Post-update healthcheck failed/);
-  assert.doesNotMatch(markup, /disabled=""/);
+  assert.match(markup, /<button[^>]*disabled=""/);
 });
 
 test("FirmwareUpdatePanel suppresses stale action errors when a fresher live status is present", async () => {
@@ -218,9 +218,23 @@ test("FirmwareUpdatePanel keeps action errors visible when only terminal status 
   assert.doesNotMatch(markup, /Vehicle healthy on slot B/);
 });
 
+test("FirmwareUpdatePanel requires non-empty command fields before enabling submit", async () => {
+  const markup = await renderPanel({
+    vehicleName: "SCOUT 2",
+    status: null,
+    isSubmitting: false,
+    actionError: null,
+    onSubmit: () => {},
+  });
+
+  assert.equal((markup.match(/required=""/g) ?? []).length, 4);
+  assert.match(markup, /<button[^>]*disabled=""/);
+});
+
 test("resolvePackageUriForTargetVersionChange keeps the default URI aligned until the operator customizes it", async () => {
   const {
     buildDefaultFirmwarePackageUri,
+    isFirmwareUpdateCommandReady,
     resolvePackageUriForTargetVersionChange,
   } = await loadPanelModule();
 
@@ -242,5 +256,25 @@ test("resolvePackageUriForTargetVersionChange keeps the default URI aligned unti
       isPackageUriCustomized: true,
     }),
     "https://signed.example.com/scout-2/fw.bin"
+  );
+
+  assert.equal(
+    isFirmwareUpdateCommandReady({
+      packageId: " fw-2026.05.23 ",
+      targetVersion: " 2026.05.23 ",
+      packageUri: " s3://updates/scout-2/2026.05.23.bin ",
+      packageSignature: " signed-token ",
+    }),
+    true
+  );
+
+  assert.equal(
+    isFirmwareUpdateCommandReady({
+      packageId: "fw-2026.05.23",
+      targetVersion: "2026.05.23",
+      packageUri: "s3://updates/scout-2/2026.05.23.bin",
+      packageSignature: "   ",
+    }),
+    false
   );
 });

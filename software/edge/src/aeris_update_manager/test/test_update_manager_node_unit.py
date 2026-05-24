@@ -149,11 +149,16 @@ def _build_node(coordinator, published) -> FirmwareUpdateManagerNode:
     node._status_lock = threading.Lock()
     node._active_updates = set()
     node._active_updates_lock = threading.Lock()
+    node._worker_threads = {}
+    node._worker_threads_lock = threading.Lock()
     node._status_publisher = SimpleNamespace(publish=published.append)
     node.get_clock = lambda: SimpleNamespace(
         now=lambda: SimpleNamespace(nanoseconds=1_234_567_890)
     )
-    node.get_logger = lambda: SimpleNamespace(error=lambda *_args, **_kwargs: None)
+    node.get_logger = lambda: SimpleNamespace(
+        error=lambda *_args, **_kwargs: None,
+        warning=lambda *_args, **_kwargs: None,
+    )
     return node
 
 
@@ -219,3 +224,55 @@ def test_handle_command_rejects_duplicate_inflight_updates_for_same_vehicle() ->
 
     third = node._handle_command(_request(), SimpleNamespace(accepted=False, message=""))
     assert third.accepted is True
+
+
+def test_start_update_worker_uses_non_daemon_thread_and_tracks_it() -> None:
+    published = []
+    node = _build_node(StreamingCoordinator(published), published)
+    created = []
+
+    class FakeThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+            self.started = False
+            created.append(self)
+
+        def start(self) -> None:
+            self.started = True
+
+    original_thread = threading.Thread
+    threading.Thread = FakeThread  # type: ignore[assignment]
+    try:
+        node._start_update_worker(_request())
+    finally:
+        threading.Thread = original_thread  # type: ignore[assignment]
+
+    assert len(created) == 1
+    assert created[0].daemon is False
+    assert created[0].started is True
+    assert node._worker_threads["scout_2"] is created[0]
+
+
+def test_destroy_node_joins_non_daemon_workers_with_timeout() -> None:
+    published = []
+    node = _build_node(StreamingCoordinator(published), published)
+    join_calls = []
+
+    class FakeThread:
+        name = "firmware-update-scout_2"
+
+        def join(self, timeout=None) -> None:
+            join_calls.append(timeout)
+
+        def is_alive(self) -> bool:
+            return False
+
+    node._worker_threads["scout_2"] = FakeThread()
+
+    result = node.destroy_node()
+
+    assert join_calls == [node.WORKER_JOIN_TIMEOUT_SEC]
+    assert result is None

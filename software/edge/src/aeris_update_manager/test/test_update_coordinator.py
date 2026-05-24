@@ -191,6 +191,28 @@ def test_streams_snapshots_to_callback_as_the_update_progresses() -> None:
     ]
 
 
+def test_ignores_snapshot_callback_failures_and_finishes_update() -> None:
+    adapter = FakeFirmwareUpdateAdapter()
+    coordinator = FirmwareUpdateCoordinator(adapter)
+    streamed: list = []
+
+    def flaky_callback(snapshot) -> None:
+        streamed.append(snapshot.lifecycle_state)
+        if snapshot.lifecycle_state is FirmwareUpdateLifecycleState.DOWNLOADING:
+            raise RuntimeError("status sink unavailable")
+
+    history = coordinator.execute_update(_command(), on_snapshot=flaky_callback)
+
+    assert streamed == [
+        FirmwareUpdateLifecycleState.DOWNLOADING,
+        FirmwareUpdateLifecycleState.VALIDATING,
+        FirmwareUpdateLifecycleState.APPLYING,
+        FirmwareUpdateLifecycleState.VERIFYING,
+        FirmwareUpdateLifecycleState.COMPLETE,
+    ]
+    assert history[-1].lifecycle_state is FirmwareUpdateLifecycleState.COMPLETE
+
+
 def test_continues_to_healthcheck_when_verification_state_read_fails() -> None:
     adapter = FakeFirmwareUpdateAdapter(
         partition_state_failures=[

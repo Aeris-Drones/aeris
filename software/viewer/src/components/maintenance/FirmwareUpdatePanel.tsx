@@ -52,6 +52,21 @@ export function resolvePackageUriForTargetVersionChange(args: {
     : buildDefaultFirmwarePackageUri(seed, nextTargetVersion);
 }
 
+export function isFirmwareUpdateCommandReady(args: {
+  packageId: string;
+  targetVersion: string;
+  packageUri: string;
+  packageSignature: string;
+}): boolean {
+  const { packageId, targetVersion, packageUri, packageSignature } = args;
+  return (
+    packageId.trim().length > 0 &&
+    targetVersion.trim().length > 0 &&
+    packageUri.trim().length > 0 &&
+    packageSignature.trim().length > 0
+  );
+}
+
 export function FirmwareUpdatePanel({
   vehicleId,
   vehicleName,
@@ -73,6 +88,13 @@ export function FirmwareUpdatePanel({
 
   const active = isFirmwareUpdateActive(status);
   const disabled = active || isSubmitting;
+  const commandReady = isFirmwareUpdateCommandReady({
+    packageId,
+    targetVersion,
+    packageUri,
+    packageSignature,
+  });
+  const submitDisabled = disabled || !commandReady;
   const progressValue = status?.progressPercent ?? 0;
   const currentVersion = status?.currentVersion ?? '--';
   const desiredVersion = status?.targetVersion ?? targetVersion;
@@ -116,12 +138,27 @@ export function FirmwareUpdatePanel({
 
   const submitRequest = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const trimmedPackageId = packageId.trim();
+    const trimmedTargetVersion = targetVersion.trim();
+    const trimmedPackageUri = packageUri.trim();
+    const trimmedPackageSignature = packageSignature.trim();
+    if (
+      disabled ||
+      !isFirmwareUpdateCommandReady({
+        packageId: trimmedPackageId,
+        targetVersion: trimmedTargetVersion,
+        packageUri: trimmedPackageUri,
+        packageSignature: trimmedPackageSignature,
+      })
+    ) {
+      return;
+    }
     void onSubmit({
       vehicleId: vehicleId ?? status?.vehicleId ?? seed,
-      packageId,
-      targetVersion,
-      packageUri,
-      packageSignature,
+      packageId: trimmedPackageId,
+      targetVersion: trimmedTargetVersion,
+      packageUri: trimmedPackageUri,
+      packageSignature: trimmedPackageSignature,
     });
   };
 
@@ -212,6 +249,7 @@ export function FirmwareUpdatePanel({
             onChange={(event) => setPackageId(event.target.value)}
             placeholder="fw-2026.05.23"
             disabled={disabled}
+            required
           />
         </label>
         <label className="grid gap-1.5 text-sm text-white/70">
@@ -222,6 +260,7 @@ export function FirmwareUpdatePanel({
             onChange={(event) => handleTargetVersionChange(event.target.value)}
             placeholder="2026.05.23"
             disabled={disabled}
+            required
           />
         </label>
         <label className="grid gap-1.5 text-sm text-white/70 md:col-span-2">
@@ -232,6 +271,7 @@ export function FirmwareUpdatePanel({
             onChange={(event) => handlePackageUriChange(event.target.value)}
             placeholder="s3://updates/scout-2/2026.05.23.bin"
             disabled={disabled}
+            required
           />
         </label>
         <label className="grid gap-1.5 text-sm text-white/70 md:col-span-2">
@@ -242,6 +282,7 @@ export function FirmwareUpdatePanel({
             onChange={(event) => setPackageSignature(event.target.value)}
             placeholder="signed-manifest"
             disabled={disabled}
+            required
           />
         </label>
         <div className="md:col-span-2">
@@ -249,7 +290,7 @@ export function FirmwareUpdatePanel({
             type="submit"
             variant="ghost"
             className="h-10 border border-white/10 bg-white/[0.04] px-4 text-white hover:bg-white/10"
-            disabled={disabled}
+            disabled={submitDisabled}
           >
             {isSubmitting ? 'Submitting update...' : active ? 'Update in progress' : 'Start firmware update'}
           </Button>
