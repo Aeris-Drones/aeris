@@ -386,7 +386,17 @@ export function projectFleetDiagnostics(args: {
   const readyCount = vehicles.filter((vehicle) => vehicle.readiness === 'ready').length;
   const blockedCount = vehicles.filter((vehicle) => vehicle.readiness === 'blocked').length;
   const warningCount = vehicles.length - readyCount - blockedCount;
-  const linkReadings = telemetry
+  const connectedTelemetry = telemetry.filter((vehicle) => {
+    const degraded = deriveVehicleDegradedState({
+      lastUpdate: vehicle.lastUpdate,
+      missionOnline: vehicle.missionOnline,
+      deliveryMode: vehicle.deliveryMode,
+      isRetroactive: vehicle.isRetroactive,
+      now: nowMs,
+    });
+    return !degraded.offline;
+  });
+  const linkReadings = connectedTelemetry
     .map((vehicle) => vehicle.linkQualityPercent)
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
 
@@ -396,16 +406,7 @@ export function projectFleetDiagnostics(args: {
       readyCount,
       warningCount,
       blockedCount,
-      connectedCount: telemetry.filter((vehicle) => {
-        const degraded = deriveVehicleDegradedState({
-          lastUpdate: vehicle.lastUpdate,
-          missionOnline: vehicle.missionOnline,
-          deliveryMode: vehicle.deliveryMode,
-          isRetroactive: vehicle.isRetroactive,
-          now: nowMs,
-        });
-        return !degraded.offline;
-      }).length,
+      connectedCount: connectedTelemetry.length,
       averageLinkQuality:
         linkReadings.length > 0
           ? Math.round(linkReadings.reduce((sum, value) => sum + value, 0) / linkReadings.length)

@@ -176,7 +176,7 @@ test("projectFleetDiagnostics merges telemetry, pods, and maintenance diagnostic
   assert.equal(projected.summary.warningCount, 1);
   assert.equal(projected.summary.blockedCount, 1);
   assert.equal(projected.summary.connectedCount, 2);
-  assert.equal(projected.summary.averageLinkQuality, 55);
+  assert.equal(projected.summary.averageLinkQuality, 70);
 
   const scoutOne = projected.vehicles.find((vehicle) => vehicle.id === "scout_1");
   assert.equal(scoutOne.readiness, "ready");
@@ -274,4 +274,44 @@ test("calibration roll-up keeps the worst reported detail state", () => {
   assert.equal(projected.vehicles[0].summaryChecks.calibration.state, "blocked");
   assert.equal(projected.vehicles[0].summaryChecks.calibration.summary, "Calibration blocking readiness");
   assert.equal(projected.vehicles[0].detailChecks[0].state, "blocked");
+});
+
+test("fleet mesh average excludes offline vehicles with stale link readings", () => {
+  const projected = projectFleetDiagnostics({
+    nowMs: 12_000,
+    telemetry: [
+      {
+        id: "scout_5",
+        name: "SCOUT 5",
+        batteryPercent: 91,
+        altitudeMeters: 0,
+        linkQualityPercent: 84,
+        lastUpdate: 11_500,
+        missionOnline: true,
+      },
+      {
+        id: "scout_6",
+        name: "SCOUT 6",
+        batteryPercent: 77,
+        altitudeMeters: 0,
+        linkQualityPercent: 56,
+        lastUpdate: 11_000,
+        missionOnline: true,
+      },
+      {
+        id: "ranger_2",
+        name: "RANGER 2",
+        batteryPercent: 42,
+        altitudeMeters: 0,
+        linkQualityPercent: 5,
+        lastUpdate: 4_000,
+        missionOnline: false,
+      },
+    ],
+    diagnostics: [],
+    pods: [],
+  });
+
+  assert.equal(projected.summary.connectedCount, 2);
+  assert.equal(projected.summary.averageLinkQuality, 70);
 });
