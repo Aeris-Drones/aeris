@@ -131,6 +131,8 @@ test("FirmwareUpdatePanel renders in-flight progress and disables restart while 
   assert.match(markup, /2026.05.23/);
   assert.match(markup, /disabled=""/);
   assert.match(markup, /Writing inactive partition/);
+  assert.match(markup, /Signature token/);
+  assert.doesNotMatch(markup, /value="signed-manifest"/);
 });
 
 test("FirmwareUpdatePanel surfaces rollback outcomes with terminal detail", async () => {

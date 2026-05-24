@@ -50,7 +50,7 @@ export function FirmwareUpdatePanel({
   const [packageUri, setPackageUri] = useState(
     `s3://updates/${seed}/${targetVersion}.bin`
   );
-  const [packageSignature, setPackageSignature] = useState('signed-manifest');
+  const [packageSignature, setPackageSignature] = useState('');
 
   const active = isFirmwareUpdateActive(status);
   const disabled = active || isSubmitting;
