@@ -24,6 +24,7 @@ class FakeFirmwareUpdateAdapter(FirmwareUpdateAdapter):
         signature_valid: bool = True,
         healthcheck_passes: bool = True,
         partition_state_failure: FirmwareUpdateError | None = None,
+        partition_state_failures: list[FirmwareUpdateError | None] | None = None,
         rollback_failure: RollbackError | None = None,
     ) -> None:
         self.partition_state = FirmwarePartitionState(
@@ -33,7 +34,9 @@ class FakeFirmwareUpdateAdapter(FirmwareUpdateAdapter):
         )
         self.signature_valid = signature_valid
         self.healthcheck_passes = healthcheck_passes
-        self.partition_state_failure = partition_state_failure
+        self.partition_state_failures = list(partition_state_failures or [])
+        if partition_state_failure is not None:
+            self.partition_state_failures.insert(0, partition_state_failure)
         self.rollback_failure = rollback_failure
         self.downloaded_packages: list[str] = []
         self.applied_slots: list[str] = []
@@ -41,8 +44,10 @@ class FakeFirmwareUpdateAdapter(FirmwareUpdateAdapter):
         self.rollbacks: list[str] = []
 
     def get_partition_state(self, vehicle_id: str) -> FirmwarePartitionState:
-        if self.partition_state_failure is not None:
-            raise self.partition_state_failure
+        if self.partition_state_failures:
+            error = self.partition_state_failures.pop(0)
+            if error is not None:
+                raise error
         return self.partition_state
 
     def download_package(self, command: FirmwareUpdateCommand) -> StagedFirmwarePackage:
@@ -186,6 +191,33 @@ def test_streams_snapshots_to_callback_as_the_update_progresses() -> None:
     ]
 
 
+def test_reports_switched_slot_when_verification_state_read_fails() -> None:
+    adapter = FakeFirmwareUpdateAdapter(
+        partition_state_failures=[
+            None,
+            FirmwareUpdateError(
+                code="partition_state_unavailable",
+                detail="reboot transition in progress",
+            ),
+        ]
+    )
+    coordinator = FirmwareUpdateCoordinator(adapter)
+
+    history = coordinator.execute_update(_command())
+
+    assert [snapshot.lifecycle_state for snapshot in history] == [
+        FirmwareUpdateLifecycleState.DOWNLOADING,
+        FirmwareUpdateLifecycleState.VALIDATING,
+        FirmwareUpdateLifecycleState.APPLYING,
+        FirmwareUpdateLifecycleState.FAILED,
+    ]
+    assert history[-1].active_slot == "B"
+    assert history[-1].inactive_slot == "A"
+    assert history[-1].current_version == "2026.05.23"
+    assert history[-1].error_code == "partition_state_unavailable"
+    assert history[-1].error_detail == "reboot transition in progress"
+
+
 def test_rolls_back_when_healthcheck_fails_after_boot_swap() -> None:
     adapter = FakeFirmwareUpdateAdapter(healthcheck_passes=False)
     coordinator = FirmwareUpdateCoordinator(adapter)
@@ -204,6 +236,39 @@ def test_rolls_back_when_healthcheck_fails_after_boot_swap() -> None:
     assert history[-1].active_slot == "A"
     assert history[-1].current_version == "2026.04.9"
     assert history[-1].error_code == "healthcheck_failed"
+    assert adapter.rollbacks == ["A"]
+
+
+def test_preserves_rolled_back_terminal_state_when_confirmation_read_fails() -> None:
+    adapter = FakeFirmwareUpdateAdapter(
+        healthcheck_passes=False,
+        partition_state_failures=[
+            None,
+            None,
+            FirmwareUpdateError(
+                code="partition_state_unavailable",
+                detail="post-rollback state read timed out",
+            ),
+        ],
+    )
+    coordinator = FirmwareUpdateCoordinator(adapter)
+
+    history = coordinator.execute_update(_command())
+
+    assert [snapshot.lifecycle_state for snapshot in history] == [
+        FirmwareUpdateLifecycleState.DOWNLOADING,
+        FirmwareUpdateLifecycleState.VALIDATING,
+        FirmwareUpdateLifecycleState.APPLYING,
+        FirmwareUpdateLifecycleState.VERIFYING,
+        FirmwareUpdateLifecycleState.ROLLING_BACK,
+        FirmwareUpdateLifecycleState.ROLLED_BACK,
+    ]
+    assert history[-1].rollback_performed is True
+    assert history[-1].active_slot == "A"
+    assert history[-1].inactive_slot == "B"
+    assert history[-1].current_version == "2026.04.9"
+    assert history[-1].error_code == "healthcheck_failed"
+    assert history[-1].error_detail == "Post-update healthcheck failed"
     assert adapter.rollbacks == ["A"]
 
 

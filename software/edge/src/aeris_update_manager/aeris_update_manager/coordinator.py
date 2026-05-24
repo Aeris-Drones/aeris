@@ -104,6 +104,12 @@ class FirmwareUpdateCoordinator:
                 original_state.inactive_slot,
             )
             self._adapter.switch_boot_slot(command.vehicle_id, original_state.inactive_slot)
+            last_known_state = FirmwarePartitionState(
+                active_slot=original_state.inactive_slot,
+                inactive_slot=original_state.active_slot,
+                current_version=command.target_version,
+            )
+            last_known_version = command.target_version
 
             verifying_state = self._adapter.get_partition_state(command.vehicle_id)
             emit(
@@ -127,13 +133,26 @@ class FirmwareUpdateCoordinator:
                     error_detail=error.detail,
                 )
                 self._adapter.rollback_boot_slot(command.vehicle_id, original_state.active_slot)
-                last_known_state = FirmwarePartitionState(
+                rolled_back_state = FirmwarePartitionState(
                     active_slot=original_state.active_slot,
                     inactive_slot=verifying_state.active_slot,
                     current_version=original_state.current_version,
                 )
+                last_known_state = rolled_back_state
                 last_known_version = original_state.current_version
-                rolled_back_state = self._adapter.get_partition_state(command.vehicle_id)
+                try:
+                    rolled_back_state = self._adapter.get_partition_state(command.vehicle_id)
+                except FirmwareUpdateError:
+                    emit(
+                        FirmwareUpdateLifecycleState.ROLLED_BACK,
+                        100.0,
+                        rolled_back_state,
+                        rollback_performed=True,
+                        status_detail=f"Rolled back to slot {rolled_back_state.active_slot} after healthcheck failure",
+                        error_code=error.code,
+                        error_detail=error.detail,
+                    )
+                    return tuple(history)
                 emit(
                     FirmwareUpdateLifecycleState.ROLLED_BACK,
                     100.0,
