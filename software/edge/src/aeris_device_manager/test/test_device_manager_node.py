@@ -34,7 +34,7 @@ def test_device_manager_node_publishes_structured_state_transitions(monkeypatch)
         machine = DeviceManagerStateMachine(
             adapter, clock=clock, enumeration_budget_sec=15.0
         )
-        node = DeviceManagerNode(state_machine=machine)
+        node = DeviceManagerNode(state_machine=machine, adapter=adapter)
         assert node.PODS_TOPIC == "/device_manager/pods"
 
         published = []
@@ -54,6 +54,20 @@ def test_device_manager_node_publishes_structured_state_transitions(monkeypatch)
     finally:
         if node is not None:
             node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_device_manager_node_requires_explicit_adapter_with_custom_state_machine() -> None:
+    rclpy.init()
+    try:
+        clock = FakeClock()
+        adapter = FakeHardwareAdapter(clock)
+        machine = DeviceManagerStateMachine(
+            adapter, clock=clock, enumeration_budget_sec=15.0
+        )
+        with pytest.raises(ValueError, match="adapter must be provided"):
+            DeviceManagerNode(state_machine=machine)
+    finally:
         rclpy.shutdown()
 
 
@@ -114,6 +128,68 @@ def test_device_manager_node_publishes_inventory_and_persists_calibration_update
         assert adapter.calibration_writes == [
             ("28-0018", 1_710_000_000.0, 1_740_000_000.0)
         ]
+    finally:
+        if node is not None:
+            node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_device_manager_node_returns_structured_calibration_failures(
+    tmp_path, monkeypatch
+) -> None:
+    rclpy.init()
+    node = None
+    try:
+        clock = FakeClock()
+        adapter = FakeHardwareAdapter(
+            clock,
+            metadata=PodMetadata(
+                serial="GAS-118",
+                pod_type="hazmat",
+                capabilities=("gas", "hazmat"),
+                nominal_power_watts=18.0,
+            ),
+            scan_pods=[
+                DetectedPod(vehicle_id="scout_2", slot_id="belly", one_wire_id="28-0018")
+            ],
+        )
+        machine = DeviceManagerStateMachine(
+            adapter, clock=clock, enumeration_budget_sec=15.0
+        )
+        node = DeviceManagerNode(
+            state_machine=machine,
+            adapter=adapter,
+            inventory_registry_path=tmp_path / "pod-inventory.json",
+        )
+        node._poll_and_publish()
+
+        request = LogPodCalibration.Request()
+        request.pod_serial = "GAS-118"
+        request.last_calibration.sec = 1_710_000_000
+        request.next_calibration_due.sec = 1_740_000_000
+
+        monkeypatch.setattr(
+            node._inventory_registry,
+            "apply_calibration_update",
+            lambda **_: (_ for _ in ()).throw(KeyError("missing")),
+        )
+        missing_response = node._handle_calibration_command(
+            request, LogPodCalibration.Response()
+        )
+        assert missing_response.accepted is False
+        assert missing_response.failure_code == "inventory_record_missing"
+
+        monkeypatch.setattr(
+            node._adapter,
+            "write_calibration",
+            lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        internal_response = node._handle_calibration_command(
+            request, LogPodCalibration.Response()
+        )
+        assert internal_response.accepted is False
+        assert internal_response.failure_code == "internal_error"
+        assert "Unexpected calibration write failure" in internal_response.message
     finally:
         if node is not None:
             node.destroy_node()

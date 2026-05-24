@@ -50,6 +50,18 @@ function buildInitialDraft(row: MaintenancePodInventorySnapshot): CalibrationDra
   };
 }
 
+export function mergeCalibrationDraft(
+  row: MaintenancePodInventorySnapshot,
+  currentDraft: CalibrationDraft | undefined,
+  field: keyof CalibrationDraft,
+  value: string
+): CalibrationDraft {
+  return {
+    ...(currentDraft ?? buildInitialDraft(row)),
+    [field]: value,
+  };
+}
+
 function parseDateInput(value: string): number | null {
   if (!value) {
     return null;
@@ -82,16 +94,14 @@ export function PodInventorySection({
     draftsBySerial[row.podSerial] ?? buildInitialDraft(row);
 
   const handleDraftChange = (
+    row: MaintenancePodInventorySnapshot,
     podSerial: string,
     field: keyof CalibrationDraft,
     value: string
   ) => {
     setDraftsBySerial((current) => ({
       ...current,
-      [podSerial]: {
-        ...(current[podSerial] ?? { lastCalibration: '', nextCalibrationDue: '' }),
-        [field]: value,
-      },
+      [podSerial]: mergeCalibrationDraft(row, current[podSerial], field, value),
     }));
   };
 
@@ -188,7 +198,7 @@ export function PodInventorySection({
                           value={draft.lastCalibration}
                           disabled={!row.attached}
                           onChange={(event) =>
-                            handleDraftChange(row.podSerial, 'lastCalibration', event.target.value)
+                            handleDraftChange(row, row.podSerial, 'lastCalibration', event.target.value)
                           }
                           className="mt-1 h-10 w-full rounded-md border border-white/10 bg-black/18 px-3 text-white outline-none"
                         />
@@ -200,7 +210,7 @@ export function PodInventorySection({
                           value={draft.nextCalibrationDue}
                           disabled={!row.attached}
                           onChange={(event) =>
-                            handleDraftChange(row.podSerial, 'nextCalibrationDue', event.target.value)
+                            handleDraftChange(row, row.podSerial, 'nextCalibrationDue', event.target.value)
                           }
                           className="mt-1 h-10 w-full rounded-md border border-white/10 bg-black/18 px-3 text-white outline-none"
                         />

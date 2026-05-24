@@ -56,13 +56,15 @@ test("pod calibration requests use a short service timeout", () => {
   assert.equal(POD_CALIBRATION_SERVICE_TIMEOUT_MS, 15_000);
 });
 
-test("reconcilePodCalibrationActionState clears stale action state after fresher inventory arrives", () => {
+test("reconcilePodCalibrationActionState keeps submit freshness state when inventory has not advanced yet", () => {
   const reconciled = reconcilePodCalibrationActionState({
     actionStatesBySerial: {
       GAS_118: { kind: "success", message: "Calibration logged for GAS-118" },
       LDR_551: { kind: "error", message: "keep me" },
     },
-    submittingPodSerial: "GAS_118",
+    inventoryBaselineBySerial: {
+      GAS_118: 1_710_000_000_000,
+    },
     records: [
       {
         podSerial: "GAS_118",
@@ -71,10 +73,33 @@ test("reconcilePodCalibrationActionState clears stale action state after fresher
     ],
   });
 
-  assert.equal(reconciled.actionStatesBySerial.GAS_118, null);
+  assert.deepEqual(reconciled.actionStatesBySerial.GAS_118, {
+    kind: "success",
+    message: "Calibration logged for GAS-118",
+  });
   assert.deepEqual(reconciled.actionStatesBySerial.LDR_551, {
     kind: "error",
     message: "keep me",
   });
-  assert.equal(reconciled.submittingPodSerial, null);
+  assert.equal(reconciled.inventoryBaselineBySerial.GAS_118, 1_710_000_000_000);
+});
+
+test("reconcilePodCalibrationActionState clears stale success state after fresher inventory arrives", () => {
+  const reconciled = reconcilePodCalibrationActionState({
+    actionStatesBySerial: {
+      GAS_118: { kind: "success", message: "Calibration logged for GAS-118" },
+    },
+    inventoryBaselineBySerial: {
+      GAS_118: 1_710_000_000_000,
+    },
+    records: [
+      {
+        podSerial: "GAS_118",
+        lastCalibrationAtMs: 1_720_000_000_000,
+      },
+    ],
+  });
+
+  assert.equal(reconciled.actionStatesBySerial.GAS_118, null);
+  assert.equal("GAS_118" in reconciled.inventoryBaselineBySerial, false);
 });

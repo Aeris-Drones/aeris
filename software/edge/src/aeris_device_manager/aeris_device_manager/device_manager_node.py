@@ -39,6 +39,9 @@ class DeviceManagerNode(Node):
     PODS_TOPIC = "/device_manager/pods"
     INVENTORY_TOPIC = "/device_manager/pod_inventory"
     CALIBRATION_SERVICE = "/device_manager/log_pod_calibration"
+    DEFAULT_INVENTORY_REGISTRY_PATH = (
+        Path.home() / ".local" / "state" / "aeris" / "pod_inventory.json"
+    )
 
     def __init__(
         self,
@@ -50,6 +53,11 @@ class DeviceManagerNode(Node):
     ) -> None:
         super().__init__("aeris_device_manager", parameter_overrides=parameter_overrides)
 
+        if state_machine is not None and adapter is None:
+            raise ValueError(
+                "adapter must be provided when state_machine is injected"
+            )
+
         queue_depth = int(self.declare_parameter("queue_depth", 10).value)
         poll_period_sec = float(self.declare_parameter("poll_period_sec", 0.5).value)
         enumeration_budget_sec = float(
@@ -57,7 +65,7 @@ class DeviceManagerNode(Node):
         )
         registry_path_param = self.declare_parameter(
             "inventory_registry_path",
-            "/tmp/aeris_device_manager_pod_inventory.json",
+            str(self.DEFAULT_INVENTORY_REGISTRY_PATH),
         ).value
         due_soon_window_days = float(
             self.declare_parameter("calibration_due_soon_window_days", 14.0).value
@@ -71,7 +79,7 @@ class DeviceManagerNode(Node):
                 enumeration_budget_sec=enumeration_budget_sec,
             )
         self._state_machine = state_machine
-        self._adapter = adapter or getattr(state_machine, "_adapter", effective_adapter)
+        self._adapter = effective_adapter
         self._pods_publisher = self.create_publisher(
             PodStatusArray, self.PODS_TOPIC, queue_depth
         )
@@ -81,6 +89,7 @@ class DeviceManagerNode(Node):
         self._inventory_registry = PodInventoryRegistry(
             registry_path=inventory_registry_path or registry_path_param,
             due_soon_window_sec=due_soon_window_days * 24 * 60 * 60,
+            on_warning=self.get_logger().warning,
         )
         self._latest_snapshots_by_serial: dict[str, PodStatusSnapshot] = {}
         self._calibration_service = self.create_service(
@@ -220,18 +229,30 @@ class DeviceManagerNode(Node):
                     next_calibration_due_sec=next_due_sec,
                 ),
             )
+            now_sec = self.get_clock().now().nanoseconds / 1e9
+            updated = self._inventory_registry.apply_calibration_update(
+                pod_serial=pod_serial,
+                calibration=verified,
+                now_sec=now_sec,
+            )
         except DeviceManagerError as error:
             response.accepted = False
             response.failure_code = error.code
             response.message = error.detail
             return response
-
-        now_sec = self.get_clock().now().nanoseconds / 1e9
-        updated = self._inventory_registry.apply_calibration_update(
-            pod_serial=pod_serial,
-            calibration=verified,
-            now_sec=now_sec,
-        )
+        except KeyError:
+            response.accepted = False
+            response.failure_code = "inventory_record_missing"
+            response.message = f"No inventory record found for {pod_serial}"
+            return response
+        except Exception as error:
+            self.get_logger().error(
+                f"Unexpected calibration write failure for {pod_serial}: {error}"
+            )
+            response.accepted = False
+            response.failure_code = "internal_error"
+            response.message = "Unexpected calibration write failure"
+            return response
         self._inventory_publisher.publish(self._to_inventory_array(now_sec))
         response.accepted = True
         response.failure_code = ""

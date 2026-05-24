@@ -14,33 +14,45 @@ export interface PodCalibrationActionState {
 
 export function reconcilePodCalibrationActionState(args: {
   actionStatesBySerial: Record<string, PodCalibrationActionState | null>;
-  submittingPodSerial: string | null;
+  inventoryBaselineBySerial: Record<string, number | null>;
   records: Pick<MaintenancePodInventorySnapshot, 'podSerial' | 'lastCalibrationAtMs'>[];
 }) {
-  const { actionStatesBySerial, submittingPodSerial, records } = args;
+  const { actionStatesBySerial, inventoryBaselineBySerial, records } = args;
 
   let nextStates = actionStatesBySerial;
-  let nextSubmitting = submittingPodSerial;
+  let nextBaselines = inventoryBaselineBySerial;
 
   for (const record of records) {
-    if (
-      record.podSerial === submittingPodSerial &&
-      Number.isFinite(record.lastCalibrationAtMs)
-    ) {
-      nextSubmitting = null;
-      const current = nextStates[record.podSerial];
-      if (current?.kind === 'success') {
-        if (nextStates === actionStatesBySerial) {
-          nextStates = { ...actionStatesBySerial };
-        }
-        nextStates[record.podSerial] = null;
-      }
+    if (!(record.podSerial in inventoryBaselineBySerial)) {
+      continue;
     }
+
+    const baseline = inventoryBaselineBySerial[record.podSerial];
+    const nextValue = record.lastCalibrationAtMs;
+    const hasFreshInventory =
+      Number.isFinite(nextValue) &&
+      (baseline == null || (nextValue ?? 0) > baseline);
+
+    if (!hasFreshInventory) {
+      continue;
+    }
+
+    const current = nextStates[record.podSerial];
+    if (current?.kind === 'success') {
+      if (nextStates === actionStatesBySerial) {
+        nextStates = { ...actionStatesBySerial };
+      }
+      nextStates[record.podSerial] = null;
+    }
+    if (nextBaselines === inventoryBaselineBySerial) {
+      nextBaselines = { ...inventoryBaselineBySerial };
+    }
+    delete nextBaselines[record.podSerial];
   }
 
   return {
     actionStatesBySerial: nextStates,
-    submittingPodSerial: nextSubmitting,
+    inventoryBaselineBySerial: nextBaselines,
   };
 }
 
@@ -49,6 +61,9 @@ export function usePodCalibrationAction(
 ) {
   const { ros, isConnected: rosConnected } = useSharedROSConnection();
   const [submittingPodSerial, setSubmittingPodSerial] = useState<string | null>(null);
+  const [inventoryBaselineBySerial, setInventoryBaselineBySerial] = useState<
+    Record<string, number | null>
+  >({});
   const [actionStatesBySerial, setActionStatesBySerial] = useState<
     Record<string, PodCalibrationActionState | null>
   >({});
@@ -59,16 +74,16 @@ export function usePodCalibrationAction(
     }
     const reconciled = reconcilePodCalibrationActionState({
       actionStatesBySerial,
-      submittingPodSerial,
+      inventoryBaselineBySerial,
       records,
     });
     if (reconciled.actionStatesBySerial !== actionStatesBySerial) {
       setActionStatesBySerial(reconciled.actionStatesBySerial);
     }
-    if (reconciled.submittingPodSerial !== submittingPodSerial) {
-      setSubmittingPodSerial(reconciled.submittingPodSerial);
+    if (reconciled.inventoryBaselineBySerial !== inventoryBaselineBySerial) {
+      setInventoryBaselineBySerial(reconciled.inventoryBaselineBySerial);
     }
-  }, [actionStatesBySerial, records, submittingPodSerial]);
+  }, [actionStatesBySerial, inventoryBaselineBySerial, records]);
 
   const requestCalibration = useCallback(
     async (request: {
@@ -76,7 +91,14 @@ export function usePodCalibrationAction(
       lastCalibrationAtMs: number;
       nextCalibrationDueAtMs: number;
     }) => {
+      const previousInventory = records.find(
+        (record) => record.podSerial === request.podSerial
+      );
       setSubmittingPodSerial(request.podSerial);
+      setInventoryBaselineBySerial((current) => ({
+        ...current,
+        [request.podSerial]: previousInventory?.lastCalibrationAtMs ?? null,
+      }));
       try {
         const result = await withServiceTimeout(
           (resolve, reject) => {
@@ -112,6 +134,13 @@ export function usePodCalibrationAction(
             ? { kind: 'success', message: typed.message }
             : { kind: 'error', message: typed.message || typed.failureCode || 'Calibration update was rejected.' },
         }));
+        if (!typed.accepted) {
+          setInventoryBaselineBySerial((current) => {
+            const next = { ...current };
+            delete next[request.podSerial];
+            return next;
+          });
+        }
         return typed;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -119,6 +148,11 @@ export function usePodCalibrationAction(
           ...current,
           [request.podSerial]: { kind: 'error', message },
         }));
+        setInventoryBaselineBySerial((current) => {
+          const next = { ...current };
+          delete next[request.podSerial];
+          return next;
+        });
         return {
           accepted: false,
           message,
@@ -131,7 +165,7 @@ export function usePodCalibrationAction(
         );
       }
     },
-    [ros, rosConnected]
+    [records, ros, rosConnected]
   );
 
   return useMemo(

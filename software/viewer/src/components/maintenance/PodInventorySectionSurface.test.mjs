@@ -149,3 +149,40 @@ test("PodInventorySection disables calibration logging for detached pods and sur
   assert.match(markup, /Connect pod to log calibration/);
   assert.match(markup, /<button[^>]*disabled=""/);
 });
+
+test("mergeCalibrationDraft preserves the untouched sibling date field", async () => {
+  const sourcePath = path.join(ROOT, "PodInventorySection.tsx");
+  let source = fs.readFileSync(sourcePath, "utf8");
+  source = source
+    .replaceAll("@/components/ui/button", "./button.mjs")
+    .replaceAll("@/components/ui/badge", "./badge.mjs")
+    .replaceAll("@/components/ui/card", "./card.mjs")
+    .replaceAll("@/lib/utils", "./utils.mjs")
+    .replaceAll("@/lib/ros/podInventory", "./podInventory.mjs")
+    .replaceAll("lucide-react", "./lucide-react.mjs");
+
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ES2022,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
+  }).outputText;
+
+  const modulePath = path.join(TEMP_ROOT, `PodInventorySection-helpers-${Date.now()}-${Math.random().toString(16).slice(2)}.mjs`);
+  fs.writeFileSync(modulePath, compiled, "utf8");
+  const { mergeCalibrationDraft } = await import(pathToFileURL(modulePath).href);
+
+  const merged = mergeCalibrationDraft(
+    inventory[0],
+    undefined,
+    "lastCalibration",
+    "2026-05-24"
+  );
+
+  assert.equal(merged.lastCalibration, "2026-05-24");
+  assert.equal(
+    merged.nextCalibrationDue,
+    new Date(inventory[0].nextCalibrationDueAtMs).toISOString().slice(0, 10)
+  );
+});

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
+from typing import Callable
 
 from .models import PodCalibrationMetadata, PodStatusSnapshot
 
@@ -66,25 +68,35 @@ class PodInventoryRegistry:
         *,
         registry_path: str | Path | None,
         due_soon_window_sec: float = 14 * 24 * 60 * 60,
+        on_warning: Callable[[str], None] | None = None,
     ) -> None:
         self._registry_path = Path(registry_path).expanduser() if registry_path else None
         self._due_soon_window_sec = float(max(0.0, due_soon_window_sec))
         self._records: dict[str, _StoredPodInventoryRecord] = {}
+        self._on_warning = on_warning
         self._load()
 
     def sync_live_snapshots(
         self, snapshots: tuple[PodStatusSnapshot, ...], *, now_sec: float
     ) -> None:
+        changed = False
         for snapshot in snapshots:
             key = self._record_key(snapshot.pod_serial, snapshot.one_wire_id)
+            legacy_key = self._record_key("", snapshot.one_wire_id)
             current = self._records.get(key)
+            if snapshot.pod_serial and legacy_key != key:
+                legacy = self._records.get(legacy_key)
+                if legacy is not None:
+                    current = self._merge_stored_records(current, legacy)
+                    changed = True
+                    del self._records[legacy_key]
             attached = bool(snapshot.connected)
             calibration = self._merge_calibration(
                 current=current,
                 snapshot_last=snapshot.last_calibration_sec,
                 snapshot_next=snapshot.next_calibration_due_sec,
             )
-            self._records[key] = _StoredPodInventoryRecord(
+            next_record = _StoredPodInventoryRecord(
                 pod_serial=snapshot.pod_serial or (current.pod_serial if current else ""),
                 pod_type=snapshot.pod_type or (current.pod_type if current else ""),
                 one_wire_id=snapshot.one_wire_id or (current.one_wire_id if current else ""),
@@ -101,11 +113,18 @@ class PodInventoryRegistry:
                     if current and current.first_seen_sec > 0.0
                     else snapshot.first_seen_sec
                 ),
-                last_seen_sec=max(snapshot.last_seen_sec, now_sec if attached else snapshot.last_seen_sec),
+                last_seen_sec=max(
+                    snapshot.last_seen_sec,
+                    now_sec if attached else snapshot.last_seen_sec,
+                ),
                 last_calibration_sec=calibration.last_calibration_sec,
                 next_calibration_due_sec=calibration.next_calibration_due_sec,
             )
-        self._save()
+            if current != next_record:
+                self._records[key] = next_record
+                changed = changed or self._requires_persistence(current, next_record)
+        if changed:
+            self._save()
 
     def apply_calibration_update(
         self,
@@ -142,7 +161,12 @@ class PodInventoryRegistry:
     def _load(self) -> None:
         if self._registry_path is None or not self._registry_path.exists():
             return
-        payload = json.loads(self._registry_path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(self._registry_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as error:
+            self._warn(f"Pod inventory registry could not be loaded; starting empty ({error})")
+            self._records = {}
+            return
         records = payload.get("records", [])
         for item in records:
             row = _StoredPodInventoryRecord(
@@ -158,8 +182,8 @@ class PodInventoryRegistry:
                 power_ready=bool(item.get("power_ready", False)),
                 link_ready=bool(item.get("link_ready", False)),
                 capabilities=tuple(item.get("capabilities", []) or ()),
-                first_seen_sec=float(item.get("first_seen_sec", 0.0) or 0.0),
-                last_seen_sec=float(item.get("last_seen_sec", 0.0) or 0.0),
+                first_seen_sec=self._nonnegative_float(item.get("first_seen_sec")),
+                last_seen_sec=self._nonnegative_float(item.get("last_seen_sec")),
                 last_calibration_sec=self._optional_float(item.get("last_calibration_sec")),
                 next_calibration_due_sec=self._optional_float(item.get("next_calibration_due_sec")),
             )
@@ -172,10 +196,12 @@ class PodInventoryRegistry:
         payload = {
             "records": [asdict(record) for _, record in sorted(self._records.items())]
         }
-        self._registry_path.write_text(
+        tmp_path = self._registry_path.with_name(f"{self._registry_path.name}.tmp")
+        tmp_path.write_text(
             json.dumps(payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+        tmp_path.replace(self._registry_path)
 
     def _to_inventory_record(
         self, record: _StoredPodInventoryRecord, *, now_sec: float
@@ -250,6 +276,48 @@ class PodInventoryRegistry:
         return PodCalibrationMetadata(snapshot_last, snapshot_next)
 
     @staticmethod
+    def _requires_persistence(
+        current: _StoredPodInventoryRecord | None,
+        next_record: _StoredPodInventoryRecord,
+    ) -> bool:
+        if current is None:
+            return True
+        current_payload = asdict(current)
+        next_payload = asdict(next_record)
+        current_payload.pop("last_seen_sec", None)
+        next_payload.pop("last_seen_sec", None)
+        return current_payload != next_payload
+
+    @staticmethod
+    def _merge_stored_records(
+        primary: _StoredPodInventoryRecord | None,
+        secondary: _StoredPodInventoryRecord,
+    ) -> _StoredPodInventoryRecord:
+        if primary is None:
+            return _StoredPodInventoryRecord(**asdict(secondary))
+        return _StoredPodInventoryRecord(
+            pod_serial=primary.pod_serial or secondary.pod_serial,
+            pod_type=primary.pod_type or secondary.pod_type,
+            one_wire_id=primary.one_wire_id or secondary.one_wire_id,
+            attached=primary.attached or secondary.attached,
+            vehicle_id=primary.vehicle_id or secondary.vehicle_id,
+            slot_id=primary.slot_id or secondary.slot_id,
+            lifecycle_state_label=primary.lifecycle_state_label or secondary.lifecycle_state_label,
+            connected=primary.connected or secondary.connected,
+            power_ready=primary.power_ready or secondary.power_ready,
+            link_ready=primary.link_ready or secondary.link_ready,
+            capabilities=primary.capabilities or secondary.capabilities,
+            first_seen_sec=(
+                min(value for value in (primary.first_seen_sec, secondary.first_seen_sec) if value > 0.0)
+                if primary.first_seen_sec > 0.0 and secondary.first_seen_sec > 0.0
+                else max(primary.first_seen_sec, secondary.first_seen_sec)
+            ),
+            last_seen_sec=max(primary.last_seen_sec, secondary.last_seen_sec),
+            last_calibration_sec=primary.last_calibration_sec or secondary.last_calibration_sec,
+            next_calibration_due_sec=primary.next_calibration_due_sec or secondary.next_calibration_due_sec,
+        )
+
+    @staticmethod
     def _record_key(pod_serial: str, one_wire_id: str) -> str:
         serial = str(pod_serial).strip()
         if serial:
@@ -261,8 +329,25 @@ class PodInventoryRegistry:
     def _optional_float(value: object) -> float | None:
         if value is None or value == "":
             return None
-        numeric = float(value)
-        return numeric if numeric > 0.0 else None
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(numeric) or numeric <= 0.0:
+            return None
+        return numeric
+
+    @staticmethod
+    def _nonnegative_float(value: object) -> float:
+        if value is None or value == "":
+            return 0.0
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(numeric) or numeric <= 0.0:
+            return 0.0
+        return numeric
 
     @staticmethod
     def _format_days(seconds: float) -> str:
@@ -272,3 +357,7 @@ class PodInventoryRegistry:
     @staticmethod
     def _format_date(seconds: float) -> str:
         return datetime.fromtimestamp(seconds, tz=UTC).date().isoformat()
+
+    def _warn(self, message: str) -> None:
+        if self._on_warning is not None:
+            self._on_warning(message)
