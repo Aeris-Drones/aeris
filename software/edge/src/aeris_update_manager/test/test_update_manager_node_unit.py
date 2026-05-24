@@ -150,6 +150,7 @@ def _build_node(coordinator, published) -> FirmwareUpdateManagerNode:
     node._active_updates = set()
     node._active_updates_lock = threading.Lock()
     node._worker_threads = {}
+    node._worker_commands = {}
     node._worker_threads_lock = threading.Lock()
     node._status_publisher = SimpleNamespace(publish=published.append)
     node.get_clock = lambda: SimpleNamespace(
@@ -255,6 +256,7 @@ def test_start_update_worker_uses_non_daemon_thread_and_tracks_it() -> None:
     assert created[0].daemon is False
     assert created[0].started is True
     assert node._worker_threads["scout_2"] is created[0]
+    assert node._worker_commands["scout_2"].vehicle_id == "scout_2"
 
 
 def test_start_update_worker_rolls_back_tracking_when_thread_start_fails() -> None:
@@ -284,9 +286,10 @@ def test_start_update_worker_rolls_back_tracking_when_thread_start_fails() -> No
         threading.Thread = original_thread  # type: ignore[assignment]
 
     assert node._worker_threads == {}
+    assert node._worker_commands == {}
 
 
-def test_destroy_node_blocks_until_non_daemon_workers_finish() -> None:
+def test_destroy_node_waits_with_timeout_for_worker_completion() -> None:
     published = []
     node = _build_node(StreamingCoordinator(published), published)
     join_calls = []
@@ -294,14 +297,23 @@ def test_destroy_node_blocks_until_non_daemon_workers_finish() -> None:
 
     class FakeThread:
         name = "firmware-update-scout_2"
+        alive_checks = 0
 
         def join(self, timeout=None) -> None:
             join_calls.append(timeout)
 
         def is_alive(self) -> bool:
-            return True
+            self.alive_checks += 1
+            return self.alive_checks == 1
 
     node._worker_threads["scout_2"] = FakeThread()
+    node._worker_commands["scout_2"] = FirmwareUpdateCommand(
+        vehicle_id="scout_2",
+        package_id="fw-2026.05.23",
+        target_version="2026.05.23",
+        package_uri="s3://updates/fw-2026.05.23.bin",
+        package_signature="signed-manifest",
+    )
     node.get_logger = lambda: SimpleNamespace(  # type: ignore[method-assign]
         error=lambda *_args, **_kwargs: None,
         info=lambda message: infos.append(message),
@@ -313,7 +325,8 @@ def test_destroy_node_blocks_until_non_daemon_workers_finish() -> None:
     assert infos == [
         "Waiting for firmware update worker to finish before shutdown: firmware-update-scout_2"
     ]
-    assert join_calls == [None]
+    assert join_calls == [node.SHUTDOWN_WORKER_JOIN_TIMEOUT_SEC]
+    assert published == []
     assert result is None
 
 
@@ -330,4 +343,64 @@ def test_handle_command_start_failure_cleans_worker_tracking_for_shutdown() -> N
     assert response.message == "thread resources exhausted"
     assert node._active_updates == set()
     assert node._worker_threads == {}
+    assert node._worker_commands == {}
     assert node.destroy_node() is None
+
+
+def test_destroy_node_publishes_failed_snapshot_for_worker_shutdown_timeout() -> None:
+    published = []
+    node = _build_node(StreamingCoordinator(published), published)
+    warnings = []
+    node._latest_statuses["scout_2"] = FirmwareUpdateStatusSnapshot(
+        vehicle_id="scout_2",
+        package_id="fw-2026.05.23",
+        current_version="2026.04.9",
+        target_version="2026.05.23",
+        lifecycle_state=FirmwareUpdateLifecycleState.APPLYING,
+        progress_percent=55.0,
+        active_slot="A",
+        inactive_slot="B",
+        status_detail="Applying package to slot B",
+    )
+    node._active_updates.add("scout_2")
+
+    class FakeThread:
+        name = "firmware-update-scout_2"
+
+        def join(self, timeout=None) -> None:
+            self.timeout = timeout
+
+        def is_alive(self) -> bool:
+            return True
+
+    worker = FakeThread()
+    node._worker_threads["scout_2"] = worker
+    node._worker_commands["scout_2"] = FirmwareUpdateCommand(
+        vehicle_id="scout_2",
+        package_id="fw-2026.05.23",
+        target_version="2026.05.23",
+        package_uri="s3://updates/fw-2026.05.23.bin",
+        package_signature="signed-manifest",
+    )
+    node.get_logger = lambda: SimpleNamespace(  # type: ignore[method-assign]
+        error=lambda *_args, **_kwargs: None,
+        info=lambda *_args, **_kwargs: None,
+        warning=lambda message: warnings.append(message),
+    )
+
+    result = node.destroy_node()
+
+    assert worker.timeout == node.SHUTDOWN_WORKER_JOIN_TIMEOUT_SEC
+    assert [message.updates[0].lifecycle_state_label for message in published] == ["failed"]
+    failed = published[0].updates[0]
+    assert failed.error_code == "shutdown_timeout"
+    assert failed.status_detail == "Firmware update did not finish before manager shutdown"
+    assert failed.progress_percent == 55.0
+    assert failed.active_slot == "A"
+    assert warnings == [
+        "Firmware update worker did not finish within 30s during shutdown: firmware-update-scout_2"
+    ]
+    assert node._active_updates == set()
+    assert node._worker_threads == {}
+    assert node._worker_commands == {}
+    assert result is None

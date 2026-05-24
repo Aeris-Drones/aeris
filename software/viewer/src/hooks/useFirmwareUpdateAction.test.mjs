@@ -49,7 +49,14 @@ const compiled = ts.transpileModule(
 const modulePath = path.join(tempDir, "useFirmwareUpdateAction.mjs");
 fs.writeFileSync(modulePath, compiled, "utf8");
 
-const { reconcileFirmwareUpdateActionState } = await import(pathToFileURL(modulePath).href);
+const {
+  FIRMWARE_UPDATE_SERVICE_TIMEOUT_MS,
+  reconcileFirmwareUpdateActionState,
+} = await import(pathToFileURL(modulePath).href);
+
+test("firmware update requests use a short async handshake timeout", () => {
+  assert.equal(FIRMWARE_UPDATE_SERVICE_TIMEOUT_MS, 30_000);
+});
 
 test("reconcileFirmwareUpdateActionState clears stale errors and pending state when live status arrives", () => {
   const reconciled = reconcileFirmwareUpdateActionState({

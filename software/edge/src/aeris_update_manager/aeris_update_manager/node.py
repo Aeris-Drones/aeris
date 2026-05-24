@@ -24,6 +24,7 @@ class FirmwareUpdateManagerNode(Node):
 
     STATUS_TOPIC = "/vehicle/firmware_update_status"
     COMMAND_SERVICE = "/vehicle/request_firmware_update"
+    SHUTDOWN_WORKER_JOIN_TIMEOUT_SEC = 30.0
 
     def __init__(
         self,
@@ -47,6 +48,7 @@ class FirmwareUpdateManagerNode(Node):
         self._active_updates: set[str] = set()
         self._active_updates_lock = threading.Lock()
         self._worker_threads: dict[str, threading.Thread] = {}
+        self._worker_commands: dict[str, FirmwareUpdateCommand] = {}
         self._worker_threads_lock = threading.Lock()
         self._command_service = self.create_service(
             FirmwareUpdateCommandService,
@@ -112,11 +114,13 @@ class FirmwareUpdateManagerNode(Node):
         )
         with self._worker_threads_lock:
             self._worker_threads[command.vehicle_id] = worker
+            self._worker_commands[command.vehicle_id] = command
         try:
             worker.start()
         except Exception:
             with self._worker_threads_lock:
                 self._worker_threads.pop(command.vehicle_id, None)
+                self._worker_commands.pop(command.vehicle_id, None)
             raise
 
     def _run_update(self, command: FirmwareUpdateCommand) -> None:
@@ -137,6 +141,7 @@ class FirmwareUpdateManagerNode(Node):
                 self._active_updates.discard(command.vehicle_id)
             with self._worker_threads_lock:
                 self._worker_threads.pop(command.vehicle_id, None)
+                self._worker_commands.pop(command.vehicle_id, None)
 
     def _unexpected_failure_snapshot(
         self, command: FirmwareUpdateCommand, detail: str
@@ -155,6 +160,26 @@ class FirmwareUpdateManagerNode(Node):
             rollback_performed=latest.rollback_performed if latest else False,
             status_detail="Firmware update failed before completion",
             error_code="unexpected_execution_error",
+            error_detail=detail,
+        )
+
+    def _shutdown_timeout_snapshot(
+        self, command: FirmwareUpdateCommand, detail: str
+    ) -> FirmwareUpdateStatusSnapshot:
+        with self._status_lock:
+            latest = self._latest_statuses.get(command.vehicle_id)
+        return FirmwareUpdateStatusSnapshot(
+            vehicle_id=command.vehicle_id,
+            package_id=latest.package_id if latest else command.package_id,
+            current_version=latest.current_version if latest else "unknown",
+            target_version=latest.target_version if latest else command.target_version,
+            lifecycle_state=FirmwareUpdateLifecycleState.FAILED,
+            progress_percent=float(latest.progress_percent if latest else 0.0),
+            active_slot=latest.active_slot if latest else "unknown",
+            inactive_slot=latest.inactive_slot if latest else "unknown",
+            rollback_performed=latest.rollback_performed if latest else False,
+            status_detail="Firmware update did not finish before manager shutdown",
+            error_code="shutdown_timeout",
             error_detail=detail,
         )
 
@@ -210,8 +235,8 @@ class FirmwareUpdateManagerNode(Node):
     def destroy_node(self):
         current_thread = threading.current_thread()
         with self._worker_threads_lock:
-            workers = list(self._worker_threads.values())
-        for worker in workers:
+            workers = list(self._worker_threads.items())
+        for vehicle_id, worker in workers:
             if worker is current_thread:
                 continue
             if worker.is_alive():
@@ -219,7 +244,23 @@ class FirmwareUpdateManagerNode(Node):
                     "Waiting for firmware update worker to finish before shutdown: %s"
                     % worker.name
                 )
-            worker.join()
+            worker.join(timeout=self.SHUTDOWN_WORKER_JOIN_TIMEOUT_SEC)
+            if worker.is_alive():
+                detail = (
+                    "Firmware update worker did not finish within %.0fs during shutdown"
+                    % self.SHUTDOWN_WORKER_JOIN_TIMEOUT_SEC
+                )
+                with self._worker_threads_lock:
+                    command = self._worker_commands.get(vehicle_id)
+                    self._worker_threads.pop(vehicle_id, None)
+                    self._worker_commands.pop(vehicle_id, None)
+                with self._active_updates_lock:
+                    self._active_updates.discard(vehicle_id)
+                if command is not None:
+                    self._publish_snapshot(
+                        self._shutdown_timeout_snapshot(command, detail)
+                    )
+                self.get_logger().warning("%s: %s" % (detail, worker.name))
         destroy = getattr(super(), "destroy_node", None)
         if destroy is None:
             return None

@@ -8,7 +8,7 @@ import {
   type FirmwareUpdateStatusSnapshot,
 } from '@/lib/ros/firmwareUpdateStatus';
 
-const FIRMWARE_UPDATE_SERVICE_TIMEOUT_MS = 300_000; // Coordinator runs download, apply, reboot, and healthcheck synchronously.
+export const FIRMWARE_UPDATE_SERVICE_TIMEOUT_MS = 30_000; // Async start handshake should fail fast if rosbridge stops responding.
 
 interface FirmwareUpdateActionResult {
   accepted: boolean;
