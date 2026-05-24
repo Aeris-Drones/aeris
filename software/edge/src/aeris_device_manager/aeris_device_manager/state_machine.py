@@ -324,6 +324,12 @@ class DeviceManagerStateMachine:
             rejection_detail=runtime.rejection_detail,
             fault_code=runtime.fault_code,
             fault_detail=runtime.fault_detail,
+            last_calibration_sec=(
+                metadata.calibration.last_calibration_sec if metadata is not None else None
+            ),
+            next_calibration_due_sec=(
+                metadata.calibration.next_calibration_due_sec if metadata is not None else None
+            ),
         )
 
     def _enumeration_elapsed(self, runtime: _PodRuntime) -> float:

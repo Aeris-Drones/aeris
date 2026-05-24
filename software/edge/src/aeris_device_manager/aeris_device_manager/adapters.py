@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from .models import DetectedPod, PodLinkInfo, PodMetadata
+from .models import DetectedPod, PodCalibrationMetadata, PodLinkInfo, PodMetadata
 
 
 class DeviceManagerError(RuntimeError):
@@ -34,6 +34,10 @@ class LinkEnumerationError(DeviceManagerError):
     """Raised when USB or Ethernet enumeration fails."""
 
 
+class CalibrationWriteError(DeviceManagerError):
+    """Raised when calibration metadata cannot be written or verified."""
+
+
 class PodHardwareAdapter(Protocol):
     """Hardware adapter boundary for the pod lifecycle controller."""
 
@@ -56,6 +60,11 @@ class PodHardwareAdapter(Protocol):
         self, pod: DetectedPod, metadata: PodMetadata, link: PodLinkInfo
     ) -> tuple[str, ...]:
         """Return the capabilities to advertise once the pod is online."""
+
+    def write_calibration(
+        self, pod: DetectedPod, calibration: PodCalibrationMetadata
+    ) -> PodCalibrationMetadata:
+        """Persist calibration metadata and return the verified values."""
 
     def power_off(self, pod: DetectedPod) -> None:
         """Remove pod power after a disconnect or fault."""
@@ -95,6 +104,14 @@ class NullPodHardwareAdapter:
         self, pod: DetectedPod, metadata: PodMetadata, link: PodLinkInfo
     ) -> tuple[str, ...]:
         return tuple(metadata.capabilities)
+
+    def write_calibration(
+        self, pod: DetectedPod, calibration: PodCalibrationMetadata
+    ) -> PodCalibrationMetadata:
+        raise CalibrationWriteError(
+            code="eeprom_writer_unavailable",
+            detail=f"no EEPROM calibration writer configured for {pod.slot_id}",
+        )
 
     def power_off(self, pod: DetectedPod) -> None:
         return None

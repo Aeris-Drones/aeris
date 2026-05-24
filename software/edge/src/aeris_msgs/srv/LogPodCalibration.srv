@@ -1,0 +1,10 @@
+# Persist completed calibration metadata for a connected pod.
+
+string pod_serial
+builtin_interfaces/Time last_calibration
+builtin_interfaces/Time next_calibration_due
+---
+bool accepted
+string message
+string failure_code
+aeris_msgs/PodInventoryRecord record
