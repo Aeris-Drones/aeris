@@ -132,7 +132,21 @@ class FirmwareUpdateCoordinator:
                     error_code=error.code,
                     error_detail=error.detail,
                 )
-                self._adapter.rollback_boot_slot(command.vehicle_id, original_state.active_slot)
+                try:
+                    self._adapter.rollback_boot_slot(command.vehicle_id, original_state.active_slot)
+                except FirmwareUpdateError as rollback_error:
+                    emit(
+                        FirmwareUpdateLifecycleState.FAILED,
+                        history[-1].progress_percent,
+                        last_known_state,
+                        current_version=last_known_version,
+                        status_detail="Healthcheck failed and rollback did not complete",
+                        error_code=rollback_error.code,
+                        error_detail=(
+                            f"{error.detail}; rollback failed: {rollback_error.detail}"
+                        ),
+                    )
+                    return tuple(history)
                 rolled_back_state = FirmwarePartitionState(
                     active_slot=original_state.active_slot,
                     inactive_slot=verifying_state.active_slot,
@@ -164,7 +178,24 @@ class FirmwareUpdateCoordinator:
                 )
                 return tuple(history)
 
-            complete_state = self._adapter.get_partition_state(command.vehicle_id)
+            complete_state = FirmwarePartitionState(
+                active_slot=verifying_state.active_slot,
+                inactive_slot=verifying_state.inactive_slot,
+                current_version=command.target_version,
+            )
+            try:
+                complete_state = self._adapter.get_partition_state(command.vehicle_id)
+            except FirmwareUpdateError:
+                emit(
+                    FirmwareUpdateLifecycleState.COMPLETE,
+                    100.0,
+                    complete_state,
+                    status_detail=(
+                        f"Vehicle healthy on slot {complete_state.active_slot}; "
+                        "partition state confirmation unavailable"
+                    ),
+                )
+                return tuple(history)
             emit(
                 FirmwareUpdateLifecycleState.COMPLETE,
                 100.0,

@@ -296,4 +296,39 @@ def test_reports_last_known_slot_and_version_when_rollback_fails() -> None:
     assert history[-1].inactive_slot == "A"
     assert history[-1].current_version == "2026.05.23"
     assert history[-1].error_code == "rollback_unavailable"
-    assert history[-1].error_detail == "bootloader rejected rollback target"
+    assert history[-1].status_detail == "Healthcheck failed and rollback did not complete"
+    assert history[-1].error_detail == (
+        "Post-update healthcheck failed; rollback failed: bootloader rejected rollback target"
+    )
+
+
+def test_keeps_complete_terminal_state_when_post_healthcheck_state_read_fails() -> None:
+    adapter = FakeFirmwareUpdateAdapter(
+        partition_state_failures=[
+            None,
+            None,
+            FirmwareUpdateError(
+                code="partition_state_unavailable",
+                detail="partition metadata timed out",
+            ),
+        ],
+    )
+    coordinator = FirmwareUpdateCoordinator(adapter)
+
+    history = coordinator.execute_update(_command())
+
+    assert [snapshot.lifecycle_state for snapshot in history] == [
+        FirmwareUpdateLifecycleState.DOWNLOADING,
+        FirmwareUpdateLifecycleState.VALIDATING,
+        FirmwareUpdateLifecycleState.APPLYING,
+        FirmwareUpdateLifecycleState.VERIFYING,
+        FirmwareUpdateLifecycleState.COMPLETE,
+    ]
+    assert history[-1].active_slot == "B"
+    assert history[-1].inactive_slot == "A"
+    assert history[-1].current_version == "2026.05.23"
+    assert history[-1].error_code == ""
+    assert history[-1].error_detail == ""
+    assert history[-1].status_detail == (
+        "Vehicle healthy on slot B; partition state confirmation unavailable"
+    )
