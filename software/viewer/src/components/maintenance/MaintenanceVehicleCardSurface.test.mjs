@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -11,6 +11,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const TEMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "aeris-maintenance-card-render-"));
 const VIEWER_NODE_MODULES = path.resolve(ROOT, "..", "..", "..", "node_modules");
+
+after(() => {
+  fs.rmSync(TEMP_ROOT, { recursive: true, force: true });
+});
 
 fs.symlinkSync(VIEWER_NODE_MODULES, path.join(TEMP_ROOT, "node_modules"), "dir");
 
