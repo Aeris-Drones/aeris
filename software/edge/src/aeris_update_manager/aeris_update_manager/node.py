@@ -24,7 +24,6 @@ class FirmwareUpdateManagerNode(Node):
 
     STATUS_TOPIC = "/vehicle/firmware_update_status"
     COMMAND_SERVICE = "/vehicle/request_firmware_update"
-    WORKER_JOIN_TIMEOUT_SEC = 1.0
 
     def __init__(
         self,
@@ -210,12 +209,12 @@ class FirmwareUpdateManagerNode(Node):
         for worker in workers:
             if worker is current_thread:
                 continue
-            worker.join(timeout=self.WORKER_JOIN_TIMEOUT_SEC)
             if worker.is_alive():
-                self.get_logger().warning(
-                    "Firmware update worker still running during shutdown: %s"
+                self.get_logger().info(
+                    "Waiting for firmware update worker to finish before shutdown: %s"
                     % worker.name
                 )
+            worker.join()
         destroy = getattr(super(), "destroy_node", None)
         if destroy is None:
             return None

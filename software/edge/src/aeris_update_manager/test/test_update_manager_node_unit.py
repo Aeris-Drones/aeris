@@ -157,6 +157,7 @@ def _build_node(coordinator, published) -> FirmwareUpdateManagerNode:
     )
     node.get_logger = lambda: SimpleNamespace(
         error=lambda *_args, **_kwargs: None,
+        info=lambda *_args, **_kwargs: None,
         warning=lambda *_args, **_kwargs: None,
     )
     return node
@@ -256,10 +257,11 @@ def test_start_update_worker_uses_non_daemon_thread_and_tracks_it() -> None:
     assert node._worker_threads["scout_2"] is created[0]
 
 
-def test_destroy_node_joins_non_daemon_workers_with_timeout() -> None:
+def test_destroy_node_blocks_until_non_daemon_workers_finish() -> None:
     published = []
     node = _build_node(StreamingCoordinator(published), published)
     join_calls = []
+    infos = []
 
     class FakeThread:
         name = "firmware-update-scout_2"
@@ -268,11 +270,19 @@ def test_destroy_node_joins_non_daemon_workers_with_timeout() -> None:
             join_calls.append(timeout)
 
         def is_alive(self) -> bool:
-            return False
+            return True
 
     node._worker_threads["scout_2"] = FakeThread()
+    node.get_logger = lambda: SimpleNamespace(  # type: ignore[method-assign]
+        error=lambda *_args, **_kwargs: None,
+        info=lambda message: infos.append(message),
+        warning=lambda *_args, **_kwargs: None,
+    )
 
     result = node.destroy_node()
 
-    assert join_calls == [node.WORKER_JOIN_TIMEOUT_SEC]
+    assert infos == [
+        "Waiting for firmware update worker to finish before shutdown: firmware-update-scout_2"
+    ]
+    assert join_calls == [None]
     assert result is None
