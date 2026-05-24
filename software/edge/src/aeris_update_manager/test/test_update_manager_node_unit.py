@@ -257,6 +257,35 @@ def test_start_update_worker_uses_non_daemon_thread_and_tracks_it() -> None:
     assert node._worker_threads["scout_2"] is created[0]
 
 
+def test_start_update_worker_rolls_back_tracking_when_thread_start_fails() -> None:
+    published = []
+    node = _build_node(StreamingCoordinator(published), published)
+
+    class FakeThread:
+        def __init__(self, *, target, args, daemon, name) -> None:
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+            self.name = name
+
+        def start(self) -> None:
+            raise RuntimeError("thread resources exhausted")
+
+    original_thread = threading.Thread
+    threading.Thread = FakeThread  # type: ignore[assignment]
+    try:
+        try:
+            node._start_update_worker(_request())
+        except RuntimeError as error:
+            assert str(error) == "thread resources exhausted"
+        else:
+            raise AssertionError("expected worker start to fail")
+    finally:
+        threading.Thread = original_thread  # type: ignore[assignment]
+
+    assert node._worker_threads == {}
+
+
 def test_destroy_node_blocks_until_non_daemon_workers_finish() -> None:
     published = []
     node = _build_node(StreamingCoordinator(published), published)
@@ -286,3 +315,19 @@ def test_destroy_node_blocks_until_non_daemon_workers_finish() -> None:
     ]
     assert join_calls == [None]
     assert result is None
+
+
+def test_handle_command_start_failure_cleans_worker_tracking_for_shutdown() -> None:
+    published = []
+    node = _build_node(StreamingCoordinator(published), published)
+    node._start_update_worker = lambda _command: (_ for _ in ()).throw(  # type: ignore[method-assign]
+        RuntimeError("thread resources exhausted")
+    )
+
+    response = node._handle_command(_request(), SimpleNamespace(accepted=False, message=""))
+
+    assert response.accepted is False
+    assert response.message == "thread resources exhausted"
+    assert node._active_updates == set()
+    assert node._worker_threads == {}
+    assert node.destroy_node() is None

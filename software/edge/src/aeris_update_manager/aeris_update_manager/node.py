@@ -112,7 +112,12 @@ class FirmwareUpdateManagerNode(Node):
         )
         with self._worker_threads_lock:
             self._worker_threads[command.vehicle_id] = worker
-        worker.start()
+        try:
+            worker.start()
+        except Exception:
+            with self._worker_threads_lock:
+                self._worker_threads.pop(command.vehicle_id, None)
+            raise
 
     def _run_update(self, command: FirmwareUpdateCommand) -> None:
         try:
