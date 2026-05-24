@@ -5,6 +5,7 @@ import { Activity, Battery, ChevronDown, ChevronUp, Compass, Cpu, Gauge, Radio, 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { FirmwareUpdatePanel } from '@/components/maintenance/FirmwareUpdatePanel';
 import { cn } from '@/lib/utils';
 import {
   getDiagnosticBadgeVariant,
@@ -13,11 +14,21 @@ import {
   type MaintenanceVehicleViewModel,
 } from '@/lib/maintenanceDiagnostics';
 import { formatLastContactAge } from '@/lib/degradedVehicleState';
+import {
+  getFirmwareUpdateBadgeVariant,
+  isFirmwareUpdateActive,
+  type FirmwareUpdateCommandInput,
+  type FirmwareUpdateStatusSnapshot,
+} from '@/lib/ros/firmwareUpdateStatus';
 
 interface MaintenanceVehicleCardProps {
   vehicle: MaintenanceVehicleViewModel;
   expanded: boolean;
   onToggle: () => void;
+  firmwareStatus?: FirmwareUpdateStatusSnapshot | null;
+  firmwareActionError?: string | null;
+  isSubmittingFirmwareUpdate?: boolean;
+  onRequestFirmwareUpdate?: (request: FirmwareUpdateCommandInput) => void | Promise<unknown>;
 }
 
 function DetailRow({
@@ -52,6 +63,10 @@ export function MaintenanceVehicleCard({
   vehicle,
   expanded,
   onToggle,
+  firmwareStatus = null,
+  firmwareActionError = null,
+  isSubmittingFirmwareUpdate = false,
+  onRequestFirmwareUpdate = async () => {},
 }: MaintenanceVehicleCardProps) {
   const readinessVariant = getReadinessBadgeVariant(vehicle.readiness);
   const batteryLabel =
@@ -63,6 +78,21 @@ export function MaintenanceVehicleCard({
     ? `Last contact ${formatLastContactAge(vehicle.lastContactAgeMs)} ago`
     : 'Live telemetry';
   const [imuCheck, compassCheck, accelerometerCheck] = vehicle.detailChecks;
+  const firmwareLabel =
+    firmwareStatus?.lifecycleLabel ??
+    (isSubmittingFirmwareUpdate ? 'Submitting' : 'No status');
+  const firmwareVariant = getFirmwareUpdateBadgeVariant(
+    firmwareStatus?.lifecycleState ?? 'idle'
+  );
+  const firmwareSummary = firmwareStatus
+    ? `${firmwareStatus.currentVersion ?? '--'} -> ${firmwareStatus.targetVersion ?? firmwareStatus.currentVersion ?? '--'}`
+    : 'Edge status not reported yet';
+  const firmwareProgress = firmwareStatus
+    ? `${firmwareStatus.progressPercent.toFixed(1)}%`
+    : isSubmittingFirmwareUpdate
+      ? 'Dispatching request'
+      : 'Awaiting request';
+  const firmwareBusy = isSubmittingFirmwareUpdate || isFirmwareUpdateActive(firmwareStatus);
 
   return (
     <Card
@@ -107,6 +137,24 @@ export function MaintenanceVehicleCard({
             <div className="mt-2 text-sm text-white/60">{check.summary}</div>
           </div>
         ))}
+      </div>
+
+      <div className="mt-4 rounded-lg border border-white/8 bg-black/18 px-3 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-medium text-white">Firmware</div>
+            <div className="mt-1 text-sm text-white/60">{firmwareSummary}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant={firmwareVariant}>{firmwareLabel}</Badge>
+            <span className="text-sm text-white/50">{firmwareProgress}</span>
+          </div>
+        </div>
+        {firmwareActionError ? (
+          <div className="mt-2 text-sm text-red-200">{firmwareActionError}</div>
+        ) : firmwareBusy && firmwareStatus?.statusDetail ? (
+          <div className="mt-2 text-sm text-white/55">{firmwareStatus.statusDetail}</div>
+        ) : null}
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/8 pt-4">
@@ -175,6 +223,15 @@ export function MaintenanceVehicleCard({
               </div>
             )}
           </div>
+
+          <FirmwareUpdatePanel
+            vehicleId={vehicle.id}
+            vehicleName={vehicle.name}
+            status={firmwareStatus}
+            isSubmitting={isSubmittingFirmwareUpdate}
+            actionError={firmwareActionError}
+            onSubmit={onRequestFirmwareUpdate}
+          />
         </div>
       )}
     </Card>

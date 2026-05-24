@@ -21,9 +21,14 @@ test("viewer route navigation exposes both operations and maintenance destinatio
   const navSource = fs.readFileSync(path.join(ROOT, "components", "layout", "ViewerRouteNav.tsx"), "utf8");
   const operatorSource = fs.readFileSync(path.join(ROOT, "app", "page.tsx"), "utf8");
   const maintenanceSource = fs.readFileSync(path.join(ROOT, "app", "maintenance", "page.tsx"), "utf8");
+  const dashboardSource = fs.readFileSync(path.join(ROOT, "components", "maintenance", "MaintenanceDashboardPage.tsx"), "utf8");
+  const cardSource = fs.readFileSync(path.join(ROOT, "components", "maintenance", "MaintenanceVehicleCard.tsx"), "utf8");
 
   assert.match(navSource, /href="\/"/, "route nav should retain the operator landing route");
   assert.match(navSource, /href="\/maintenance"/, "route nav should expose the maintenance route");
   assert.match(operatorSource, /ViewerRouteNav currentRoute="operations"/, "operator page should wire the route nav");
   assert.match(maintenanceSource, /MaintenanceDashboardPage/, "maintenance route should render the dedicated diagnostics dashboard");
+  assert.match(dashboardSource, /useFirmwareUpdateStatus/, "maintenance dashboard should subscribe to typed firmware update status");
+  assert.match(dashboardSource, /useFirmwareUpdateAction/, "maintenance dashboard should expose the firmware update command action");
+  assert.match(cardSource, /FirmwareUpdatePanel/, "maintenance vehicle cards should render the firmware update surface");
 });

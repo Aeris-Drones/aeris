@@ -1,0 +1,10 @@
+# High-level firmware update request for one vehicle.
+
+string vehicle_id
+string package_id
+string target_version
+string package_uri
+string package_signature
+---
+bool accepted
+string message
