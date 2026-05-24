@@ -111,7 +111,11 @@ class FirmwareUpdateCoordinator:
             )
             last_known_version = command.target_version
 
-            verifying_state = self._adapter.get_partition_state(command.vehicle_id)
+            verifying_state = last_known_state
+            try:
+                verifying_state = self._adapter.get_partition_state(command.vehicle_id)
+            except FirmwareUpdateError:
+                pass
             emit(
                 FirmwareUpdateLifecycleState.VERIFYING,
                 85.0,

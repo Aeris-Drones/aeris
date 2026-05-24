@@ -191,7 +191,7 @@ def test_streams_snapshots_to_callback_as_the_update_progresses() -> None:
     ]
 
 
-def test_reports_switched_slot_when_verification_state_read_fails() -> None:
+def test_continues_to_healthcheck_when_verification_state_read_fails() -> None:
     adapter = FakeFirmwareUpdateAdapter(
         partition_state_failures=[
             None,
@@ -209,13 +209,18 @@ def test_reports_switched_slot_when_verification_state_read_fails() -> None:
         FirmwareUpdateLifecycleState.DOWNLOADING,
         FirmwareUpdateLifecycleState.VALIDATING,
         FirmwareUpdateLifecycleState.APPLYING,
-        FirmwareUpdateLifecycleState.FAILED,
+        FirmwareUpdateLifecycleState.VERIFYING,
+        FirmwareUpdateLifecycleState.COMPLETE,
     ]
+    assert history[-2].active_slot == "B"
+    assert history[-2].inactive_slot == "A"
+    assert history[-2].current_version == "2026.05.23"
+    assert history[-2].status_detail == "Booted slot B; running healthcheck"
     assert history[-1].active_slot == "B"
     assert history[-1].inactive_slot == "A"
     assert history[-1].current_version == "2026.05.23"
-    assert history[-1].error_code == "partition_state_unavailable"
-    assert history[-1].error_detail == "reboot transition in progress"
+    assert history[-1].error_code == ""
+    assert history[-1].error_detail == ""
 
 
 def test_rolls_back_when_healthcheck_fails_after_boot_swap() -> None:
