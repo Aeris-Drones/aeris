@@ -7,8 +7,11 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ViewerRouteNav } from '@/components/layout/ViewerRouteNav';
 import { MaintenanceVehicleCard } from '@/components/maintenance/MaintenanceVehicleCard';
+import { PodInventorySection } from '@/components/maintenance/PodInventorySection';
+import { usePodCalibrationAction } from '@/hooks/usePodCalibrationAction';
 import { useFirmwareUpdateAction } from '@/hooks/useFirmwareUpdateAction';
 import { useFirmwareUpdateStatus } from '@/hooks/useFirmwareUpdateStatus';
+import { usePodInventory } from '@/hooks/usePodInventory';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { usePodStatus } from '@/hooks/usePodStatus';
@@ -19,6 +22,7 @@ import {
 } from '@/lib/maintenanceDiagnostics';
 import { normalizeMissionMetaForVehicle } from '@/lib/degradedVehicleState';
 import { createDemoFirmwareUpdateStatusArray } from '@/lib/ros/firmwareUpdateStatus';
+import { createDemoPodInventoryArray } from '@/lib/ros/podInventory';
 
 function SummaryCard({
   label,
@@ -51,9 +55,15 @@ export function MaintenanceDashboardPage() {
   const { vehicles } = useVehicleTelemetry();
   const { vehicleMissionMeta, rosConnected } = useMissionControl();
   const podStatus = usePodStatus();
+  const podInventory = usePodInventory();
   const diagnostics = useVehicleMaintenanceDiagnostics();
   const firmwareUpdates = useFirmwareUpdateStatus();
   const { requestUpdate, submittingVehicleId, errorsByVehicle } = useFirmwareUpdateAction(firmwareUpdates.updates);
+  const {
+    requestCalibration,
+    submittingPodSerial,
+    actionStatesBySerial,
+  } = usePodCalibrationAction(podInventory.records);
   const [expandedVehicleIds, setExpandedVehicleIds] = useState<string[]>([]);
 
   const liveDashboard = useMemo(
@@ -76,8 +86,9 @@ export function MaintenanceDashboardPage() {
         }),
         diagnostics: diagnostics.vehicles,
         pods: podStatus.pods,
+        podInventory: podInventory.records,
       }),
-    [diagnostics.vehicles, podStatus.pods, vehicleMissionMeta, vehicles]
+    [diagnostics.vehicles, podInventory.records, podStatus.pods, vehicleMissionMeta, vehicles]
   );
 
   const isDemoMode = !rosConnected && liveDashboard.vehicles.length === 0;
@@ -85,6 +96,10 @@ export function MaintenanceDashboardPage() {
   const firmwareState = isDemoMode && firmwareUpdates.updates.length === 0
     ? createDemoFirmwareUpdateStatusArray()
     : firmwareUpdates;
+  const inventoryState =
+    isDemoMode && podInventory.records.length === 0
+      ? createDemoPodInventoryArray()
+      : podInventory;
   const firmwareByVehicleId = useMemo(
     () => new Map(firmwareState.updates.map((update) => [update.vehicleId, update])),
     [firmwareState.updates]
@@ -152,6 +167,13 @@ export function MaintenanceDashboardPage() {
             icon={<Radio className="h-5 w-5" />}
           />
         </section>
+
+        <PodInventorySection
+          inventory={inventoryState.records}
+          submittingPodSerial={submittingPodSerial}
+          actionStateBySerial={actionStatesBySerial}
+          onSubmitCalibration={requestCalibration}
+        />
 
         <section className="grid gap-4 xl:grid-cols-2">
           {dashboard.vehicles.length === 0 ? (

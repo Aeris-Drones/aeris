@@ -240,6 +240,51 @@ test("registered pods with explicit readiness failures stay actionable as degrad
   assert.equal(projected.vehicles[0].summaryChecks.sensors.state, "warning");
 });
 
+test("attached overdue pod inventory rows escalate calibration readiness without redoing date math in the viewer", () => {
+  const projected = projectFleetDiagnostics({
+    nowMs: 5_000,
+    telemetry: [
+      {
+        id: "scout_5",
+        name: "SCOUT 5",
+        batteryPercent: 88,
+        altitudeMeters: 0,
+        linkQualityPercent: 81,
+        lastUpdate: 4_900,
+        missionOnline: true,
+      },
+    ],
+    diagnostics: [
+      {
+        vehicleId: "scout_5",
+        motorHealthState: "healthy",
+        calibrationState: "healthy",
+        imuState: "healthy",
+        compassState: "healthy",
+        accelerometerState: "healthy",
+      },
+    ],
+    pods: [],
+    podInventory: [
+      {
+        podSerial: "GAS-118",
+        podType: "hazmat",
+        attached: true,
+        vehicleId: "scout_5",
+        slotId: "belly",
+        lastCalibrationAtMs: 1_700_000_000_000,
+        nextCalibrationDueAtMs: 1_700_100_000_000,
+        calibrationState: "overdue",
+        calibrationDetail: "Overdue by 4 days",
+      },
+    ],
+  });
+
+  assert.equal(projected.vehicles[0].readiness, "blocked");
+  assert.equal(projected.vehicles[0].summaryChecks.calibration.state, "blocked");
+  assert.match(projected.vehicles[0].summaryChecks.calibration.summary, /Overdue by 4 days/);
+});
+
 test("calibration roll-up keeps the worst reported detail state", () => {
   const projected = projectFleetDiagnostics({
     nowMs: 5_000,

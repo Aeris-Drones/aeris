@@ -2,6 +2,7 @@ import { deriveVehicleDegradedState } from './degradedVehicleState.js';
 
 export type DiagnosticState = 'healthy' | 'warning' | 'blocked' | 'unknown';
 export type FleetReadinessState = 'ready' | 'warning' | 'blocked';
+export type CalibrationDueState = 'unknown' | 'current' | 'due_soon' | 'overdue';
 
 export interface MaintenanceTelemetrySnapshot {
   id: string;
@@ -27,6 +28,24 @@ export interface MaintenancePodSnapshot {
   capabilities: string[];
   faultDetail?: string;
   rejectionDetail?: string;
+}
+
+export interface MaintenancePodInventorySnapshot {
+  podSerial: string;
+  podType: string;
+  attached: boolean;
+  vehicleId?: string;
+  slotId?: string;
+  oneWireId?: string;
+  lifecycleStateLabel?: string;
+  connected?: boolean;
+  powerReady?: boolean;
+  linkReady?: boolean;
+  capabilities?: string[];
+  lastCalibrationAtMs?: number | null;
+  nextCalibrationDueAtMs?: number | null;
+  calibrationState: CalibrationDueState;
+  calibrationDetail?: string;
 }
 
 export interface VehicleMaintenanceSnapshot {
@@ -269,6 +288,44 @@ function summarizeCalibration(diagnostics?: VehicleMaintenanceSnapshot): {
   };
 }
 
+function summarizePodInventoryCalibration(
+  inventory: MaintenancePodInventorySnapshot[]
+): MaintenanceCheckViewModel | null {
+  const attached = inventory.filter((row) => row.attached && row.vehicleId);
+  if (attached.length === 0) {
+    return null;
+  }
+
+  const overdue = attached.filter((row) => row.calibrationState === 'overdue');
+  if (overdue.length > 0) {
+    return {
+      label: 'Calibration',
+      state: 'blocked',
+      summary: overdue[0].calibrationDetail || `${overdue.length} attached pod${overdue.length === 1 ? '' : 's'} overdue for calibration`,
+    };
+  }
+
+  const dueSoon = attached.filter((row) => row.calibrationState === 'due_soon');
+  if (dueSoon.length > 0) {
+    return {
+      label: 'Calibration',
+      state: 'warning',
+      summary: dueSoon[0].calibrationDetail || `${dueSoon.length} attached pod${dueSoon.length === 1 ? '' : 's'} due soon for calibration`,
+    };
+  }
+
+  const unknown = attached.filter((row) => row.calibrationState === 'unknown');
+  if (unknown.length > 0) {
+    return {
+      label: 'Calibration',
+      state: 'warning',
+      summary: unknown[0].calibrationDetail || 'Attached pod calibration schedule unavailable',
+    };
+  }
+
+  return null;
+}
+
 function summarizeMotorHealth(diagnostics?: VehicleMaintenanceSnapshot): MaintenanceCheckViewModel {
   const state = diagnostics?.motorHealthState ?? 'unknown';
   return {
@@ -322,17 +379,28 @@ export function projectFleetDiagnostics(args: {
   telemetry: MaintenanceTelemetrySnapshot[];
   diagnostics: VehicleMaintenanceSnapshot[];
   pods: MaintenancePodSnapshot[];
+  podInventory?: MaintenancePodInventorySnapshot[];
   nowMs?: number;
 }): FleetDiagnosticsViewModel {
-  const { telemetry, diagnostics, pods, nowMs = Date.now() } = args;
+  const { telemetry, diagnostics, pods, podInventory = [], nowMs = Date.now() } = args;
   const telemetryById = new Map(telemetry.map((vehicle) => [vehicle.id, vehicle]));
   const diagnosticsById = new Map(diagnostics.map((snapshot) => [snapshot.vehicleId, snapshot]));
   const podGroups = new Map<string, MaintenancePodSnapshot[]>();
+  const inventoryGroups = new Map<string, MaintenancePodInventorySnapshot[]>();
 
   for (const pod of pods) {
     const list = podGroups.get(pod.vehicleId) ?? [];
     list.push(pod);
     podGroups.set(pod.vehicleId, list);
+  }
+  for (const row of podInventory) {
+    const vehicleId = row.attached ? row.vehicleId?.trim() : '';
+    if (!vehicleId) {
+      continue;
+    }
+    const list = inventoryGroups.get(vehicleId) ?? [];
+    list.push(row);
+    inventoryGroups.set(vehicleId, list);
   }
 
   const vehicleIds = Array.from(
@@ -347,6 +415,7 @@ export function projectFleetDiagnostics(args: {
     const vehicle = telemetryById.get(vehicleId);
     const vehicleDiagnostics = diagnosticsById.get(vehicleId);
     const vehiclePods = podGroups.get(vehicleId) ?? [];
+    const vehicleInventory = inventoryGroups.get(vehicleId) ?? [];
     const degraded = deriveVehicleDegradedState({
       lastUpdate: vehicle?.lastUpdate,
       missionOnline: vehicle?.missionOnline,
@@ -358,8 +427,26 @@ export function projectFleetDiagnostics(args: {
     const podSummary = summarizePods(vehiclePods);
     const mesh = summarizeLinkQuality(vehicle?.linkQualityPercent);
     const calibration = summarizeCalibration(vehicleDiagnostics);
+    const inventoryCalibration = summarizePodInventoryCalibration(vehicleInventory);
+    const rolledUpCalibration = inventoryCalibration
+      ? {
+          ...calibration,
+          summary: {
+            label: 'Calibration',
+            state: getWorseDiagnosticState(calibration.summary.state, inventoryCalibration.state),
+            summary:
+              DIAGNOSTIC_RANK[inventoryCalibration.state] >= DIAGNOSTIC_RANK[calibration.summary.state]
+                ? inventoryCalibration.summary
+                : calibration.summary.summary,
+            detail:
+              DIAGNOSTIC_RANK[inventoryCalibration.state] >= DIAGNOSTIC_RANK[calibration.summary.state]
+                ? inventoryCalibration.summary
+                : calibration.summary.detail,
+          },
+        }
+      : calibration;
     const readiness = deriveReadiness(
-      [motor, podSummary.summary, mesh, calibration.summary],
+      [motor, podSummary.summary, mesh, rolledUpCalibration.summary],
       degraded.offline
     );
 
@@ -376,9 +463,9 @@ export function projectFleetDiagnostics(args: {
         motor,
         sensors: podSummary.summary,
         mesh,
-        calibration: calibration.summary,
+        calibration: rolledUpCalibration.summary,
       },
-      detailChecks: calibration.details,
+      detailChecks: rolledUpCalibration.details,
       pods: podSummary.detail,
     };
   });
@@ -545,6 +632,39 @@ export function createDemoFleetDiagnostics(): FleetDiagnosticsViewModel {
         linkReady: false,
         capabilities: ['lidar', 'mapping'],
         faultDetail: 'Power rail brownout detected',
+      },
+    ],
+    podInventory: [
+      {
+        podSerial: 'THM-204',
+        podType: 'thermal',
+        attached: true,
+        vehicleId: 'scout_1',
+        slotId: 'front-left',
+        lastCalibrationAtMs: 1_710_000_000_000,
+        nextCalibrationDueAtMs: 1_760_000_000_000,
+        calibrationState: 'current',
+        calibrationDetail: 'Current until 2025-10-18',
+      },
+      {
+        podSerial: 'GAS-118',
+        podType: 'hazmat',
+        attached: true,
+        vehicleId: 'scout_2',
+        slotId: 'belly',
+        lastCalibrationAtMs: 1_710_000_000_000,
+        nextCalibrationDueAtMs: 1_710_950_000_000,
+        calibrationState: 'due_soon',
+        calibrationDetail: 'Due in 11 days',
+      },
+      {
+        podSerial: 'LDR-551',
+        podType: 'lidar',
+        attached: false,
+        calibrationState: 'overdue',
+        calibrationDetail: 'Overdue by 4 days',
+        lastCalibrationAtMs: 1_700_000_000_000,
+        nextCalibrationDueAtMs: 1_700_100_000_000,
       },
     ],
   });

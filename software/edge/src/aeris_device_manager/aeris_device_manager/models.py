@@ -1,6 +1,6 @@
 """Typed pod lifecycle models used by the device manager."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -24,11 +24,18 @@ class DetectedPod:
 
 
 @dataclass(frozen=True)
+class PodCalibrationMetadata:
+    last_calibration_sec: float | None = None
+    next_calibration_due_sec: float | None = None
+
+
+@dataclass(frozen=True)
 class PodMetadata:
     serial: str
     pod_type: str
     capabilities: tuple[str, ...] = ()
     nominal_power_watts: float = 0.0
+    calibration: PodCalibrationMetadata = field(default_factory=PodCalibrationMetadata)
 
 
 @dataclass(frozen=True)
@@ -64,3 +71,5 @@ class PodStatusSnapshot:
     rejection_detail: str = ""
     fault_code: str = ""
     fault_detail: str = ""
+    last_calibration_sec: float | None = None
+    next_calibration_due_sec: float | None = None

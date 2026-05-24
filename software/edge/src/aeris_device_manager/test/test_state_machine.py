@@ -1,6 +1,7 @@
 import pytest
 
 from aeris_device_manager.adapters import (
+    CalibrationWriteError,
     InvalidEepromError,
     PodHardwareAdapter,
     PowerBudgetDeniedError,
@@ -9,6 +10,7 @@ from aeris_device_manager.adapters import (
 )
 from aeris_device_manager.models import (
     DetectedPod,
+    PodCalibrationMetadata,
     PodLifecycleState,
     PodLinkInfo,
     PodMetadata,
@@ -67,6 +69,8 @@ class FakeHardwareAdapter(PodHardwareAdapter):
         self.power_off_failure = power_off_failure
         self.power_off_calls: list[tuple[str, str]] = []
         self.eeprom_reads: list[str] = []
+        self.calibration_writes: list[tuple[str, float, float]] = []
+        self.calibration_write_failure: str | None = None
 
     def scan(self) -> list[DetectedPod]:
         return list(self.scan_pods)
@@ -111,6 +115,30 @@ class FakeHardwareAdapter(PodHardwareAdapter):
     ) -> tuple[str, ...]:
         self.clock.advance(self.stage_durations["capability_registration"])
         return tuple(link.capabilities or metadata.capabilities)
+
+    def write_calibration(
+        self, pod: DetectedPod, calibration: PodCalibrationMetadata
+    ) -> PodCalibrationMetadata:
+        if self.calibration_write_failure == "verification":
+            raise CalibrationWriteError(
+                code="eeprom_verification_failed",
+                detail=f"could not verify calibration write for {pod.one_wire_id}",
+            )
+        self.calibration_writes.append(
+            (
+                pod.one_wire_id,
+                float(calibration.last_calibration_sec or 0.0),
+                float(calibration.next_calibration_due_sec or 0.0),
+            )
+        )
+        self.metadata = PodMetadata(
+            serial=self.metadata.serial,
+            pod_type=self.metadata.pod_type,
+            capabilities=self.metadata.capabilities,
+            nominal_power_watts=self.metadata.nominal_power_watts,
+            calibration=calibration,
+        )
+        return calibration
 
     def power_off(self, pod: DetectedPod) -> None:
         if self.power_off_failure is not None:
