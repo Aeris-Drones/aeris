@@ -228,7 +228,7 @@ def test_handle_command_rejects_duplicate_inflight_updates_for_same_vehicle() ->
     assert third.accepted is True
 
 
-def test_start_update_worker_uses_non_daemon_thread_and_tracks_it() -> None:
+def test_start_update_worker_uses_daemon_thread_and_tracks_it() -> None:
     published = []
     node = _build_node(StreamingCoordinator(published), published)
     created = []
@@ -253,7 +253,7 @@ def test_start_update_worker_uses_non_daemon_thread_and_tracks_it() -> None:
         threading.Thread = original_thread  # type: ignore[assignment]
 
     assert len(created) == 1
-    assert created[0].daemon is False
+    assert created[0].daemon is True
     assert created[0].started is True
     assert node._worker_threads["scout_2"] is created[0]
     assert node._worker_commands["scout_2"].vehicle_id == "scout_2"

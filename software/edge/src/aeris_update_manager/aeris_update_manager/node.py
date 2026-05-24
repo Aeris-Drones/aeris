@@ -109,7 +109,7 @@ class FirmwareUpdateManagerNode(Node):
         worker = threading.Thread(
             target=self._run_update,
             args=(command,),
-            daemon=False,
+            daemon=True,
             name=f"firmware-update-{command.vehicle_id}",
         )
         with self._worker_threads_lock:
