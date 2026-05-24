@@ -68,7 +68,7 @@ test("cancel events clear hold progress without dispatching completion", () => {
 });
 
 test("abort request state stays pending across active abort phases and drops outside the abort window", () => {
-  let abortWindow = advanceAbortRequestWindow({ id: 0, isActive: false }, "SEARCHING");
+  let abortWindow = advanceAbortRequestWindow({ id: 0, isActive: false, missionIdentity: null }, "SEARCHING", "mission-a");
   assert.equal(
     isAbortRequestPending({
       abortWindow,
@@ -79,7 +79,7 @@ test("abort request state stays pending across active abort phases and drops out
     true
   );
 
-  abortWindow = advanceAbortRequestWindow(abortWindow, "TRACKING");
+  abortWindow = advanceAbortRequestWindow(abortWindow, "TRACKING", "mission-a");
   assert.equal(
     isAbortRequestPending({
       abortWindow,
@@ -90,7 +90,7 @@ test("abort request state stays pending across active abort phases and drops out
     true
   );
 
-  abortWindow = advanceAbortRequestWindow(abortWindow, "ABORTED");
+  abortWindow = advanceAbortRequestWindow(abortWindow, "ABORTED", "mission-a");
   assert.equal(
     isAbortRequestPending({
       abortWindow,
@@ -103,16 +103,20 @@ test("abort request state stays pending across active abort phases and drops out
 });
 
 test("abort request resolution prevents stale lockout when the same phase name returns later", () => {
-  let abortWindow = advanceAbortRequestWindow({ id: 0, isActive: false }, "SEARCHING");
+  let abortWindow = advanceAbortRequestWindow({ id: 0, isActive: false, missionIdentity: null }, "SEARCHING", "mission-a");
   const firstWindowId = abortWindow.id;
   const resolvedWindowId = resolveAbortRequestWindowId({
-    abortWindow: advanceAbortRequestWindow(abortWindow, "ABORTED"),
+    abortWindow: advanceAbortRequestWindow(abortWindow, "ABORTED", "mission-a"),
     pendingWindowId: firstWindowId,
     resolvedWindowId: null,
     abortError: null,
   });
 
-  abortWindow = advanceAbortRequestWindow({ id: firstWindowId, isActive: false }, "SEARCHING");
+  abortWindow = advanceAbortRequestWindow(
+    { id: firstWindowId, isActive: false, missionIdentity: "mission-a" },
+    "SEARCHING",
+    "mission-b"
+  );
   assert.equal(abortWindow.id, firstWindowId + 1);
   assert.equal(
     isAbortRequestPending({
@@ -126,7 +130,7 @@ test("abort request resolution prevents stale lockout when the same phase name r
 });
 
 test("abort request resolution latches failures until a new hold starts", () => {
-  const abortWindow = advanceAbortRequestWindow({ id: 0, isActive: false }, "SEARCHING");
+  const abortWindow = advanceAbortRequestWindow({ id: 0, isActive: false, missionIdentity: null }, "SEARCHING", "mission-a");
   const resolvedWindowId = resolveAbortRequestWindowId({
     abortWindow,
     pendingWindowId: abortWindow.id,
@@ -139,6 +143,32 @@ test("abort request resolution latches failures until a new hold starts", () => 
       abortWindow,
       pendingWindowId: abortWindow.id,
       resolvedWindowId,
+      abortError: null,
+    }),
+    false
+  );
+});
+
+test("active-to-active mission handoff clears stale pending abort state", () => {
+  const firstMissionWindow = advanceAbortRequestWindow(
+    { id: 0, isActive: false, missionIdentity: null },
+    "SEARCHING",
+    "mission-a"
+  );
+
+  const nextMissionWindow = advanceAbortRequestWindow(
+    firstMissionWindow,
+    "TRACKING",
+    "mission-b"
+  );
+
+  assert.equal(nextMissionWindow.id, firstMissionWindow.id + 1);
+  assert.equal(nextMissionWindow.missionIdentity, "mission-b");
+  assert.equal(
+    isAbortRequestPending({
+      abortWindow: nextMissionWindow,
+      pendingWindowId: firstMissionWindow.id,
+      resolvedWindowId: null,
       abortError: null,
     }),
     false

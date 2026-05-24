@@ -17,6 +17,7 @@ import {
 } from '@/lib/emergencyStopHold';
 
 interface EmergencyStopControlProps {
+  missionId?: string;
   missionPhase: MissionPhase;
   canAbort: boolean;
   abortUnavailableReason: string | null;
@@ -27,6 +28,7 @@ interface EmergencyStopControlProps {
 interface AbortLifecycleState {
   activeWindowId: number;
   isActiveWindow: boolean;
+  missionIdentity: string | null;
   pendingWindowId: number | null;
   resolvedWindowId: number | null;
 }
@@ -34,6 +36,7 @@ interface AbortLifecycleState {
 type AbortLifecycleAction =
   | {
       type: 'sync-lifecycle';
+      missionId?: string;
       missionPhase: MissionPhase;
       abortError: string | null;
     }
@@ -72,13 +75,16 @@ function abortLifecycleReducer(
     {
       id: state.activeWindowId,
       isActive: state.isActiveWindow,
+      missionIdentity: state.missionIdentity,
     },
-    action.missionPhase
+    action.missionPhase,
+    action.missionId ?? null
   );
+  const missionReset = abortWindow.missionIdentity !== state.missionIdentity;
   const resolvedWindowId = resolveAbortRequestWindowId({
     abortWindow,
-    pendingWindowId: state.pendingWindowId,
-    resolvedWindowId: state.resolvedWindowId,
+    pendingWindowId: missionReset ? null : state.pendingWindowId,
+    resolvedWindowId: missionReset ? null : state.resolvedWindowId,
     abortError: action.abortError,
   });
 
@@ -86,11 +92,14 @@ function abortLifecycleReducer(
     ...state,
     activeWindowId: abortWindow.id,
     isActiveWindow: abortWindow.isActive,
+    missionIdentity: abortWindow.missionIdentity,
+    pendingWindowId: missionReset ? null : state.pendingWindowId,
     resolvedWindowId,
   };
 }
 
 export function EmergencyStopControl({
+  missionId,
   missionPhase,
   canAbort,
   abortUnavailableReason,
@@ -104,6 +113,7 @@ export function EmergencyStopControl({
     {
       activeWindowId: 0,
       isActiveWindow: false,
+      missionIdentity: null,
       pendingWindowId: null,
       resolvedWindowId: null,
     }
@@ -116,8 +126,9 @@ export function EmergencyStopControl({
     () => ({
       id: abortLifecycle.activeWindowId,
       isActive: abortLifecycle.isActiveWindow,
+      missionIdentity: abortLifecycle.missionIdentity,
     }),
-    [abortLifecycle.activeWindowId, abortLifecycle.isActiveWindow]
+    [abortLifecycle.activeWindowId, abortLifecycle.isActiveWindow, abortLifecycle.missionIdentity]
   );
   const abortPending = isAbortRequestPending({
     abortWindow,
@@ -149,10 +160,11 @@ export function EmergencyStopControl({
   useEffect(() => {
     dispatchAbortLifecycle({
       type: 'sync-lifecycle',
+      missionId,
       missionPhase,
       abortError,
     });
-  }, [abortError, missionPhase]);
+  }, [abortError, missionId, missionPhase]);
 
   useEffect(() => {
     if (holdState.phase !== 'holding') {

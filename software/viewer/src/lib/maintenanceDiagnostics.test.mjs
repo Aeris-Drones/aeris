@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -9,6 +9,10 @@ import ts from "typescript";
 const sourcePath = new URL("./maintenanceDiagnostics.ts", import.meta.url);
 const source = fs.readFileSync(sourcePath, "utf8");
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aeris-maintenance-diagnostics-"));
+
+after(() => {
+  fs.rmSync(tempDir, { recursive: true, force: true });
+});
 
 fs.writeFileSync(
   path.join(tempDir, "degradedVehicleState.mjs"),
@@ -234,4 +238,40 @@ test("registered pods with explicit readiness failures stay actionable as degrad
 
   assert.equal(projected.vehicles[0].pods[0].state, "warning");
   assert.equal(projected.vehicles[0].summaryChecks.sensors.state, "warning");
+});
+
+test("calibration roll-up keeps the worst reported detail state", () => {
+  const projected = projectFleetDiagnostics({
+    nowMs: 5_000,
+    telemetry: [
+      {
+        id: "scout_4",
+        name: "SCOUT 4",
+        batteryPercent: 88,
+        altitudeMeters: 0,
+        linkQualityPercent: 83,
+        lastUpdate: 4_900,
+        missionOnline: true,
+      },
+    ],
+    diagnostics: [
+      {
+        vehicleId: "scout_4",
+        motorHealthState: "healthy",
+        calibrationState: "healthy",
+        calibrationDetail: "Calibration current",
+        imuState: "blocked",
+        imuDetail: "Bias table missing",
+        compassState: "healthy",
+        compassDetail: "Compass offsets current",
+        accelerometerState: "healthy",
+        accelerometerDetail: "Accelerometer aligned",
+      },
+    ],
+    pods: [],
+  });
+
+  assert.equal(projected.vehicles[0].summaryChecks.calibration.state, "blocked");
+  assert.equal(projected.vehicles[0].summaryChecks.calibration.summary, "Calibration blocking readiness");
+  assert.equal(projected.vehicles[0].detailChecks[0].state, "blocked");
 });

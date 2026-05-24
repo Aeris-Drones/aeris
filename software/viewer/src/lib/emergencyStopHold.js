@@ -5,14 +5,40 @@ export function isActiveAbortPhase(missionPhase) {
   return ACTIVE_ABORT_PHASES.has(missionPhase);
 }
 
-export function advanceAbortRequestWindow(currentWindow, missionPhase) {
-  const previous = currentWindow ?? { id: 0, isActive: false };
+/**
+ * @param {string | null | undefined} missionIdentity
+ */
+function normalizeMissionIdentity(missionIdentity) {
+  const normalized = typeof missionIdentity === "string" ? missionIdentity.trim() : "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+/**
+ * @param {{ id: number; isActive: boolean; missionIdentity?: string | null } | null | undefined} currentWindow
+ * @param {string} missionPhase
+ * @param {string | null | undefined} missionIdentity
+ */
+export function advanceAbortRequestWindow(currentWindow, missionPhase, missionIdentity = null) {
+  const previous = currentWindow ?? { id: 0, isActive: false, missionIdentity: null };
   const nextIsActive = isActiveAbortPhase(missionPhase);
+  const nextMissionIdentity = normalizeMissionIdentity(missionIdentity);
+
+  if (
+    nextMissionIdentity !== null &&
+    nextMissionIdentity !== previous.missionIdentity
+  ) {
+    return {
+      id: previous.id + 1,
+      isActive: nextIsActive,
+      missionIdentity: nextMissionIdentity,
+    };
+  }
 
   if (nextIsActive && !previous.isActive) {
     return {
       id: previous.id + 1,
       isActive: true,
+      missionIdentity: nextMissionIdentity ?? previous.missionIdentity ?? null,
     };
   }
 
@@ -20,12 +46,14 @@ export function advanceAbortRequestWindow(currentWindow, missionPhase) {
     return {
       id: previous.id,
       isActive: false,
+      missionIdentity: nextMissionIdentity ?? previous.missionIdentity ?? null,
     };
   }
 
   return {
     id: previous.id,
     isActive: nextIsActive,
+    missionIdentity: nextMissionIdentity ?? previous.missionIdentity ?? null,
   };
 }
 

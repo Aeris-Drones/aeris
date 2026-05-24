@@ -182,3 +182,17 @@ test("MaintenanceVehicleCard tolerates missing calibration detail rows", async (
   assert.doesNotMatch(markup, /Accelerometer/);
   assert.match(markup, /Attached pods/);
 });
+
+test("MaintenanceVehicleCard renders a safe altitude fallback for non-finite values", async () => {
+  const markup = await renderCard({
+    vehicle: {
+      ...vehicle,
+      altitudeMeters: Number.NaN,
+    },
+    expanded: false,
+    onToggle: () => {},
+  });
+
+  assert.match(markup, />--</);
+  assert.doesNotMatch(markup, /NaNm/);
+});

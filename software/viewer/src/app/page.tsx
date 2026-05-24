@@ -129,6 +129,7 @@ function V2PageContent() {
   );
 
   const {
+    missionId,
     phase: missionPhase,
     elapsedSeconds,
     coveragePercent,
@@ -725,6 +726,7 @@ function V2PageContent() {
         <div className="flex flex-col items-end gap-3">
           <ViewerRouteNav currentRoute="operations" />
           <EmergencyStopControl
+            missionId={missionId}
             missionPhase={missionPhase}
             canAbort={canAbort}
             abortUnavailableReason={abortUnavailableReason}

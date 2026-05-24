@@ -56,6 +56,9 @@ export function MaintenanceVehicleCard({
   const readinessVariant = getReadinessBadgeVariant(vehicle.readiness);
   const batteryLabel =
     typeof vehicle.batteryPercent === 'number' ? `${Math.round(vehicle.batteryPercent)}%` : '--';
+  const altitudeLabel = Number.isFinite(vehicle.altitudeMeters)
+    ? `${Math.round(vehicle.altitudeMeters)}m`
+    : '--';
   const lastContactLabel = vehicle.isOffline
     ? `Last contact ${formatLastContactAge(vehicle.lastContactAgeMs)} ago`
     : 'Live telemetry';
@@ -84,7 +87,7 @@ export function MaintenanceVehicleCard({
           </div>
           <div className="flex items-center gap-1.5">
             <Gauge className="h-4 w-4" />
-            <span className="font-mono">{Math.round(vehicle.altitudeMeters)}m</span>
+            <span className="font-mono">{altitudeLabel}</span>
           </div>
         </div>
       </div>

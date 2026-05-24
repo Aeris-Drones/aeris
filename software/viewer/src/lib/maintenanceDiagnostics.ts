@@ -97,6 +97,10 @@ const DIAGNOSTIC_RANK: Record<DiagnosticState, number> = {
   blocked: 3,
 };
 
+function getWorseDiagnosticState(left: DiagnosticState, right: DiagnosticState): DiagnosticState {
+  return DIAGNOSTIC_RANK[left] >= DIAGNOSTIC_RANK[right] ? left : right;
+}
+
 function titleCaseLifecycle(input: string): string {
   return input
     .split(/[_\s-]+/)
@@ -234,10 +238,15 @@ function summarizeCalibration(diagnostics?: VehicleMaintenanceSnapshot): {
   ];
 
   const derivedWorstDetail = detailChecks.reduce<DiagnosticState>(
-    (current, detail) => (DIAGNOSTIC_RANK[detail.state] > DIAGNOSTIC_RANK[current] ? detail.state : current),
+    (current, detail) => getWorseDiagnosticState(current, detail.state),
     'healthy'
   );
-  const calibrationState = diagnostics?.calibrationState ?? derivedWorstDetail;
+  const reportedCalibrationState = diagnostics?.calibrationState ?? 'healthy';
+  const calibrationState = getWorseDiagnosticState(reportedCalibrationState, derivedWorstDetail);
+  const calibrationDetail =
+    DIAGNOSTIC_RANK[reportedCalibrationState] >= DIAGNOSTIC_RANK[derivedWorstDetail]
+      ? diagnostics?.calibrationDetail
+      : undefined;
 
   return {
     summary: {
@@ -252,9 +261,9 @@ function summarizeCalibration(diagnostics?: VehicleMaintenanceSnapshot): {
             : calibrationState === 'warning'
               ? 'Calibration follow-up required'
               : 'Calibration unavailable',
-        diagnostics?.calibrationDetail
+        calibrationDetail
       ),
-      detail: diagnostics?.calibrationDetail,
+      detail: calibrationDetail,
     },
     details: detailChecks,
   };
