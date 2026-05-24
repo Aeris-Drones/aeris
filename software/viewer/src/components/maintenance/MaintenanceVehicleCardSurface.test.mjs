@@ -65,6 +65,22 @@ fs.writeFileSync(path.join(TEMP_ROOT, "degradedVehicleState.mjs"), `
   }
 `, "utf8");
 
+fs.writeFileSync(path.join(TEMP_ROOT, "firmwareUpdatePanel.mjs"), `
+  import { jsx as _jsx } from "react/jsx-runtime";
+  export function FirmwareUpdatePanel() {
+    return _jsx("div", { "data-testid": "firmware-update-panel", children: "Firmware update panel" });
+  }
+`, "utf8");
+
+fs.writeFileSync(path.join(TEMP_ROOT, "firmwareUpdateStatus.mjs"), `
+  export function getFirmwareUpdateBadgeVariant() {
+    return "outline";
+  }
+  export function isFirmwareUpdateActive() {
+    return false;
+  }
+`, "utf8");
+
 fs.writeFileSync(path.join(TEMP_ROOT, "lucide-react.mjs"), `
   import { jsx as _jsx } from "react/jsx-runtime";
   function icon(name) {
@@ -90,9 +106,11 @@ async function renderCard(props) {
     .replaceAll("@/components/ui/button", "./button.mjs")
     .replaceAll("@/components/ui/card", "./card.mjs")
     .replaceAll("@/components/ui/badge", "./badge.mjs")
+    .replaceAll("@/components/maintenance/FirmwareUpdatePanel", "./firmwareUpdatePanel.mjs")
     .replaceAll("@/lib/utils", "./utils.mjs")
     .replaceAll("@/lib/maintenanceDiagnostics", "./maintenanceDiagnostics.mjs")
     .replaceAll("@/lib/degradedVehicleState", "./degradedVehicleState.mjs")
+    .replaceAll("@/lib/ros/firmwareUpdateStatus", "./firmwareUpdateStatus.mjs")
     .replaceAll("lucide-react", "./lucide-react.mjs");
 
   const compiled = ts.transpileModule(source, {

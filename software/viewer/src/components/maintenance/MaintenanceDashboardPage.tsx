@@ -7,6 +7,8 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ViewerRouteNav } from '@/components/layout/ViewerRouteNav';
 import { MaintenanceVehicleCard } from '@/components/maintenance/MaintenanceVehicleCard';
+import { useFirmwareUpdateAction } from '@/hooks/useFirmwareUpdateAction';
+import { useFirmwareUpdateStatus } from '@/hooks/useFirmwareUpdateStatus';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { usePodStatus } from '@/hooks/usePodStatus';
@@ -16,6 +18,7 @@ import {
   projectFleetDiagnostics,
 } from '@/lib/maintenanceDiagnostics';
 import { normalizeMissionMetaForVehicle } from '@/lib/degradedVehicleState';
+import { createDemoFirmwareUpdateStatusArray } from '@/lib/ros/firmwareUpdateStatus';
 
 function SummaryCard({
   label,
@@ -49,6 +52,8 @@ export function MaintenanceDashboardPage() {
   const { vehicleMissionMeta, rosConnected } = useMissionControl();
   const podStatus = usePodStatus();
   const diagnostics = useVehicleMaintenanceDiagnostics();
+  const firmwareUpdates = useFirmwareUpdateStatus();
+  const { requestUpdate, submittingVehicleId, errorsByVehicle } = useFirmwareUpdateAction(firmwareUpdates.updates);
   const [expandedVehicleIds, setExpandedVehicleIds] = useState<string[]>([]);
 
   const liveDashboard = useMemo(
@@ -77,6 +82,13 @@ export function MaintenanceDashboardPage() {
 
   const isDemoMode = !rosConnected && liveDashboard.vehicles.length === 0;
   const dashboard = isDemoMode ? createDemoFleetDiagnostics() : liveDashboard;
+  const firmwareState = isDemoMode && firmwareUpdates.updates.length === 0
+    ? createDemoFirmwareUpdateStatusArray()
+    : firmwareUpdates;
+  const firmwareByVehicleId = useMemo(
+    () => new Map(firmwareState.updates.map((update) => [update.vehicleId, update])),
+    [firmwareState.updates]
+  );
 
   const toggleVehicle = (vehicleId: string) => {
     setExpandedVehicleIds((current) =>
@@ -96,7 +108,7 @@ export function MaintenanceDashboardPage() {
             </div>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">Maintenance</h1>
             <p className="mt-2 max-w-2xl text-sm text-white/60">
-              Read-only fleet diagnostics for deployment readiness, mesh health, and calibration follow-up.
+              Fleet diagnostics with edge-managed firmware updates, rollback visibility, and calibration follow-up.
             </p>
           </div>
           <div className="flex flex-col items-start gap-3 lg:items-end">
@@ -159,6 +171,10 @@ export function MaintenanceDashboardPage() {
                 vehicle={vehicle}
                 expanded={expandedVehicleIds.includes(vehicle.id)}
                 onToggle={() => toggleVehicle(vehicle.id)}
+                firmwareStatus={firmwareByVehicleId.get(vehicle.id) ?? null}
+                firmwareActionError={errorsByVehicle[vehicle.id] ?? null}
+                isSubmittingFirmwareUpdate={submittingVehicleId === vehicle.id}
+                onRequestFirmwareUpdate={requestUpdate}
               />
             ))
           )}
