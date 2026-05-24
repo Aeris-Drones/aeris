@@ -26,8 +26,8 @@ fs.writeFileSync(path.join(tempDir, "roslib.mjs"), `export default {};`, "utf8")
 fs.writeFileSync(path.join(tempDir, "context.mjs"), `export function useSharedROSConnection() { return { ros: null, isConnected: false }; }`, "utf8");
 fs.writeFileSync(path.join(tempDir, "missionControlBehavior.mjs"), `export function withServiceTimeout() { throw new Error("unused in test"); }`, "utf8");
 fs.writeFileSync(path.join(tempDir, "firmwareUpdateStatus.mjs"), `
-  export function hasFreshFirmwareUpdateStatus(status) {
-    return ["downloading", "validating", "applying", "verifying", "complete", "failed", "rolling_back", "rolled_back"].includes(status?.lifecycleState);
+  export function isFirmwareUpdateActive(status) {
+    return ["downloading", "validating", "applying", "verifying", "rolling_back"].includes(status?.lifecycleState);
   }
 `, "utf8");
 
@@ -71,7 +71,7 @@ test("reconcileFirmwareUpdateActionState clears stale errors and pending state w
   assert.equal(reconciled.submittingVehicleId, null);
 });
 
-test("reconcileFirmwareUpdateActionState leaves errors alone when no fresh status is available", () => {
+test("reconcileFirmwareUpdateActionState keeps pending state and errors when only stale terminal status exists", () => {
   const current = {
     errorsByVehicle: {
       scout_2: "still relevant",
@@ -80,7 +80,7 @@ test("reconcileFirmwareUpdateActionState leaves errors alone when no fresh statu
     statuses: [
       {
         vehicleId: "scout_2",
-        lifecycleState: "idle",
+        lifecycleState: "complete",
       },
     ],
   };
@@ -88,5 +88,29 @@ test("reconcileFirmwareUpdateActionState leaves errors alone when no fresh statu
   const reconciled = reconcileFirmwareUpdateActionState(current);
 
   assert.deepEqual(reconciled.errorsByVehicle, current.errorsByVehicle);
+  assert.equal(reconciled.submittingVehicleId, "scout_2");
+});
+
+test("reconcileFirmwareUpdateActionState ignores terminal status for one vehicle when another vehicle is actively updating", () => {
+  const reconciled = reconcileFirmwareUpdateActionState({
+    errorsByVehicle: {
+      scout_2: "still relevant",
+      scout_3: "clear me",
+    },
+    submittingVehicleId: "scout_2",
+    statuses: [
+      {
+        vehicleId: "scout_2",
+        lifecycleState: "failed",
+      },
+      {
+        vehicleId: "scout_3",
+        lifecycleState: "applying",
+      },
+    ],
+  });
+
+  assert.equal(reconciled.errorsByVehicle.scout_2, "still relevant");
+  assert.equal(reconciled.errorsByVehicle.scout_3, null);
   assert.equal(reconciled.submittingVehicleId, "scout_2");
 });

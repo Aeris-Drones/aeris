@@ -15,7 +15,6 @@ import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import {
   getFirmwareUpdateBadgeVariant,
-  hasFreshFirmwareUpdateStatus,
   isFirmwareUpdateActive,
   type FirmwareUpdateCommandInput,
   type FirmwareUpdateStatusSnapshot,
@@ -34,6 +33,25 @@ function normalizePackageSeed(vehicleName: string): string {
   return vehicleName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
 }
 
+export function buildDefaultFirmwarePackageUri(
+  seed: string,
+  targetVersion: string
+): string {
+  return `s3://updates/${seed}/${targetVersion}.bin`;
+}
+
+export function resolvePackageUriForTargetVersionChange(args: {
+  seed: string;
+  nextTargetVersion: string;
+  currentPackageUri: string;
+  isPackageUriCustomized: boolean;
+}): string {
+  const { seed, nextTargetVersion, currentPackageUri, isPackageUriCustomized } = args;
+  return isPackageUriCustomized
+    ? currentPackageUri
+    : buildDefaultFirmwarePackageUri(seed, nextTargetVersion);
+}
+
 export function FirmwareUpdatePanel({
   vehicleId,
   vehicleName,
@@ -48,8 +66,9 @@ export function FirmwareUpdatePanel({
     status?.targetVersion ?? '2026.05.23'
   );
   const [packageUri, setPackageUri] = useState(
-    `s3://updates/${seed}/${targetVersion}.bin`
+    buildDefaultFirmwarePackageUri(seed, targetVersion)
   );
+  const [isPackageUriCustomized, setIsPackageUriCustomized] = useState(false);
   const [packageSignature, setPackageSignature] = useState('');
 
   const active = isFirmwareUpdateActive(status);
@@ -62,7 +81,7 @@ export function FirmwareUpdatePanel({
   const statusVariant = getFirmwareUpdateBadgeVariant(status?.lifecycleState ?? 'idle');
   const statusLabel = status?.lifecycleLabel ?? 'Idle';
   const displayActionError =
-    actionError && hasFreshFirmwareUpdateStatus(status) ? null : actionError;
+    actionError && isFirmwareUpdateActive(status) ? null : actionError;
   const detail =
     displayActionError ??
     status?.statusDetail ??
@@ -76,6 +95,24 @@ export function FirmwareUpdatePanel({
       ? status.errorDetail
       : null;
   const slotMessage = `Active ${activeSlot} -> Standby ${inactiveSlot}`;
+  const defaultPackageUri = buildDefaultFirmwarePackageUri(seed, targetVersion);
+
+  const handleTargetVersionChange = (nextTargetVersion: string) => {
+    setTargetVersion(nextTargetVersion);
+    setPackageUri((currentPackageUri) =>
+      resolvePackageUriForTargetVersionChange({
+        seed,
+        nextTargetVersion,
+        currentPackageUri,
+        isPackageUriCustomized,
+      })
+    );
+  };
+
+  const handlePackageUriChange = (nextPackageUri: string) => {
+    setPackageUri(nextPackageUri);
+    setIsPackageUriCustomized(nextPackageUri !== defaultPackageUri);
+  };
 
   const submitRequest = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -182,7 +219,7 @@ export function FirmwareUpdatePanel({
           <input
             className="h-10 rounded-md border border-white/10 bg-black/20 px-3 text-white outline-none ring-0 placeholder:text-white/30"
             value={targetVersion}
-            onChange={(event) => setTargetVersion(event.target.value)}
+            onChange={(event) => handleTargetVersionChange(event.target.value)}
             placeholder="2026.05.23"
             disabled={disabled}
           />
@@ -192,8 +229,8 @@ export function FirmwareUpdatePanel({
           <input
             className="h-10 rounded-md border border-white/10 bg-black/20 px-3 text-white outline-none ring-0 placeholder:text-white/30"
             value={packageUri}
-            onChange={(event) => setPackageUri(event.target.value)}
-            placeholder="s3://updates/scout-2/fw-2026.05.23.bin"
+            onChange={(event) => handlePackageUriChange(event.target.value)}
+            placeholder="s3://updates/scout-2/2026.05.23.bin"
             disabled={disabled}
           />
         </label>

@@ -3,7 +3,7 @@ import ROSLIB from 'roslib';
 import { useSharedROSConnection } from '@/context/ROSConnectionContext';
 import { withServiceTimeout } from '@/lib/missionControlBehavior.js';
 import {
-  hasFreshFirmwareUpdateStatus,
+  isFirmwareUpdateActive,
   type FirmwareUpdateCommandInput,
   type FirmwareUpdateStatusSnapshot,
 } from '@/lib/ros/firmwareUpdateStatus';
@@ -24,7 +24,7 @@ export function reconcileFirmwareUpdateActionState(args: {
 
   let nextErrors = errorsByVehicle;
   for (const status of statuses) {
-    if (!hasFreshFirmwareUpdateStatus(status)) {
+    if (!isFirmwareUpdateActive(status)) {
       continue;
     }
     if (nextErrors[status.vehicleId] == null) {
@@ -41,7 +41,7 @@ export function reconcileFirmwareUpdateActionState(args: {
     statuses.some(
       (status) =>
         status.vehicleId === submittingVehicleId &&
-        hasFreshFirmwareUpdateStatus(status)
+        isFirmwareUpdateActive(status)
     )
       ? null
       : submittingVehicleId;

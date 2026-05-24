@@ -99,6 +99,30 @@ async function renderPanel(props) {
   return renderToStaticMarkup(createElement(FirmwareUpdatePanel, props));
 }
 
+async function loadPanelModule() {
+  const sourcePath = path.join(ROOT, "FirmwareUpdatePanel.tsx");
+  let source = fs.readFileSync(sourcePath, "utf8");
+  source = source
+    .replaceAll("@/components/ui/button", "./button.mjs")
+    .replaceAll("@/components/ui/badge", "./badge.mjs")
+    .replaceAll("@/components/ui/progress", "./progress.mjs")
+    .replaceAll("@/lib/utils", "./utils.mjs")
+    .replaceAll("@/lib/ros/firmwareUpdateStatus", "./firmwareUpdateStatus.mjs")
+    .replaceAll("lucide-react", "./lucide-react.mjs");
+
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.ES2022,
+      target: ts.ScriptTarget.ES2022,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
+  }).outputText;
+
+  const modulePath = path.join(TEMP_ROOT, `FirmwareUpdatePanel-helpers-${Date.now()}-${Math.random().toString(16).slice(2)}.mjs`);
+  fs.writeFileSync(modulePath, compiled, "utf8");
+  return import(pathToFileURL(modulePath).href);
+}
+
 const baseStatus = {
   vehicleId: "scout_2",
   packageId: "fw-2026.05.23",
@@ -174,4 +198,49 @@ test("FirmwareUpdatePanel suppresses stale action errors when a fresher live sta
 
   assert.match(markup, /Booted slot B; running healthcheck/);
   assert.doesNotMatch(markup, /timed out after 8000ms/);
+});
+
+test("FirmwareUpdatePanel keeps action errors visible when only terminal status is present", async () => {
+  const markup = await renderPanel({
+    vehicleName: "SCOUT 2",
+    status: {
+      ...baseStatus,
+      lifecycleState: "complete",
+      lifecycleLabel: "Complete",
+      statusDetail: "Vehicle healthy on slot B",
+    },
+    isSubmitting: false,
+    actionError: "signature token was rejected",
+    onSubmit: () => {},
+  });
+
+  assert.match(markup, /signature token was rejected/);
+  assert.doesNotMatch(markup, /Vehicle healthy on slot B/);
+});
+
+test("resolvePackageUriForTargetVersionChange keeps the default URI aligned until the operator customizes it", async () => {
+  const {
+    buildDefaultFirmwarePackageUri,
+    resolvePackageUriForTargetVersionChange,
+  } = await loadPanelModule();
+
+  assert.equal(
+    resolvePackageUriForTargetVersionChange({
+      seed: "scout-2",
+      nextTargetVersion: "2026.06.01",
+      currentPackageUri: buildDefaultFirmwarePackageUri("scout-2", "2026.05.23"),
+      isPackageUriCustomized: false,
+    }),
+    "s3://updates/scout-2/2026.06.01.bin"
+  );
+
+  assert.equal(
+    resolvePackageUriForTargetVersionChange({
+      seed: "scout-2",
+      nextTargetVersion: "2026.06.01",
+      currentPackageUri: "https://signed.example.com/scout-2/fw.bin",
+      isPackageUriCustomized: true,
+    }),
+    "https://signed.example.com/scout-2/fw.bin"
+  );
 });
