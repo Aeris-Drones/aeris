@@ -54,7 +54,32 @@ test("viewer ROS socket creation stays centralized in the shared connection hook
 });
 
 test("viewer app provides a shared ROS connection provider", () => {
+  const providersPath = path.join(ROOT, "app", "ViewerAppProviders.tsx");
   const pagePath = path.join(ROOT, "app", "page.tsx");
-  const source = fs.readFileSync(pagePath, "utf8");
-  assert.match(source, /ROSConnectionProvider/, "page.tsx should include ROSConnectionProvider");
+  const maintenancePagePath = path.join(ROOT, "app", "maintenance", "page.tsx");
+  const providersSource = fs.readFileSync(providersPath, "utf8");
+  const pageSource = fs.readFileSync(pagePath, "utf8");
+  const maintenanceSource = fs.readFileSync(maintenancePagePath, "utf8");
+
+  assert.match(providersSource, /ROSConnectionProvider/, "ViewerAppProviders should include ROSConnectionProvider");
+  assert.match(pageSource, /ViewerAppProviders/, "page.tsx should use the shared viewer providers");
+  assert.match(maintenanceSource, /ViewerAppProviders/, "maintenance route should use the shared viewer providers");
+});
+
+test("maintenance hooks bind cached state to the live ROS connection and clear it on unsubscribe", () => {
+  const podHook = fs.readFileSync(path.join(ROOT, "hooks", "usePodStatus.ts"), "utf8");
+  const diagnosticsHook = fs.readFileSync(
+    path.join(ROOT, "hooks", "useVehicleMaintenanceDiagnostics.ts"),
+    "utf8"
+  );
+
+  for (const [label, source] of [
+    ["usePodStatus", podHook],
+    ["useVehicleMaintenanceDiagnostics", diagnosticsHook],
+  ]) {
+    assert.match(source, /connection: ROSLIB\.Ros \| null/, `${label} should bind payloads to the active ROS connection`);
+    assert.match(source, /setState\(\{\s*connection: ros,\s*payload:/s, `${label} should stamp incoming payloads with the current ROS connection`);
+    assert.match(source, /setState\(\{\s*connection: null,\s*payload: EMPTY_STATE,\s*\}\);/s, `${label} should clear cached payloads during unsubscribe cleanup`);
+    assert.match(source, /state\.connection === ros/, `${label} should suppress stale cached payloads after reconnect until a fresh message arrives`);
+  }
 });

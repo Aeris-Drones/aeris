@@ -27,6 +27,8 @@ set(interface_files
   "msg/PodStageTiming.msg"
   "msg/PodStatus.msg"
   "msg/PodStatusArray.msg"
+  "msg/VehicleMaintenanceDiagnostics.msg"
+  "msg/VehicleMaintenanceDiagnosticsArray.msg"
   "srv/MapTile.srv"
   "srv/GetMapTileBytes.srv"
   "srv/ThermalHotspot.srv"

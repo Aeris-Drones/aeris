@@ -1,6 +1,62 @@
 export const HOLD_TO_ABORT_MS = 1500;
 const ACTIVE_ABORT_PHASES = new Set(["SEARCHING", "TRACKING"]);
 
+export function isActiveAbortPhase(missionPhase) {
+  return ACTIVE_ABORT_PHASES.has(missionPhase);
+}
+
+/**
+ * @param {string | null | undefined} missionIdentity
+ */
+function normalizeMissionIdentity(missionIdentity) {
+  const normalized = typeof missionIdentity === "string" ? missionIdentity.trim() : "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+/**
+ * @param {{ id: number; isActive: boolean; missionIdentity?: string | null } | null | undefined} currentWindow
+ * @param {string} missionPhase
+ * @param {string | null | undefined} missionIdentity
+ */
+export function advanceAbortRequestWindow(currentWindow, missionPhase, missionIdentity = null) {
+  const previous = currentWindow ?? { id: 0, isActive: false, missionIdentity: null };
+  const nextIsActive = isActiveAbortPhase(missionPhase);
+  const nextMissionIdentity = normalizeMissionIdentity(missionIdentity);
+
+  if (
+    nextMissionIdentity !== null &&
+    nextMissionIdentity !== previous.missionIdentity
+  ) {
+    return {
+      id: previous.id + 1,
+      isActive: nextIsActive,
+      missionIdentity: nextMissionIdentity,
+    };
+  }
+
+  if (nextIsActive && !previous.isActive) {
+    return {
+      id: previous.id + 1,
+      isActive: true,
+      missionIdentity: nextMissionIdentity ?? previous.missionIdentity ?? null,
+    };
+  }
+
+  if (!nextIsActive && previous.isActive) {
+    return {
+      id: previous.id,
+      isActive: false,
+      missionIdentity: nextMissionIdentity ?? previous.missionIdentity ?? null,
+    };
+  }
+
+  return {
+    id: previous.id,
+    isActive: nextIsActive,
+    missionIdentity: nextMissionIdentity ?? previous.missionIdentity ?? null,
+  };
+}
+
 export function createIdleEmergencyStopHold() {
   return {
     phase: "idle",
@@ -25,18 +81,35 @@ export function cancelEmergencyStopHoldState(state) {
 }
 
 export function isAbortRequestPending({
-  abortRequested,
+  abortWindow,
+  pendingWindowId,
+  resolvedWindowId,
   abortError,
-  missionPhase,
 }) {
-  return abortRequested && !abortError && ACTIVE_ABORT_PHASES.has(missionPhase);
+  return (
+    pendingWindowId !== null &&
+    pendingWindowId === abortWindow.id &&
+    resolvedWindowId !== pendingWindowId &&
+    !abortError &&
+    abortWindow.isActive
+  );
 }
 
-export function shouldResetAbortRequest({
-  abortRequested,
-  missionPhase,
+export function resolveAbortRequestWindowId({
+  abortWindow,
+  pendingWindowId,
+  resolvedWindowId,
+  abortError,
 }) {
-  return abortRequested && !ACTIVE_ABORT_PHASES.has(missionPhase);
+  if (pendingWindowId === null || pendingWindowId !== abortWindow.id) {
+    return resolvedWindowId;
+  }
+
+  if (abortError || !abortWindow.isActive) {
+    return pendingWindowId;
+  }
+
+  return resolvedWindowId;
 }
 
 export function advanceEmergencyStopHold({
