@@ -65,7 +65,10 @@ class FirmwareUpdateManagerNode(Node):
             package_signature=request.package_signature,
         )
         try:
-            history = self._coordinator.execute_update(command)
+            history = self._coordinator.execute_update(
+                command,
+                on_snapshot=self._publish_snapshot,
+            )
         except Exception as error:
             self.get_logger().error(
                 "Firmware update failed unexpectedly: %s" % error
@@ -73,11 +76,6 @@ class FirmwareUpdateManagerNode(Node):
             response.accepted = False
             response.message = str(error)
             return response
-        for snapshot in history:
-            self._latest_statuses[snapshot.vehicle_id] = snapshot
-            self._status_publisher.publish(
-                self._to_status_array(tuple(self._latest_statuses.values()))
-            )
 
         final_snapshot = history[-1]
         response.accepted = is_successful_terminal_state(
@@ -89,6 +87,12 @@ class FirmwareUpdateManagerNode(Node):
             or final_snapshot.lifecycle_state.value
         )
         return response
+
+    def _publish_snapshot(self, snapshot: FirmwareUpdateStatusSnapshot) -> None:
+        self._latest_statuses[snapshot.vehicle_id] = snapshot
+        self._status_publisher.publish(
+            self._to_status_array(tuple(self._latest_statuses.values()))
+        )
 
     def _to_status_array(
         self, snapshots: tuple[FirmwareUpdateStatusSnapshot, ...]

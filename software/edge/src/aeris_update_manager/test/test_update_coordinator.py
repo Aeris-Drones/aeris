@@ -169,6 +169,23 @@ def test_progresses_through_ab_update_and_reports_complete() -> None:
     assert adapter.boot_switches == ["B"]
 
 
+def test_streams_snapshots_to_callback_as_the_update_progresses() -> None:
+    adapter = FakeFirmwareUpdateAdapter()
+    coordinator = FirmwareUpdateCoordinator(adapter)
+    streamed: list = []
+
+    history = coordinator.execute_update(_command(), on_snapshot=streamed.append)
+
+    assert streamed == list(history)
+    assert [snapshot.lifecycle_state for snapshot in streamed] == [
+        FirmwareUpdateLifecycleState.DOWNLOADING,
+        FirmwareUpdateLifecycleState.VALIDATING,
+        FirmwareUpdateLifecycleState.APPLYING,
+        FirmwareUpdateLifecycleState.VERIFYING,
+        FirmwareUpdateLifecycleState.COMPLETE,
+    ]
+
+
 def test_rolls_back_when_healthcheck_fails_after_boot_swap() -> None:
     adapter = FakeFirmwareUpdateAdapter(healthcheck_passes=False)
     coordinator = FirmwareUpdateCoordinator(adapter)

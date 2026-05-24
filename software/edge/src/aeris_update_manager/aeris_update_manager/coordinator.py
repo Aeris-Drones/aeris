@@ -1,5 +1,7 @@
 """Deterministic firmware update coordinator for edge-owned A/B rollouts."""
 
+from collections.abc import Callable
+
 from .adapters import (
     FirmwareUpdateAdapter,
     FirmwareUpdateError,
@@ -21,7 +23,10 @@ class FirmwareUpdateCoordinator:
         self._adapter = adapter or NullFirmwareUpdateAdapter()
 
     def execute_update(
-        self, command: FirmwareUpdateCommand
+        self,
+        command: FirmwareUpdateCommand,
+        *,
+        on_snapshot: Callable[[FirmwareUpdateStatusSnapshot], None] | None = None,
     ) -> tuple[FirmwareUpdateStatusSnapshot, ...]:
         history: list[FirmwareUpdateStatusSnapshot] = []
         unknown_state = FirmwarePartitionState(
@@ -61,6 +66,8 @@ class FirmwareUpdateCoordinator:
                 error_detail=error_detail,
             )
             history.append(snapshot)
+            if on_snapshot is not None:
+                on_snapshot(snapshot)
             last_known_state = partition_state
             last_known_version = snapshot.current_version
             return snapshot
