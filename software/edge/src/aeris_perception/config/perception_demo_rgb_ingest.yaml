@@ -8,3 +8,8 @@ rgb_ingest:
     source_uri: "0"
     source_name: halo_front_camera
     loop_replay: false
+    capture_enabled: false
+    capture_output_dir: ""
+    capture_manifest_path: ""
+    capture_image_format: png
+    capture_reason: continuous_capture

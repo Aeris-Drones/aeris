@@ -14,7 +14,7 @@ CAP_PROP_POS_MSEC = 0
 CAP_PROP_POS_FRAMES = 1
 CAP_PROP_FPS = 5
 
-SUPPORTED_RGB_SOURCE_TYPES = {"camera", "video_file", "replay"}
+SUPPORTED_RGB_SOURCE_TYPES = {"camera", "video_file", "replay", "manifest_replay"}
 
 
 class RgbSourceError(RuntimeError):
@@ -35,6 +35,18 @@ class CaptureLike(Protocol):
         pass
 
     def set(self, prop_id: int, value: float) -> bool:
+        pass
+
+
+class RgbReadableSource(Protocol):
+    @property
+    def config(self) -> "RgbSourceConfig":
+        pass
+
+    def read(self) -> "RgbFrame | None":
+        pass
+
+    def close(self) -> None:
         pass
 
 
@@ -251,8 +263,17 @@ def build_rgb_frame_source(
     capture_factory: Callable[[int | str], CaptureLike] | None = None,
     path_exists: Callable[[Path], bool] | None = None,
     clock_ns: Callable[[], int] | None = None,
-) -> RgbFrameSource:
+) -> RgbReadableSource:
     """Build and validate an RGB source backed by OpenCV-style capture APIs."""
+
+    if config.normalized_source_type == "manifest_replay":
+        from .rgb_dataset import build_manifest_replay_frame_source
+
+        return build_manifest_replay_frame_source(
+            config,
+            path_exists=path_exists,
+            clock_ns=clock_ns,
+        )
 
     if config.normalized_source_type in {"video_file", "replay"}:
         exists = path_exists or Path.exists
