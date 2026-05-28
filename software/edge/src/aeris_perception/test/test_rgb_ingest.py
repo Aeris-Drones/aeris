@@ -139,7 +139,7 @@ def test_replay_source_uses_capture_timeline_and_loops() -> None:
     )
     second_capture = _FakeCapture(
         [(True, _sample_frame(2))],
-        pos_msec=[40.0],
+        pos_msec=[0.0],
         fps=25.0,
     )
     captures = iter((first_capture, second_capture))
@@ -165,9 +165,38 @@ def test_replay_source_uses_capture_timeline_and_loops() -> None:
     assert first.metadata.source_timestamp_ns == 0
     assert first.metadata.monotonic_timestamp_ns == 0
     assert second.metadata.frame_index == 1
-    assert second.metadata.source_timestamp_ns == 40_000_000
-    assert second.metadata.monotonic_timestamp_ns == 40_000_000
+    assert second.metadata.source_timestamp_ns == 0
+    assert second.metadata.monotonic_timestamp_ns == 1
     assert first_capture.release_calls == 1
+
+
+def test_replay_reopen_failure_releases_replacement_capture() -> None:
+    first_capture = _FakeCapture(
+        [(True, _sample_frame(1)), (False, None)],
+        pos_msec=[0.0, 0.0],
+        fps=25.0,
+    )
+    failed_replacement = _FakeCapture([], opened=False)
+    captures = iter((first_capture, failed_replacement))
+
+    source = build_rgb_frame_source(
+        RgbSourceConfig(
+            source_type="replay",
+            source_uri="/tmp/replay.mp4",
+            frame_id="halo_rgb",
+            loop_replay=True,
+        ),
+        capture_factory=lambda _target: next(captures),
+        path_exists=lambda _path: True,
+    )
+
+    assert source.read() is not None
+
+    with pytest.raises(RgbSourceError, match="Unable to reopen"):
+        source.read()
+
+    assert first_capture.release_calls == 1
+    assert failed_replacement.release_calls == 1
 
 
 def test_build_rgb_frame_source_rejects_missing_file_inputs() -> None:

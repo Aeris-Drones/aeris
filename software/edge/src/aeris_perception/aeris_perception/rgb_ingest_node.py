@@ -133,7 +133,7 @@ class RgbIngestNode(Node):
             self._source_exhausted = True
             self._timer.cancel()
             self.get_logger().error(f"RGB ingest stopped: {error}")
-            raise
+            return
 
         if frame is None:
             if self._source.config.normalized_source_type == "camera":
@@ -187,6 +187,7 @@ def main(args: list[str] | None = None) -> None:
         node = RgbIngestNode()
         rclpy.spin(node)
     except KeyboardInterrupt:
+        # Ctrl+C is expected; cleanup runs in finally.
         pass
     finally:
         if node is not None:

@@ -13,7 +13,7 @@ from rclpy.parameter import Parameter
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
-from aeris_perception.rgb_ingest import RgbFrame, RgbFrameMetadata
+from aeris_perception.rgb_ingest import RgbFrame, RgbFrameMetadata, RgbSourceError
 from aeris_perception.rgb_ingest_node import RgbIngestNode
 
 
@@ -37,11 +37,24 @@ class _StaticSource:
     def __init__(self, frames: list[RgbFrame]) -> None:
         self._frames = list(frames)
         self.closed = False
+        self.config = SimpleNamespace(normalized_source_type="replay")
 
     def read(self) -> RgbFrame | None:
         if not self._frames:
             return None
         return self._frames.pop(0)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _ErrorSource:
+    def __init__(self) -> None:
+        self.closed = False
+        self.config = SimpleNamespace(normalized_source_type="replay")
+
+    def read(self) -> RgbFrame | None:
+        raise RgbSourceError("source failed")
 
     def close(self) -> None:
         self.closed = True
@@ -176,6 +189,32 @@ def test_rgb_ingest_node_keeps_camera_timer_running_after_transient_miss() -> No
         assert len(metadata_recorder.messages) == 1
         assert node._source_exhausted is False
         assert fake_timer.cancel_calls == 0
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_rgb_ingest_node_stops_without_raising_on_source_error() -> None:
+    rclpy.init()
+    source = _ErrorSource()
+    node = RgbIngestNode(
+        parameter_overrides=[
+            Parameter("source_type", value="replay"),
+            Parameter("source_uri", value="/tmp/halo.mp4"),
+            Parameter("frame_id", value="halo_rgb"),
+        ],
+        source_factory=lambda _config: source,
+    )
+    fake_timer = _FakeTimer()
+
+    try:
+        node._timer.cancel()
+        node._timer = fake_timer
+
+        node._publish_next_frame()
+
+        assert node._source_exhausted is True
+        assert fake_timer.cancel_calls == 1
     finally:
         node.destroy_node()
         rclpy.shutdown()
