@@ -2,7 +2,7 @@
 <package format="3">
   <name>aeris_perception</name>
   <version>0.1.0</version>
-  <description>Perception nodes for Halo RGB ingest and hazard cue generation.</description>
+  <description>Perception nodes for Halo RGB ingest and hazard cues.</description>
   <maintainer email="dev@aeris.local">Aeris Developers</maintainer>
   <license>proprietary</license>
 

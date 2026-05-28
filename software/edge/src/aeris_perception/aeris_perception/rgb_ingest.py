@@ -51,10 +51,7 @@ class RgbSourceConfig:
             )
         if not self.frame_id.strip():
             raise RgbSourceError("frame_id must be configured for RGB ingest")
-        if (
-            normalized_type in {"camera", "video_file", "replay"}
-            and not self.source_uri.strip()
-        ):
+        if not self.source_uri.strip():
             raise RgbSourceError(
                 "source_uri must be configured for the selected RGB source"
             )
@@ -213,11 +210,11 @@ class RgbFrameSource:
 
         capture_position_ms = float(self._capture.get(CAP_PROP_POS_MSEC))
         if capture_position_ms > 0.0 or self._frame_index == 0:
-            return max(0, int(round(capture_position_ms * 1_000_000.0)))
+            return max(0, round(capture_position_ms * 1_000_000.0))
 
         fps = float(self._capture.get(CAP_PROP_FPS))
         if fps > 0.0:
-            return int(round((self._frame_index / fps) * 1_000_000_000.0))
+            return round((self._frame_index / fps) * 1_000_000_000.0)
         return None
 
     def _rewind_or_reopen(self) -> None:
@@ -225,6 +222,7 @@ class RgbFrameSource:
             self._capture.release()
             replacement = self._capture_factory(self._config.capture_target)
             if not replacement.isOpened():
+                replacement.release()
                 raise RgbSourceError(
                     f"Unable to reopen replay source '{self._config.source_uri}'"
                 )
