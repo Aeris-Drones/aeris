@@ -276,6 +276,70 @@ def test_manifest_replay_rejects_empty_manifest(tmp_path) -> None:
         )
 
 
+def test_manifest_replay_rejects_unsupported_manifest_version(tmp_path) -> None:
+    from aeris_perception.rgb_ingest import RgbSourceError, build_rgb_frame_source
+
+    manifest_path = tmp_path / "manifest.jsonl"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_version": 999,
+                "relative_image_path": "frames/frame.ppm",
+                "capture_reason": "continuous_capture",
+                "label": None,
+                "review": None,
+                "height": 3,
+                "width": 4,
+                "channels": 3,
+                "metadata": _sample_frame(5).metadata.to_dict(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RgbSourceError, match="Unsupported RGB dataset manifest"):
+        build_rgb_frame_source(
+            RgbSourceConfig(
+                source_type="manifest_replay",
+                source_uri=str(manifest_path),
+                frame_id="halo_rgb_front",
+            )
+        )
+
+
+def test_manifest_replay_uses_injected_path_check_on_read(tmp_path) -> None:
+    from aeris_perception.rgb_dataset import (
+        ManifestReplayFrameSource,
+        RgbDatasetManifestEntry,
+    )
+    from aeris_perception.rgb_ingest import RgbSourceError
+
+    manifest_path = tmp_path / "manifest.jsonl"
+    entry = RgbDatasetManifestEntry(
+        relative_image_path="frames/frame.ppm",
+        capture_reason="continuous_capture",
+        metadata=_sample_frame(5).metadata,
+        height=3,
+        width=4,
+        channels=3,
+    )
+    source = ManifestReplayFrameSource(
+        config=RgbSourceConfig(
+            source_type="manifest_replay",
+            source_uri=str(manifest_path),
+            frame_id="halo_rgb_front",
+        ),
+        entries=[entry],
+        manifest_path=manifest_path,
+        path_exists=lambda _path: False,
+        image_reader=lambda _path: _sample_frame(7).image_bgr,
+    )
+
+    with pytest.raises(RgbSourceError, match="capture file does not exist"):
+        source.read()
+
+
 def test_manifest_replay_rejects_malformed_manifest(tmp_path) -> None:
     from aeris_perception.rgb_ingest import RgbSourceError, build_rgb_frame_source
 

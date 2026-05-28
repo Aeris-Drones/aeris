@@ -83,7 +83,8 @@ class RgbDatasetManifestEntry:
             manifest_version = int(payload["manifest_version"])
             if manifest_version != MANIFEST_VERSION:
                 raise RgbSourceError(
-                    f"Malformed RGB dataset manifest at line {line_number}"
+                    f"Unsupported RGB dataset manifest version {manifest_version} "
+                    f"(expected {MANIFEST_VERSION}) at line {line_number}"
                 )
             metadata_payload = payload["metadata"]
             metadata = RgbFrameMetadata(
@@ -202,12 +203,14 @@ class ManifestReplayFrameSource:
         entries: list[RgbDatasetManifestEntry],
         manifest_path: Path,
         image_reader: Callable[[Path], np.ndarray] | None = None,
+        path_exists: Callable[[Path], bool] | None = None,
         clock_ns: Callable[[], int] | None = None,
     ) -> None:
         self._config = config
         self._entries = list(entries)
         self._manifest_path = manifest_path
         self._image_reader = image_reader or _read_image_file
+        self._path_exists = path_exists or Path.exists
         self._index = 0
         self._timestamp_generator = MonotonicTimestampGenerator(
             fallback_clock_ns=clock_ns
@@ -254,7 +257,7 @@ class ManifestReplayFrameSource:
 
     def _resolve_image_path(self, entry: RgbDatasetManifestEntry) -> Path:
         image_path = (self._manifest_path.parent / entry.relative_image_path).resolve()
-        if not image_path.exists():
+        if not self._path_exists(image_path):
             raise RgbSourceError(
                 f"RGB dataset capture file does not exist: '{image_path}'"
             )
@@ -292,6 +295,7 @@ def build_manifest_replay_frame_source(
         config=config,
         entries=entries,
         manifest_path=manifest_path,
+        path_exists=exists,
         clock_ns=clock_ns,
     )
 
