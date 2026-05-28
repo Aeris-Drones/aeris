@@ -13,7 +13,10 @@ setup(
         (f"share/{package_name}", ["package.xml"]),
         (
             f"share/{package_name}/config",
-            ["config/halo_rgb_ingest.example.yaml"],
+            [
+                "config/halo_rgb_ingest.example.yaml",
+                "config/perception_demo_rgb_ingest.yaml",
+            ],
         ),
     ],
     install_requires=["setuptools"],

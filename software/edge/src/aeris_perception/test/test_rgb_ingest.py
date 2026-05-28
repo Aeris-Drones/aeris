@@ -106,6 +106,31 @@ def test_video_file_source_uses_clock_time_for_monotonic_stamps() -> None:
     assert second.metadata.source_timestamp_ns is None
 
 
+def test_camera_source_returns_none_for_transient_miss_without_exhausting_capture() -> None:
+    capture = _FakeCapture(
+        [(False, None), (True, _sample_frame(33))],
+        opened=True,
+    )
+    source = RgbFrameSource(
+        config=RgbSourceConfig(
+            source_type="camera",
+            source_uri="0",
+            frame_id="halo_rgb",
+        ),
+        capture=capture,
+        clock_ns=lambda: 5_000,
+    )
+
+    missed = source.read()
+    recovered = source.read()
+
+    assert missed is None
+    assert recovered is not None
+    assert recovered.metadata.frame_index == 0
+    assert recovered.metadata.monotonic_timestamp_ns == 5_000
+    assert capture.release_calls == 0
+
+
 def test_replay_source_uses_capture_timeline_and_loops() -> None:
     first_capture = _FakeCapture(
         [(True, _sample_frame(1)), (False, None)],

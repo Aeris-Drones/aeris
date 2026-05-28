@@ -50,6 +50,7 @@ class RgbIngestNode(Node):
         self._loop_replay = bool(
             self.declare_parameter("loop_replay", False).value
         )
+        self._ros_stamp_provider = lambda: self.get_clock().now().to_msg()
 
         if self._publish_rate_hz <= 0.0:
             raise RgbSourceError("publish_rate_hz must be > 0 for RGB ingest")
@@ -135,6 +136,9 @@ class RgbIngestNode(Node):
             raise
 
         if frame is None:
+            if self._source.config.normalized_source_type == "camera":
+                self.get_logger().debug("RGB camera frame read missed; waiting for next frame.")
+                return
             self._source_exhausted = True
             self._timer.cancel()
             self.get_logger().info(
@@ -142,11 +146,14 @@ class RgbIngestNode(Node):
             )
             return
 
-        self._image_publisher.publish(_rgb_frame_to_image_message(frame))
+        self._image_publisher.publish(self._rgb_frame_to_image_message(frame))
         self._metadata_publisher.publish(String(data=_metadata_payload_json(frame)))
 
+    def _rgb_frame_to_image_message(self, frame: RgbFrame) -> Image:
+        return _rgb_frame_to_image_message(frame, self._ros_stamp_provider())
 
-def _rgb_frame_to_image_message(frame: RgbFrame) -> Image:
+
+def _rgb_frame_to_image_message(frame: RgbFrame, ros_stamp) -> Image:
     image = frame.image_bgr
     if image.dtype != np.uint8:
         raise RgbSourceError("RGB ingest frames must be uint8 BGR images")
@@ -154,10 +161,7 @@ def _rgb_frame_to_image_message(frame: RgbFrame) -> Image:
         raise RgbSourceError("RGB ingest frames must use HxWx3 BGR layout")
 
     message = Image()
-    message.header.stamp.sec = frame.metadata.monotonic_timestamp_ns // 1_000_000_000
-    message.header.stamp.nanosec = (
-        frame.metadata.monotonic_timestamp_ns % 1_000_000_000
-    )
+    message.header.stamp = ros_stamp
     message.header.frame_id = frame.metadata.frame_id
     message.height = int(image.shape[0])
     message.width = int(image.shape[1])
