@@ -2,7 +2,7 @@
 <package format="3">
   <name>aeris_perception</name>
   <version>0.1.0</version>
-  <description>Synthetic perception heads (thermal, acoustic, gas).</description>
+  <description>Perception nodes for Halo RGB ingest and hazard cue generation.</description>
   <maintainer email="dev@aeris.local">Aeris Developers</maintainer>
   <license>proprietary</license>
 
@@ -14,6 +14,7 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
 
   <test_depend>pytest</test_depend>
