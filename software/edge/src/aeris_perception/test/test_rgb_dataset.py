@@ -142,9 +142,69 @@ def test_manifest_replay_rebuilds_frame_sequence(tmp_path) -> None:
     assert np.array_equal(replayed_second.image_bgr, second_frame.image_bgr)
     assert replayed_first.metadata.frame_index == 0
     assert replayed_second.metadata.frame_index == 1
+    assert replayed_first.metadata.frame_id == "halo_rgb_front"
     assert replayed_first.metadata.replayed is True
     assert replayed_second.metadata.replayed is True
     assert exhausted is None
+
+
+def test_manifest_replay_uses_configured_frame_id(tmp_path) -> None:
+    from aeris_perception.rgb_dataset import (
+        RgbDatasetCaptureConfig,
+        RgbFrameCaptureWriter,
+    )
+    from aeris_perception.rgb_ingest import build_rgb_frame_source
+
+    output_dir = tmp_path / "capture"
+    manifest_path = output_dir / "manifest.jsonl"
+    writer = RgbFrameCaptureWriter(
+        RgbDatasetCaptureConfig(
+            output_dir=output_dir,
+            manifest_path=manifest_path,
+            image_format="ppm",
+            capture_reason="continuous_capture",
+        )
+    )
+    writer.capture(_sample_frame(10, frame_index=0))
+
+    replay_source = build_rgb_frame_source(
+        RgbSourceConfig(
+            source_type="manifest_replay",
+            source_uri=str(manifest_path),
+            frame_id="halo_replay_frame",
+            loop_replay=False,
+        )
+    )
+
+    replayed = replay_source.read()
+
+    assert replayed is not None
+    assert replayed.metadata.frame_id == "halo_replay_frame"
+
+
+def test_capture_writer_rejects_existing_capture_path(tmp_path) -> None:
+    from aeris_perception.rgb_dataset import (
+        RgbDatasetCaptureConfig,
+        RgbFrameCaptureWriter,
+    )
+    from aeris_perception.rgb_ingest import RgbSourceError
+
+    output_dir = tmp_path / "capture"
+    manifest_path = output_dir / "manifest.jsonl"
+    writer = RgbFrameCaptureWriter(
+        RgbDatasetCaptureConfig(
+            output_dir=output_dir,
+            manifest_path=manifest_path,
+            image_format="ppm",
+            capture_reason="continuous_capture",
+        )
+    )
+    frame = _sample_frame(10, frame_index=0)
+
+    writer.capture(frame)
+
+    with pytest.raises(RgbSourceError, match="already exists"):
+        writer.capture(frame)
 
 
 def test_capture_writer_rejects_non_directory_output_path(tmp_path) -> None:
@@ -191,6 +251,22 @@ def test_manifest_replay_rejects_missing_capture_file(tmp_path) -> None:
     )
 
     with pytest.raises(RgbSourceError, match="capture file does not exist"):
+        build_rgb_frame_source(
+            RgbSourceConfig(
+                source_type="manifest_replay",
+                source_uri=str(manifest_path),
+                frame_id="halo_rgb_front",
+            )
+        )
+
+
+def test_manifest_replay_rejects_empty_manifest(tmp_path) -> None:
+    from aeris_perception.rgb_ingest import RgbSourceError, build_rgb_frame_source
+
+    manifest_path = tmp_path / "manifest.jsonl"
+    manifest_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(RgbSourceError, match="no capture entries"):
         build_rgb_frame_source(
             RgbSourceConfig(
                 source_type="manifest_replay",

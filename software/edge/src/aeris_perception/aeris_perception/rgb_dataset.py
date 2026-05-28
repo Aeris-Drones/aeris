@@ -146,6 +146,10 @@ class RgbFrameCaptureWriter:
             image_format=self._config.normalized_image_format,
         )
         image_path = self._output_dir / relative_image_path
+        if image_path.exists():
+            raise RgbSourceError(
+                f"RGB capture image already exists: '{image_path}'"
+            )
         self._image_writer(
             image_path,
             frame.image_bgr,
@@ -235,7 +239,7 @@ class ManifestReplayFrameSource:
                 source_type=metadata.source_type,
                 source_name=metadata.source_name,
                 source_uri=metadata.source_uri,
-                frame_id=metadata.frame_id,
+                frame_id=self._config.frame_id,
                 frame_index=metadata.frame_index,
                 monotonic_timestamp_ns=self._timestamp_generator.normalize(
                     metadata.monotonic_timestamp_ns
@@ -273,6 +277,10 @@ def build_manifest_replay_frame_source(
         )
 
     entries = load_rgb_dataset_manifest(manifest_path)
+    if not entries:
+        raise RgbSourceError(
+            f"RGB dataset manifest has no capture entries: '{config.source_uri}'"
+        )
     for entry in entries:
         image_path = manifest_path.parent / entry.relative_image_path
         if not exists(image_path):

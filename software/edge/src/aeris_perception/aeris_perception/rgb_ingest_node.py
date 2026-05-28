@@ -200,10 +200,8 @@ class RgbIngestNode(Node):
             try:
                 self._capture_writer.capture(frame)
             except RgbSourceError as error:
-                self._source_exhausted = True
-                self._timer.cancel()
-                self.get_logger().error(f"RGB capture stopped: {error}")
-                return
+                self._capture_writer = None
+                self.get_logger().error(f"RGB capture disabled: {error}")
 
         self._image_publisher.publish(self._rgb_frame_to_image_message(frame))
         self._metadata_publisher.publish(String(data=_metadata_payload_json(frame)))
