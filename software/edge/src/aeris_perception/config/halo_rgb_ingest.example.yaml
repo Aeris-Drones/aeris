@@ -1,0 +1,21 @@
+rgb_ingest:
+  ros__parameters:
+    image_topic: rgb/image_raw
+    metadata_topic: rgb/source_metadata
+    publish_rate_hz: 15.0
+    frame_id: halo_rgb_front
+
+    # Live USB/CSI camera example.
+    source_type: camera
+    source_uri: "0"
+    source_name: halo_front_camera
+    loop_replay: false
+
+    # Swap to a local capture file by changing only the source parameters:
+    # source_type: video_file
+    # source_uri: /absolute/path/to/halo-capture.mp4
+    #
+    # Deterministic repeatable replay:
+    # source_type: replay
+    # source_uri: /absolute/path/to/halo-capture.mp4
+    # loop_replay: true

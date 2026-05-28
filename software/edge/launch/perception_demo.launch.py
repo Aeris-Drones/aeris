@@ -4,8 +4,12 @@ Spawns synthetic sensor publishers (thermal, acoustic, gas) and mesh network
 impairment shims to simulate degraded communication conditions for bench testing.
 """
 
+from pathlib import Path
+
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
 from launch.actions import LogInfo
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -17,7 +21,54 @@ def generate_launch_description() -> LaunchDescription:
         perception demonstration, including thermal/acoustic/gas publishers
         and mesh impairment relays.
     """
+    rgb_config = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "aeris_perception"
+        / "config"
+        / "perception_demo_rgb_ingest.yaml"
+    )
+    rgb_source_type = LaunchConfiguration("rgb_source_type")
+    rgb_source_uri = LaunchConfiguration("rgb_source_uri")
+    rgb_source_name = LaunchConfiguration("rgb_source_name")
+    rgb_loop_replay = LaunchConfiguration("rgb_loop_replay")
+
     nodes = [
+        DeclareLaunchArgument(
+            "rgb_source_type",
+            default_value="camera",
+            description="RGB ingest source type: camera, video_file, or replay.",
+        ),
+        DeclareLaunchArgument(
+            "rgb_source_uri",
+            default_value="0",
+            description="RGB ingest camera index or local file path.",
+        ),
+        DeclareLaunchArgument(
+            "rgb_source_name",
+            default_value="halo_front_camera",
+            description="Human-readable RGB source name for metadata.",
+        ),
+        DeclareLaunchArgument(
+            "rgb_loop_replay",
+            default_value="false",
+            description="Whether replay inputs should loop when they reach EOF.",
+        ),
+        Node(
+            package="aeris_perception",
+            executable="rgb_ingest",
+            name="rgb_ingest",
+            output="screen",
+            parameters=[
+                str(rgb_config),
+                {
+                    "source_type": rgb_source_type,
+                    "source_uri": rgb_source_uri,
+                    "source_name": rgb_source_name,
+                    "loop_replay": rgb_loop_replay,
+                },
+            ],
+        ),
         Node(
             package="aeris_perception",
             executable="thermal_hotspot",
@@ -117,11 +168,12 @@ def generate_launch_description() -> LaunchDescription:
         ),
         LogInfo(
             msg=(
-                "Perception demo running with thermal/acoustic/gas pipeline and mesh "
-                "impairments. Verify acoustic output cadence with `ros2 topic hz "
+                "Perception demo running with RGB ingest, thermal/acoustic/gas "
+                "pipeline, and mesh impairments. Verify RGB frames with `ros2 topic "
+                "hz rgb/image_raw`, acoustic output cadence with `ros2 topic hz "
                 "acoustic/bearing`, gas cadence with `ros2 topic hz gas/isopleth`, "
-                "and toggle buffering with `ros2 param set "
-                "/store_forward_tiles link_up false|true`."
+                "and override the RGB path with launch args such as "
+                "`rgb_source_type:=replay rgb_source_uri:=/absolute/path/capture.mp4`."
             )
         ),
     ]

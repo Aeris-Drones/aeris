@@ -1,0 +1,10 @@
+rgb_ingest:
+  ros__parameters:
+    image_topic: rgb/image_raw
+    metadata_topic: rgb/source_metadata
+    publish_rate_hz: 15.0
+    frame_id: halo_rgb_front
+    source_type: camera
+    source_uri: "0"
+    source_name: halo_front_camera
+    loop_replay: false
