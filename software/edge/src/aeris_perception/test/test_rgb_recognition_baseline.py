@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import aeris_perception.rgb_recognition_baseline as baseline
 from aeris_perception.rgb_dataset import RgbDatasetCaptureConfig, RgbFrameCaptureWriter
 from aeris_perception.rgb_ingest import RgbFrame, RgbFrameMetadata, RgbSourceError
 
@@ -65,9 +66,7 @@ def _write_manifest(tmp_path: Path) -> Path:
 
 
 def test_generate_baseline_candidates_emits_bounded_confidence_and_bbox() -> None:
-    from aeris_perception.rgb_recognition_baseline import generate_baseline_candidates
-
-    candidates = generate_baseline_candidates(
+    candidates = baseline.generate_baseline_candidates(
         _frame(_candidate_image(), frame_index=7)
     )
 
@@ -86,9 +85,7 @@ def test_generate_baseline_candidates_emits_bounded_confidence_and_bbox() -> Non
 
 
 def test_generate_baseline_candidates_filters_low_confidence_regions() -> None:
-    from aeris_perception.rgb_recognition_baseline import generate_baseline_candidates
-
-    candidates = generate_baseline_candidates(
+    candidates = baseline.generate_baseline_candidates(
         _frame(_weak_candidate_image(), frame_index=3)
     )
 
@@ -96,8 +93,6 @@ def test_generate_baseline_candidates_filters_low_confidence_regions() -> None:
 
 
 def test_evaluate_rgb_manifest_writes_detections_and_summary(tmp_path) -> None:
-    from aeris_perception.rgb_recognition_baseline import evaluate_rgb_dataset_manifest
-
     manifest_path = _write_manifest(tmp_path)
     detections_path = tmp_path / "detections.jsonl"
     summary_path = tmp_path / "summary.json"
@@ -113,7 +108,7 @@ def test_evaluate_rgb_manifest_writes_detections_and_summary(tmp_path) -> None:
         )
     )
 
-    summary = evaluate_rgb_dataset_manifest(
+    summary = baseline.evaluate_rgb_dataset_manifest(
         manifest_path,
         detections_output_path=detections_path,
         summary_output_path=summary_path,
@@ -149,8 +144,6 @@ def test_evaluate_rgb_manifest_writes_detections_and_summary(tmp_path) -> None:
 
 
 def test_evaluate_rgb_manifest_counts_false_positive_frames(tmp_path) -> None:
-    from aeris_perception.rgb_recognition_baseline import evaluate_rgb_dataset_manifest
-
     output_dir = tmp_path / "capture"
     manifest_path = output_dir / "manifest.jsonl"
     writer = RgbFrameCaptureWriter(
@@ -163,7 +156,7 @@ def test_evaluate_rgb_manifest_counts_false_positive_frames(tmp_path) -> None:
     )
     writer.capture(_frame(_candidate_image(), frame_index=0), label="background")
 
-    summary = evaluate_rgb_dataset_manifest(manifest_path)
+    summary = baseline.evaluate_rgb_dataset_manifest(manifest_path)
 
     assert summary.frames_processed == 1
     assert summary.detections_emitted == 1
@@ -172,8 +165,6 @@ def test_evaluate_rgb_manifest_counts_false_positive_frames(tmp_path) -> None:
 
 
 def test_evaluate_rgb_manifest_handles_unlabeled_entries(tmp_path) -> None:
-    from aeris_perception.rgb_recognition_baseline import evaluate_rgb_dataset_manifest
-
     output_dir = tmp_path / "capture"
     manifest_path = output_dir / "manifest.jsonl"
     writer = RgbFrameCaptureWriter(
@@ -187,7 +178,7 @@ def test_evaluate_rgb_manifest_handles_unlabeled_entries(tmp_path) -> None:
     writer.capture(_frame(_candidate_image(), frame_index=0))
     writer.capture(_frame(_background_image(), frame_index=1))
 
-    summary = evaluate_rgb_dataset_manifest(manifest_path)
+    summary = baseline.evaluate_rgb_dataset_manifest(manifest_path)
 
     assert summary.frames_processed == 2
     assert summary.labeled_frame_count == 0
@@ -200,8 +191,6 @@ def test_evaluate_rgb_manifest_handles_unlabeled_entries(tmp_path) -> None:
 def test_evaluate_rgb_manifest_rejects_non_dict_review_values(
     tmp_path, review_value: object
 ) -> None:
-    from aeris_perception.rgb_recognition_baseline import evaluate_rgb_dataset_manifest
-
     manifest_path = _write_manifest(tmp_path)
     manifest_lines = manifest_path.read_text(encoding="utf-8").splitlines()
     record = json.loads(manifest_lines[-1])
@@ -210,14 +199,12 @@ def test_evaluate_rgb_manifest_rejects_non_dict_review_values(
     manifest_path.write_text("\n".join(manifest_lines) + "\n", encoding="utf-8")
 
     with pytest.raises(RgbSourceError, match="Malformed review payload"):
-        evaluate_rgb_dataset_manifest(manifest_path)
+        baseline.evaluate_rgb_dataset_manifest(manifest_path)
 
 
 def test_evaluate_rgb_manifest_latency_includes_replay_read(
     tmp_path, monkeypatch
 ) -> None:
-    import aeris_perception.rgb_recognition_baseline as baseline
-
     output_dir = tmp_path / "capture"
     manifest_path = output_dir / "manifest.jsonl"
     writer = RgbFrameCaptureWriter(
@@ -264,20 +251,16 @@ def test_evaluate_rgb_manifest_latency_includes_replay_read(
 
 
 def test_evaluate_rgb_manifest_rejects_empty_manifest(tmp_path) -> None:
-    from aeris_perception.rgb_recognition_baseline import evaluate_rgb_dataset_manifest
-
     manifest_path = tmp_path / "manifest.jsonl"
     manifest_path.write_text("", encoding="utf-8")
 
     with pytest.raises(RgbSourceError, match="no capture entries"):
-        evaluate_rgb_dataset_manifest(manifest_path)
+        baseline.evaluate_rgb_dataset_manifest(manifest_path)
 
 
 def test_evaluate_rgb_manifest_rejects_malformed_manifest(tmp_path) -> None:
-    from aeris_perception.rgb_recognition_baseline import evaluate_rgb_dataset_manifest
-
     manifest_path = tmp_path / "manifest.jsonl"
     manifest_path.write_text("{not-json}\n", encoding="utf-8")
 
     with pytest.raises(RgbSourceError, match="Malformed RGB dataset manifest"):
-        evaluate_rgb_dataset_manifest(manifest_path)
+        baseline.evaluate_rgb_dataset_manifest(manifest_path)
