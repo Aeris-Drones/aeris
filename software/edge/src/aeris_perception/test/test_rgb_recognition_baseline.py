@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 import json
 from pathlib import Path
 
@@ -31,6 +32,12 @@ def _candidate_image() -> np.ndarray:
 
 def _background_image() -> np.ndarray:
     return np.full((12, 12, 3), 20, dtype=np.uint8)
+
+
+def _weak_candidate_image() -> np.ndarray:
+    image = np.full((12, 12, 3), 20, dtype=np.uint8)
+    image[4:8, 4:8] = np.array([40, 40, 40], dtype=np.uint8)
+    return image
 
 
 def _frame(image_bgr: np.ndarray, *, frame_index: int) -> RgbFrame:
@@ -76,6 +83,16 @@ def test_generate_baseline_candidates_emits_bounded_confidence_and_bbox() -> Non
     assert candidate.region["height"] > 0
     assert candidate.baseline_name
     assert candidate.baseline_version
+
+
+def test_generate_baseline_candidates_filters_low_confidence_regions() -> None:
+    from aeris_perception.rgb_recognition_baseline import generate_baseline_candidates
+
+    candidates = generate_baseline_candidates(
+        _frame(_weak_candidate_image(), frame_index=3)
+    )
+
+    assert candidates == []
 
 
 def test_evaluate_rgb_manifest_writes_detections_and_summary(tmp_path) -> None:
@@ -131,6 +148,29 @@ def test_evaluate_rgb_manifest_writes_detections_and_summary(tmp_path) -> None:
     assert summary_record["false_negative_frames"] == 1
 
 
+def test_evaluate_rgb_manifest_counts_false_positive_frames(tmp_path) -> None:
+    from aeris_perception.rgb_recognition_baseline import evaluate_rgb_dataset_manifest
+
+    output_dir = tmp_path / "capture"
+    manifest_path = output_dir / "manifest.jsonl"
+    writer = RgbFrameCaptureWriter(
+        RgbDatasetCaptureConfig(
+            output_dir=output_dir,
+            manifest_path=manifest_path,
+            image_format="ppm",
+            capture_reason="continuous_capture",
+        )
+    )
+    writer.capture(_frame(_candidate_image(), frame_index=0), label="background")
+
+    summary = evaluate_rgb_dataset_manifest(manifest_path)
+
+    assert summary.frames_processed == 1
+    assert summary.detections_emitted == 1
+    assert summary.false_positive_frames == 1
+    assert summary.false_negative_frames == 0
+
+
 def test_evaluate_rgb_manifest_handles_unlabeled_entries(tmp_path) -> None:
     from aeris_perception.rgb_recognition_baseline import evaluate_rgb_dataset_manifest
 
@@ -154,6 +194,73 @@ def test_evaluate_rgb_manifest_handles_unlabeled_entries(tmp_path) -> None:
     assert summary.unlabeled_frame_count == 2
     assert summary.false_positive_frames == 0
     assert summary.false_negative_frames == 0
+
+
+@pytest.mark.parametrize("review_value", ["needs_review", ["human_present"], 5])
+def test_evaluate_rgb_manifest_rejects_non_dict_review_values(
+    tmp_path, review_value: object
+) -> None:
+    from aeris_perception.rgb_recognition_baseline import evaluate_rgb_dataset_manifest
+
+    manifest_path = _write_manifest(tmp_path)
+    manifest_lines = manifest_path.read_text(encoding="utf-8").splitlines()
+    record = json.loads(manifest_lines[-1])
+    record["review"] = review_value
+    manifest_lines[-1] = json.dumps(record, sort_keys=True)
+    manifest_path.write_text("\n".join(manifest_lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(RgbSourceError, match="Malformed review payload"):
+        evaluate_rgb_dataset_manifest(manifest_path)
+
+
+def test_evaluate_rgb_manifest_latency_includes_replay_read(
+    tmp_path, monkeypatch
+) -> None:
+    import aeris_perception.rgb_recognition_baseline as baseline
+
+    output_dir = tmp_path / "capture"
+    manifest_path = output_dir / "manifest.jsonl"
+    writer = RgbFrameCaptureWriter(
+        RgbDatasetCaptureConfig(
+            output_dir=output_dir,
+            manifest_path=manifest_path,
+            image_format="ppm",
+            capture_reason="continuous_capture",
+        )
+    )
+    frame = _frame(_background_image(), frame_index=0)
+    writer.capture(frame)
+
+    clock_values: Iterator[int] = iter((1_000_000, 2_000_000, 4_000_000))
+
+    class _FakeManifestReplayFrameSource:
+        def __init__(self, **_kwargs) -> None:
+            self._returned = False
+
+        def read(self) -> RgbFrame | None:
+            if self._returned:
+                return None
+            self._returned = True
+            next(clock_values)
+            return frame
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        baseline,
+        "ManifestReplayFrameSource",
+        _FakeManifestReplayFrameSource,
+    )
+
+    summary = baseline.evaluate_rgb_dataset_manifest(
+        manifest_path,
+        latency_clock_ns=lambda: next(clock_values),
+        candidate_generator=lambda _frame: [],
+    )
+
+    assert summary.latency_summary_ms["min"] == 3.0
+    assert summary.latency_summary_ms["p95"] == 3.0
 
 
 def test_evaluate_rgb_manifest_rejects_empty_manifest(tmp_path) -> None:

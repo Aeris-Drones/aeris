@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import json
 from math import ceil
 from pathlib import Path
@@ -23,6 +23,7 @@ from .rgb_ingest import RgbFrame, RgbSourceConfig, RgbSourceError
 BASELINE_NAME = "halo_rgb_region_baseline"
 BASELINE_VERSION = "0.1.0"
 DETECTION_TYPE = "candidate_human_presence"
+MIN_CANDIDATE_CONFIDENCE = 0.5
 
 _POSITIVE_LABEL_TOKENS = {
     "candidate_human_presence",
@@ -204,7 +205,7 @@ def generate_baseline_candidates(frame: RgbFrame) -> list[RecognitionCandidate]:
             + (0.15 * size_score)
             + (0.10 * fill_score)
         )
-        if confidence <= 0.0:
+        if confidence < MIN_CANDIDATE_CONFIDENCE:
             continue
 
         candidates.append(
@@ -275,13 +276,13 @@ def evaluate_rgb_dataset_manifest(
 
     try:
         for entry in entries:
+            start_ns = int(clock())
             frame = source.read()
             if frame is None:
                 raise RgbSourceError(
                     "RGB dataset manifest replay ended before all frames were read"
                 )
 
-            start_ns = int(clock())
             frame_candidates = detector(frame)
             end_ns = int(clock())
             latency_ms = _round_float(max(0, end_ns - start_ns) / 1_000_000.0)
@@ -300,15 +301,7 @@ def evaluate_rgb_dataset_manifest(
                 false_positive_frames += 1
 
             for candidate in frame_candidates:
-                detections.append(
-                    RecognitionCandidate(
-                        **{
-                            **candidate.to_dict(),
-                            "confidence": candidate.confidence,
-                            "latency_ms": latency_ms,
-                        }
-                    )
-                )
+                detections.append(replace(candidate, latency_ms=latency_ms))
 
             frame_results.append(
                 FrameEvaluationResult(
@@ -418,6 +411,7 @@ def _load_validated_manifest_entries(
             raise RgbSourceError(
                 f"RGB dataset capture file does not exist: '{image_path}'"
             )
+        _validated_review_payload(entry)
     return entries
 
 
@@ -463,9 +457,10 @@ def _connected_components(mask: np.ndarray) -> list[list[tuple[int, int]]]:
 
 
 def _expected_human_presence(entry: RgbDatasetManifestEntry) -> bool | None:
-    if entry.review is not None:
+    review_payload = _validated_review_payload(entry)
+    if review_payload is not None:
         for key in _REVIEW_BOOLEAN_KEYS:
-            value = entry.review.get(key)
+            value = review_payload.get(key)
             if isinstance(value, bool):
                 return value
 
@@ -482,6 +477,22 @@ def _expected_human_presence(entry: RgbDatasetManifestEntry) -> bool | None:
 
 def _normalize_label(label: str) -> str:
     return str(label).strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _validated_review_payload(
+    entry: RgbDatasetManifestEntry,
+) -> dict[str, Any] | None:
+    if entry.review is None:
+        return None
+    if isinstance(entry.review, dict):
+        return entry.review
+
+    metadata = entry.metadata
+    raise RgbSourceError(
+        "Malformed review payload for RGB dataset manifest entry "
+        f"source '{metadata.source_name}' frame_index {metadata.frame_index}: "
+        "expected object or null"
+    )
 
 
 def _confidence_summary(
