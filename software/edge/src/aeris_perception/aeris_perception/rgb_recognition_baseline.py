@@ -199,9 +199,7 @@ def generate_baseline_candidates(frame: RgbFrame) -> list[RecognitionCandidate]:
             continue
 
         min_y = component.min_y
-        max_y = component.max_y
         min_x = component.min_x
-        max_x = component.max_x
         width = component.width
         height = component.height
         if width <= 0 or height <= 0:
