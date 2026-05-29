@@ -29,6 +29,7 @@ setup(
     entry_points={
         "console_scripts": [
             "rgb_ingest = aeris_perception.rgb_ingest_node:main",
+            "rgb_recognition_eval = aeris_perception.rgb_recognition_baseline:main",
             "thermal_hotspot = aeris_perception.thermal_hotspot_node:main",
             "acoustic_bearing = aeris_perception.acoustic_bearing_node:main",
             "acoustic_audio_sim = aeris_perception.acoustic_audio_sim_node:main",
