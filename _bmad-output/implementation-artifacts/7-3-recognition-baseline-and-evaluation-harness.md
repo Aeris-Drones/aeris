@@ -174,12 +174,14 @@ GPT-5 Codex
 ### Debug Log References
 
 - Issue #121: https://github.com/Aeris-Drones/aeris/issues/121
+- PR #122: https://github.com/Aeris-Drones/aeris/pull/122
 
 ### Completion Notes List
 
 - Added a deterministic RGB region baseline that reuses the manifest replay frame contract and emits inspectable candidate human-presence detections with bounded confidence, source/frame metadata, optional regions, and per-frame latency.
 - Added a manifest evaluator plus CLI entry point that writes JSONL detections and JSON evaluation summaries with dataset coverage, confidence/latency metrics, per-frame results, and labeled false-positive/false-negative reporting when manifest labels or review fields are present.
 - Added focused tests covering baseline output, confidence bounds, labeled and unlabeled manifest evaluation, and clear failures for empty or malformed manifests.
+- Opened PR #122 against `main` to land the recognition baseline evaluation harness linked to issue #121.
 
 ### File List
 
