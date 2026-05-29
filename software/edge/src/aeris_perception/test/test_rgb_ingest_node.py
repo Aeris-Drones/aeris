@@ -33,6 +33,17 @@ class _FakeTimer:
         self.cancel_calls += 1
 
 
+class _RecorderCaptureWriter:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.frames: list[RgbFrame] = []
+
+    def capture(self, frame: RgbFrame) -> None:
+        if self.fail:
+            raise RgbSourceError("capture failed")
+        self.frames.append(frame)
+
+
 class _StaticSource:
     def __init__(self, frames: list[RgbFrame]) -> None:
         self._frames = list(frames)
@@ -46,6 +57,22 @@ class _StaticSource:
 
     def close(self) -> None:
         self.closed = True
+
+
+def _sample_rgb_frame(*, frame_id: str = "halo_rgb") -> RgbFrame:
+    return RgbFrame(
+        image_bgr=np.full((2, 4, 3), 9, dtype=np.uint8),
+        metadata=RgbFrameMetadata(
+            source_type="camera",
+            source_name="halo_cam",
+            source_uri="0",
+            frame_id=frame_id,
+            frame_index=0,
+            monotonic_timestamp_ns=4_000,
+            source_timestamp_ns=None,
+            replayed=False,
+        ),
+    )
 
 
 class _ErrorSource:
@@ -145,19 +172,7 @@ def test_rgb_ingest_node_keeps_camera_timer_running_after_transient_miss() -> No
     source = _TransientCameraSource(
         [
             None,
-            RgbFrame(
-                image_bgr=np.full((2, 4, 3), 9, dtype=np.uint8),
-                metadata=RgbFrameMetadata(
-                    source_type="camera",
-                    source_name="halo_cam",
-                    source_uri="0",
-                    frame_id="halo_rgb",
-                    frame_index=0,
-                    monotonic_timestamp_ns=4_000,
-                    source_timestamp_ns=None,
-                    replayed=False,
-                ),
-            ),
+            _sample_rgb_frame(),
         ]
     )
     node = RgbIngestNode(
@@ -189,6 +204,79 @@ def test_rgb_ingest_node_keeps_camera_timer_running_after_transient_miss() -> No
         assert len(metadata_recorder.messages) == 1
         assert node._source_exhausted is False
         assert fake_timer.cancel_calls == 0
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_rgb_ingest_node_capture_writer_receives_published_frame() -> None:
+    rclpy.init()
+    frame = _sample_rgb_frame()
+    source = _StaticSource([frame])
+    capture_writer = _RecorderCaptureWriter()
+    node = RgbIngestNode(
+        parameter_overrides=[
+            Parameter("source_type", value="camera"),
+            Parameter("source_uri", value="0"),
+            Parameter("frame_id", value="halo_rgb"),
+            Parameter("capture_enabled", value=True),
+            Parameter("capture_output_dir", value="/tmp/halo-capture"),
+        ],
+        source_factory=lambda _config: source,
+        capture_writer_factory=lambda _config: capture_writer,
+    )
+    image_recorder = _RecorderPublisher()
+    metadata_recorder = _RecorderPublisher()
+
+    try:
+        node._timer.cancel()
+        node._image_publisher = image_recorder
+        node._metadata_publisher = metadata_recorder
+        node._ros_stamp_provider = lambda: Time(sec=3, nanosec=14)
+
+        node._publish_next_frame()
+
+        assert capture_writer.frames == [frame]
+        assert len(image_recorder.messages) == 1
+        assert len(metadata_recorder.messages) == 1
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_rgb_ingest_node_capture_failure_does_not_stop_publishing() -> None:
+    rclpy.init()
+    source = _StaticSource([_sample_rgb_frame()])
+    capture_writer = _RecorderCaptureWriter(fail=True)
+    node = RgbIngestNode(
+        parameter_overrides=[
+            Parameter("source_type", value="camera"),
+            Parameter("source_uri", value="0"),
+            Parameter("frame_id", value="halo_rgb"),
+            Parameter("capture_enabled", value=True),
+            Parameter("capture_output_dir", value="/tmp/halo-capture"),
+        ],
+        source_factory=lambda _config: source,
+        capture_writer_factory=lambda _config: capture_writer,
+    )
+    image_recorder = _RecorderPublisher()
+    metadata_recorder = _RecorderPublisher()
+    fake_timer = _FakeTimer()
+
+    try:
+        node._timer.cancel()
+        node._timer = fake_timer
+        node._image_publisher = image_recorder
+        node._metadata_publisher = metadata_recorder
+        node._ros_stamp_provider = lambda: Time(sec=3, nanosec=14)
+
+        node._publish_next_frame()
+
+        assert node._source_exhausted is False
+        assert node._capture_writer is None
+        assert fake_timer.cancel_calls == 0
+        assert len(image_recorder.messages) == 1
+        assert len(metadata_recorder.messages) == 1
     finally:
         node.destroy_node()
         rclpy.shutdown()

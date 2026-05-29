@@ -10,6 +10,11 @@ rgb_ingest:
     source_uri: "0"
     source_name: halo_front_camera
     loop_replay: false
+    capture_enabled: false
+    capture_output_dir: /absolute/path/to/halo-captures
+    capture_manifest_path: /absolute/path/to/halo-captures/manifest.jsonl
+    capture_image_format: png
+    capture_reason: continuous_capture
 
     # Swap to a local capture file by changing only the source parameters:
     # source_type: video_file
@@ -18,4 +23,9 @@ rgb_ingest:
     # Deterministic repeatable replay:
     # source_type: replay
     # source_uri: /absolute/path/to/halo-capture.mp4
+    # loop_replay: true
+    #
+    # Manifest-backed frame replay for repeatable evaluation:
+    # source_type: manifest_replay
+    # source_uri: /absolute/path/to/halo-captures/manifest.jsonl
     # loop_replay: true

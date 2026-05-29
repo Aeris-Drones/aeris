@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -13,9 +14,10 @@ from rclpy.parameter import Parameter
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
+from .rgb_dataset import RgbDatasetCaptureConfig, RgbFrameCaptureWriter
 from .rgb_ingest import (
     RgbFrame,
-    RgbFrameSource,
+    RgbReadableSource,
     RgbSourceConfig,
     RgbSourceError,
     build_rgb_frame_source,
@@ -29,11 +31,15 @@ class RgbIngestNode(Node):
         self,
         *,
         parameter_overrides: list[Parameter] | None = None,
-        source_factory: Callable[[RgbSourceConfig], RgbFrameSource] | None = None,
+        source_factory: Callable[[RgbSourceConfig], RgbReadableSource] | None = None,
+        capture_writer_factory: (
+            Callable[[RgbDatasetCaptureConfig], RgbFrameCaptureWriter] | None
+        ) = None,
     ) -> None:
         super().__init__("rgb_ingest", parameter_overrides=parameter_overrides)
 
         self._source_factory = source_factory or build_rgb_frame_source
+        self._capture_writer_factory = capture_writer_factory or RgbFrameCaptureWriter
         self._image_topic = str(
             self.declare_parameter("image_topic", "rgb/image_raw").value
         )
@@ -50,12 +56,28 @@ class RgbIngestNode(Node):
         self._loop_replay = bool(
             self.declare_parameter("loop_replay", False).value
         )
+        self._capture_enabled = bool(
+            self.declare_parameter("capture_enabled", False).value
+        )
+        self._capture_output_dir = str(
+            self.declare_parameter("capture_output_dir", "").value
+        )
+        self._capture_manifest_path = str(
+            self.declare_parameter("capture_manifest_path", "").value
+        )
+        self._capture_image_format = str(
+            self.declare_parameter("capture_image_format", "png").value
+        )
+        self._capture_reason = str(
+            self.declare_parameter("capture_reason", "continuous_capture").value
+        )
         self._ros_stamp_provider = lambda: self.get_clock().now().to_msg()
 
         if self._publish_rate_hz <= 0.0:
             raise RgbSourceError("publish_rate_hz must be > 0 for RGB ingest")
 
         self._source = self._source_factory(self._build_source_config())
+        self._capture_writer = self._build_capture_writer()
         self._image_publisher = self.create_publisher(Image, self._image_topic, 10)
         self._metadata_publisher = self.create_publisher(
             String, self._metadata_topic, 10
@@ -79,6 +101,29 @@ class RgbIngestNode(Node):
             loop_replay=self._loop_replay,
         )
 
+    def _build_capture_writer(self) -> RgbFrameCaptureWriter | None:
+        if not self._capture_enabled:
+            return None
+
+        output_dir = self._capture_output_dir.strip()
+        if not output_dir:
+            raise RgbSourceError(
+                "capture_output_dir must be configured when RGB capture is enabled"
+            )
+
+        manifest_path = self._capture_manifest_path.strip()
+        if not manifest_path:
+            manifest_path = str(Path(output_dir) / "manifest.jsonl")
+
+        return self._capture_writer_factory(
+            RgbDatasetCaptureConfig(
+                output_dir=output_dir,
+                manifest_path=manifest_path,
+                image_format=self._capture_image_format,
+                capture_reason=self._capture_reason,
+            )
+        )
+
     def _handle_param_update(self, params: list[Parameter]) -> SetParametersResult:
         updated_rate_hz = self._publish_rate_hz
 
@@ -95,6 +140,11 @@ class RgbIngestNode(Node):
                     "frame_id",
                     "source_name",
                     "loop_replay",
+                    "capture_enabled",
+                    "capture_output_dir",
+                    "capture_manifest_path",
+                    "capture_image_format",
+                    "capture_reason",
                 }:
                     return SetParametersResult(
                         successful=False,
@@ -145,6 +195,13 @@ class RgbIngestNode(Node):
                 f"RGB {self._source.config.normalized_source_type} source exhausted."
             )
             return
+
+        if self._capture_writer is not None:
+            try:
+                self._capture_writer.capture(frame)
+            except RgbSourceError as error:
+                self._capture_writer = None
+                self.get_logger().error(f"RGB capture disabled: {error}")
 
         self._image_publisher.publish(self._rgb_frame_to_image_message(frame))
         self._metadata_publisher.publish(String(data=_metadata_payload_json(frame)))
