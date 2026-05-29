@@ -46,6 +46,19 @@ def _frame(image_bgr: np.ndarray, *, frame_index: int) -> RgbFrame:
 
 
 def _write_manifest(tmp_path: Path) -> Path:
+    writer, manifest_path = _build_capture_writer(tmp_path)
+    writer.capture(_frame(_candidate_image(), frame_index=0), label="person")
+    writer.capture(_frame(_background_image(), frame_index=1), label="background")
+    writer.capture(
+        _frame(_background_image(), frame_index=2),
+        review={"human_present": True, "notes": "label pending"},
+    )
+    return manifest_path
+
+
+def _build_capture_writer(
+    tmp_path: Path,
+) -> tuple[RgbFrameCaptureWriter, Path]:
     output_dir = tmp_path / "capture"
     manifest_path = output_dir / "manifest.jsonl"
     writer = RgbFrameCaptureWriter(
@@ -56,13 +69,7 @@ def _write_manifest(tmp_path: Path) -> Path:
             capture_reason="continuous_capture",
         )
     )
-    writer.capture(_frame(_candidate_image(), frame_index=0), label="person")
-    writer.capture(_frame(_background_image(), frame_index=1), label="background")
-    writer.capture(
-        _frame(_background_image(), frame_index=2),
-        review={"human_present": True, "notes": "label pending"},
-    )
-    return manifest_path
+    return writer, manifest_path
 
 
 def test_generate_baseline_candidates_emits_bounded_confidence_and_bbox() -> None:
@@ -144,16 +151,7 @@ def test_evaluate_rgb_manifest_writes_detections_and_summary(tmp_path) -> None:
 
 
 def test_evaluate_rgb_manifest_counts_false_positive_frames(tmp_path) -> None:
-    output_dir = tmp_path / "capture"
-    manifest_path = output_dir / "manifest.jsonl"
-    writer = RgbFrameCaptureWriter(
-        RgbDatasetCaptureConfig(
-            output_dir=output_dir,
-            manifest_path=manifest_path,
-            image_format="ppm",
-            capture_reason="continuous_capture",
-        )
-    )
+    writer, manifest_path = _build_capture_writer(tmp_path)
     writer.capture(_frame(_candidate_image(), frame_index=0), label="background")
 
     summary = baseline.evaluate_rgb_dataset_manifest(manifest_path)
@@ -165,16 +163,7 @@ def test_evaluate_rgb_manifest_counts_false_positive_frames(tmp_path) -> None:
 
 
 def test_evaluate_rgb_manifest_handles_unlabeled_entries(tmp_path) -> None:
-    output_dir = tmp_path / "capture"
-    manifest_path = output_dir / "manifest.jsonl"
-    writer = RgbFrameCaptureWriter(
-        RgbDatasetCaptureConfig(
-            output_dir=output_dir,
-            manifest_path=manifest_path,
-            image_format="ppm",
-            capture_reason="continuous_capture",
-        )
-    )
+    writer, manifest_path = _build_capture_writer(tmp_path)
     writer.capture(_frame(_candidate_image(), frame_index=0))
     writer.capture(_frame(_background_image(), frame_index=1))
 
@@ -205,16 +194,7 @@ def test_evaluate_rgb_manifest_rejects_non_dict_review_values(
 def test_evaluate_rgb_manifest_latency_includes_replay_read(
     tmp_path, monkeypatch
 ) -> None:
-    output_dir = tmp_path / "capture"
-    manifest_path = output_dir / "manifest.jsonl"
-    writer = RgbFrameCaptureWriter(
-        RgbDatasetCaptureConfig(
-            output_dir=output_dir,
-            manifest_path=manifest_path,
-            image_format="ppm",
-            capture_reason="continuous_capture",
-        )
-    )
+    writer, manifest_path = _build_capture_writer(tmp_path)
     frame = _frame(_background_image(), frame_index=0)
     writer.capture(frame)
 

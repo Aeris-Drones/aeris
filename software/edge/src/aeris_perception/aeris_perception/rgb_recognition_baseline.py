@@ -176,12 +176,13 @@ def generate_baseline_candidates(frame: RgbFrame) -> list[RecognitionCandidate]:
         if area < min_component_area:
             continue
 
-        ys = [point[0] for point in component]
-        xs = [point[1] for point in component]
-        min_y = min(ys)
-        max_y = max(ys)
-        min_x = min(xs)
-        max_x = max(xs)
+        points = np.asarray(component, dtype=int)
+        ys = points[:, 0]
+        xs = points[:, 1]
+        min_y = int(ys.min())
+        max_y = int(ys.max())
+        min_x = int(xs.min())
+        max_x = int(xs.max())
         width = (max_x - min_x) + 1
         height = (max_y - min_y) + 1
         if width <= 0 or height <= 0:
@@ -191,9 +192,7 @@ def generate_baseline_candidates(frame: RgbFrame) -> list[RecognitionCandidate]:
         area_ratio = area / total_pixels
         aspect_ratio = height / max(width, 1)
         fill_ratio = area / bbox_area
-        component_mean = float(
-            np.mean([luminance[y_index, x_index] for y_index, x_index in component])
-        )
+        component_mean = float(luminance[ys, xs].mean())
         brightness_score = _bounded((component_mean - float(luminance.mean())) / 128.0)
         verticality_score = _bounded((aspect_ratio - 0.75) / 2.5)
         size_score = _bounded(area_ratio * 24.0)
