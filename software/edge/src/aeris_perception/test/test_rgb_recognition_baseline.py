@@ -12,12 +12,14 @@ from aeris_perception.rgb_dataset import RgbDatasetCaptureConfig, RgbFrameCaptur
 from aeris_perception.rgb_ingest import RgbFrame, RgbFrameMetadata, RgbSourceError
 
 
-def _frame_metadata(*, frame_index: int) -> RgbFrameMetadata:
+def _frame_metadata(
+    *, frame_index: int, frame_id: str = "halo_rgb_front"
+) -> RgbFrameMetadata:
     return RgbFrameMetadata(
         source_type="camera",
         source_name="halo_front_camera",
         source_uri="0",
-        frame_id="halo_rgb_front",
+        frame_id=frame_id,
         frame_index=frame_index,
         monotonic_timestamp_ns=1_000_000_000 + frame_index,
         source_timestamp_ns=None,
@@ -41,8 +43,16 @@ def _weak_candidate_image() -> np.ndarray:
     return image
 
 
-def _frame(image_bgr: np.ndarray, *, frame_index: int) -> RgbFrame:
-    return RgbFrame(image_bgr=image_bgr, metadata=_frame_metadata(frame_index=frame_index))
+def _frame(
+    image_bgr: np.ndarray,
+    *,
+    frame_index: int,
+    frame_id: str = "halo_rgb_front",
+) -> RgbFrame:
+    return RgbFrame(
+        image_bgr=image_bgr,
+        metadata=_frame_metadata(frame_index=frame_index, frame_id=frame_id),
+    )
 
 
 def _write_manifest(tmp_path: Path) -> Path:
@@ -150,6 +160,38 @@ def test_evaluate_rgb_manifest_writes_detections_and_summary(tmp_path) -> None:
     assert summary_record["false_negative_frames"] == 1
 
 
+def test_evaluate_rgb_manifest_preserves_manifest_frame_ids(tmp_path) -> None:
+    writer, manifest_path = _build_capture_writer(tmp_path)
+    detections_path = tmp_path / "detections.jsonl"
+    writer.capture(
+        _frame(_candidate_image(), frame_index=0, frame_id="halo_rgb_front"),
+        label="person",
+    )
+    writer.capture(
+        _frame(_candidate_image(), frame_index=1, frame_id="halo_rgb_rear"),
+        label="person",
+    )
+
+    summary = baseline.evaluate_rgb_dataset_manifest(
+        manifest_path,
+        detections_output_path=detections_path,
+    )
+
+    assert [result.frame_id for result in summary.frame_results] == [
+        "halo_rgb_front",
+        "halo_rgb_rear",
+    ]
+    detection_records = [
+        json.loads(line)
+        for line in detections_path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert [record["frame_id"] for record in detection_records] == [
+        "halo_rgb_front",
+        "halo_rgb_rear",
+    ]
+
+
 def test_evaluate_rgb_manifest_counts_false_positive_frames(tmp_path) -> None:
     writer, manifest_path = _build_capture_writer(tmp_path)
     writer.capture(_frame(_candidate_image(), frame_index=0), label="background")
@@ -228,6 +270,35 @@ def test_evaluate_rgb_manifest_latency_includes_replay_read(
 
     assert summary.latency_summary_ms["min"] == 3.0
     assert summary.latency_summary_ms["p95"] == 3.0
+
+
+def test_connected_components_tracks_stats_without_pixel_lists() -> None:
+    mask = np.array(
+        [
+            [False, True, True],
+            [False, True, False],
+            [True, False, False],
+        ],
+        dtype=bool,
+    )
+    luminance = np.array(
+        [
+            [0.0, 10.0, 20.0],
+            [0.0, 30.0, 0.0],
+            [40.0, 0.0, 0.0],
+        ]
+    )
+
+    components = baseline._connected_components(mask, luminance)
+
+    assert len(components) == 2
+    largest = max(components, key=lambda component: component.area)
+    assert largest.area == 3
+    assert largest.min_y == 0
+    assert largest.max_y == 1
+    assert largest.min_x == 1
+    assert largest.max_x == 2
+    assert largest.mean_luminance == pytest.approx(20.0)
 
 
 def test_evaluate_rgb_manifest_rejects_empty_manifest(tmp_path) -> None:

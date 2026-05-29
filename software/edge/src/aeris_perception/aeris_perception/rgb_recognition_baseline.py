@@ -89,6 +89,28 @@ class RecognitionCandidate:
 
 
 @dataclass(frozen=True)
+class _ConnectedComponent:
+    area: int
+    min_y: int
+    max_y: int
+    min_x: int
+    max_x: int
+    luminance_sum: float
+
+    @property
+    def width(self) -> int:
+        return (self.max_x - self.min_x) + 1
+
+    @property
+    def height(self) -> int:
+        return (self.max_y - self.min_y) + 1
+
+    @property
+    def mean_luminance(self) -> float:
+        return self.luminance_sum / max(self.area, 1)
+
+
+@dataclass(frozen=True)
 class FrameEvaluationResult:
     """Per-frame evaluation output kept in the summary JSON."""
 
@@ -163,7 +185,7 @@ def generate_baseline_candidates(frame: RgbFrame) -> list[RecognitionCandidate]:
     luminance = _image_luminance(image_bgr)
     threshold = max(32.0, float(luminance.mean()) + (float(luminance.std()) * 0.60))
     bright_mask = luminance >= threshold
-    components = _connected_components(bright_mask)
+    components = _connected_components(bright_mask, luminance)
     if not components:
         return []
 
@@ -172,19 +194,16 @@ def generate_baseline_candidates(frame: RgbFrame) -> list[RecognitionCandidate]:
 
     candidates: list[RecognitionCandidate] = []
     for component in components:
-        area = len(component)
+        area = component.area
         if area < min_component_area:
             continue
 
-        points = np.asarray(component, dtype=int)
-        ys = points[:, 0]
-        xs = points[:, 1]
-        min_y = int(ys.min())
-        max_y = int(ys.max())
-        min_x = int(xs.min())
-        max_x = int(xs.max())
-        width = (max_x - min_x) + 1
-        height = (max_y - min_y) + 1
+        min_y = component.min_y
+        max_y = component.max_y
+        min_x = component.min_x
+        max_x = component.max_x
+        width = component.width
+        height = component.height
         if width <= 0 or height <= 0:
             continue
 
@@ -192,7 +211,7 @@ def generate_baseline_candidates(frame: RgbFrame) -> list[RecognitionCandidate]:
         area_ratio = area / total_pixels
         aspect_ratio = height / max(width, 1)
         fill_ratio = area / bbox_area
-        component_mean = float(luminance[ys, xs].mean())
+        component_mean = component.mean_luminance
         brightness_score = _bounded((component_mean - float(luminance.mean())) / 128.0)
         verticality_score = _bounded((aspect_ratio - 0.75) / 2.5)
         size_score = _bounded(area_ratio * 24.0)
@@ -281,6 +300,10 @@ def evaluate_rgb_dataset_manifest(
                 raise RgbSourceError(
                     "RGB dataset manifest replay ended before all frames were read"
                 )
+            frame = RgbFrame(
+                image_bgr=frame.image_bgr,
+                metadata=replace(frame.metadata, frame_id=entry.metadata.frame_id),
+            )
 
             frame_candidates = detector(frame)
             end_ns = int(clock())
@@ -422,8 +445,10 @@ def _image_luminance(image_bgr: np.ndarray) -> np.ndarray:
     )
 
 
-def _connected_components(mask: np.ndarray) -> list[list[tuple[int, int]]]:
-    components: list[list[tuple[int, int]]] = []
+def _connected_components(
+    mask: np.ndarray, luminance: np.ndarray
+) -> list[_ConnectedComponent]:
+    components: list[_ConnectedComponent] = []
     height, width = mask.shape
     visited = np.zeros_like(mask, dtype=bool)
 
@@ -432,12 +457,22 @@ def _connected_components(mask: np.ndarray) -> list[list[tuple[int, int]]]:
             if not bool(mask[y_index, x_index]) or bool(visited[y_index, x_index]):
                 continue
 
-            component: list[tuple[int, int]] = []
             stack = [(y_index, x_index)]
             visited[y_index, x_index] = True
+            area = 0
+            min_y = y_index
+            max_y = y_index
+            min_x = x_index
+            max_x = x_index
+            luminance_sum = 0.0
             while stack:
                 current_y, current_x = stack.pop()
-                component.append((current_y, current_x))
+                area += 1
+                min_y = min(min_y, current_y)
+                max_y = max(max_y, current_y)
+                min_x = min(min_x, current_x)
+                max_x = max(max_x, current_x)
+                luminance_sum += float(luminance[current_y, current_x])
                 for next_y, next_x in (
                     (current_y - 1, current_x),
                     (current_y + 1, current_x),
@@ -450,7 +485,16 @@ def _connected_components(mask: np.ndarray) -> list[list[tuple[int, int]]]:
                         continue
                     visited[next_y, next_x] = True
                     stack.append((next_y, next_x))
-            components.append(component)
+            components.append(
+                _ConnectedComponent(
+                    area=area,
+                    min_y=min_y,
+                    max_y=max_y,
+                    min_x=min_x,
+                    max_x=max_x,
+                    luminance_sum=luminance_sum,
+                )
+            )
 
     return components
 
