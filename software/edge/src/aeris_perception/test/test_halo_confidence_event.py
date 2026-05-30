@@ -156,6 +156,23 @@ def test_parse_halo_confidence_event_round_trip_preserves_optional_fields() -> N
             },
             "width",
         ),
+        (
+            {
+                "source_id": "camera:halo_front_camera",
+                "source_name": "halo_front_camera",
+                "source_uri": 123,
+                "frame_id": "halo_rgb_front",
+                "frame_index": 1,
+                "timestamp_ns": 10,
+                "detection_type": "candidate_human_presence",
+                "confidence": 0.5,
+                "recognition": {
+                    "baseline_name": "halo_rgb_region_baseline",
+                    "baseline_version": "0.1.0",
+                },
+            },
+            "source_uri",
+        ),
     ],
 )
 def test_parse_halo_confidence_event_rejects_invalid_payloads(

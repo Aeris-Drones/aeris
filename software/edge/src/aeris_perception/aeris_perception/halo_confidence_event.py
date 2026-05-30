@@ -90,7 +90,7 @@ def halo_confidence_event_from_candidate(
         ),
         source_id=source_id,
         source_name=source_name,
-        source_uri=_optional_string(candidate.source_uri),
+        source_uri=_optional_string(candidate.source_uri, "source_uri"),
         frame_id=frame_id,
         frame_index=int(candidate.frame_index),
         timestamp_ns=int(candidate.monotonic_timestamp_ns),
@@ -100,8 +100,8 @@ def halo_confidence_event_from_candidate(
         confidence_level=confidence_level_for_score(confidence),
         region=region,
         location_hint=_normalize_location_hint(location_hint),
-        evidence_ref=_optional_string(evidence_ref),
-        evidence_uri=_optional_string(evidence_uri),
+        evidence_ref=_optional_string(evidence_ref, "evidence_ref"),
+        evidence_uri=_optional_string(evidence_uri, "evidence_uri"),
         recognition=_normalize_recognition(
             {
                 "baseline_name": candidate.baseline_name,
@@ -131,8 +131,8 @@ def parse_halo_confidence_event(payload: Mapping[str, Any]) -> HaloConfidenceEve
     frame_id = _require_mapping_string(payload, "frame_id")
     frame_index = _require_mapping_int(payload, "frame_index", minimum=0)
     timestamp_ns = _require_mapping_int(payload, "timestamp_ns", minimum=0)
-    detection_type = _optional_string(payload.get("detection_type"))
-    label = _optional_string(payload.get("label"))
+    detection_type = _optional_string(payload.get("detection_type"), "detection_type")
+    label = _optional_string(payload.get("label"), "label")
     if detection_type is None and label is None:
         raise ValueError("Halo confidence event requires detection_type or label")
     resolved_detection_type = detection_type or _slugify_label(label or "")
@@ -142,7 +142,7 @@ def parse_halo_confidence_event(payload: Mapping[str, Any]) -> HaloConfidenceEve
     region = _normalize_region(payload.get("region"))
 
     return HaloConfidenceEvent(
-        event_id=_optional_string(payload.get("event_id"))
+        event_id=_optional_string(payload.get("event_id"), "event_id")
         or _build_event_id(
             source_id=source_id,
             frame_id=frame_id,
@@ -153,7 +153,7 @@ def parse_halo_confidence_event(payload: Mapping[str, Any]) -> HaloConfidenceEve
         ),
         source_id=source_id,
         source_name=source_name,
-        source_uri=_optional_string(payload.get("source_uri")),
+        source_uri=_optional_string(payload.get("source_uri"), "source_uri"),
         frame_id=frame_id,
         frame_index=frame_index,
         timestamp_ns=timestamp_ns,
@@ -165,8 +165,8 @@ def parse_halo_confidence_event(payload: Mapping[str, Any]) -> HaloConfidenceEve
         ),
         region=region,
         location_hint=_normalize_location_hint(payload.get("location_hint")),
-        evidence_ref=_optional_string(payload.get("evidence_ref")),
-        evidence_uri=_optional_string(payload.get("evidence_uri")),
+        evidence_ref=_optional_string(payload.get("evidence_ref"), "evidence_ref"),
+        evidence_uri=_optional_string(payload.get("evidence_uri"), "evidence_uri"),
         recognition=recognition,
     )
 
@@ -205,7 +205,7 @@ def _build_event_id(
 
 
 def _normalize_confidence_level(raw_level: Any, confidence: float) -> str:
-    level = _optional_string(raw_level)
+    level = _optional_string(raw_level, "confidence_level")
     if level is None:
         return confidence_level_for_score(confidence)
     normalized = level.upper()
@@ -348,11 +348,11 @@ def _require_non_empty_string(raw_value: Any, field_name: str) -> str:
     return raw_value.strip()
 
 
-def _optional_string(raw_value: Any) -> str | None:
+def _optional_string(raw_value: Any, field_name: str) -> str | None:
     if raw_value is None:
         return None
     if not isinstance(raw_value, str):
-        raise ValueError("optional string field must be a string when provided")
+        raise ValueError(f"{field_name} must be a string when provided")
     stripped = raw_value.strip()
     return stripped or None
 

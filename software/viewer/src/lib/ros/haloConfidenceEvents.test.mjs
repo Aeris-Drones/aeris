@@ -33,7 +33,7 @@ test("normalizeHaloConfidenceEventMessage maps the canonical event into a displa
   assert.equal(detection.sensorType, "rgb");
   assert.equal(detection.confidence, 0.72);
   assert.equal(detection.confidenceLevel, "MEDIUM");
-  assert.equal(detection.timestamp, 1_717_200_123_456);
+  assert.equal(detection.timestamp, 1_717_200_123);
   assert.deepEqual(detection.position, [12.5, 0, -6]);
   assert.deepEqual(detection.sourceModalities, ["rgb"]);
   assert.equal(detection.vehicleId, "camera:halo_front_camera");
@@ -117,5 +117,39 @@ test("normalizeHaloConfidenceEventMessage rejects invalid payloads", () => {
       },
     }),
     /region/
+  );
+
+  assert.throws(
+    () => normalizeHaloConfidenceEventMessage({
+      source_id: "camera:halo_front_camera",
+      source_name: "halo_front_camera",
+      frame_id: "halo_rgb_front",
+      frame_index: true,
+      timestamp_ns: 10,
+      detection_type: "candidate_human_presence",
+      confidence: 0.5,
+      recognition: {
+        baseline_name: "halo_rgb_region_baseline",
+        baseline_version: "0.1.0",
+      },
+    }),
+    /frame_index/
+  );
+
+  assert.throws(
+    () => normalizeHaloConfidenceEventMessage({
+      source_id: "camera:halo_front_camera",
+      source_name: "halo_front_camera",
+      frame_id: "halo_rgb_front",
+      frame_index: 1,
+      timestamp_ns: false,
+      detection_type: "candidate_human_presence",
+      confidence: 0.5,
+      recognition: {
+        baseline_name: "halo_rgb_region_baseline",
+        baseline_version: "0.1.0",
+      },
+    }),
+    /timestamp_ns/
   );
 });

@@ -35,6 +35,9 @@ function optionalString(rawValue, fieldName) {
 }
 
 function requireInt(rawValue, fieldName, minimum = 0) {
+  if (typeof rawValue === "boolean") {
+    throw new Error(`Invalid Halo confidence event: ${fieldName} must be an integer`);
+  }
   const value = Number(rawValue);
   if (!Number.isInteger(value) || value < minimum) {
     throw new Error(`Invalid Halo confidence event: ${fieldName} must be an integer >= ${minimum}`);
@@ -209,7 +212,7 @@ export function normalizeHaloConfidenceEventMessage(rawMessage) {
     sensorType: "rgb",
     confidence,
     confidenceLevel: normalizeConfidenceLevel(message.confidence_level, confidence),
-    timestamp: Math.floor(timestampNs / 1_000),
+    timestamp: Math.floor(timestampNs / 1_000_000),
     status: "new",
     vehicleId: sourceId,
     vehicleName: sourceName,
