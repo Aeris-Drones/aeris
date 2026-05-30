@@ -11,7 +11,7 @@ test("normalizeHaloConfidenceEventMessage maps the canonical event into a displa
     source_uri: "rtsp://halo/front",
     frame_id: "halo_rgb_front",
     frame_index: 21,
-    timestamp_ns: 1_717_200_123_456_789_000,
+    timestamp_ns: "1717200123456789000",
     label: "Possible Survivor",
     detection_type: "candidate_human_presence",
     confidence: 0.72,
@@ -34,6 +34,7 @@ test("normalizeHaloConfidenceEventMessage maps the canonical event into a displa
   assert.equal(detection.confidence, 0.72);
   assert.equal(detection.confidenceLevel, "MEDIUM");
   assert.equal(detection.timestamp, 1_717_200_123_456);
+  assert.equal(detection.timestampNs, "1717200123456789000");
   assert.deepEqual(detection.position, [12.5, 0, -6]);
   assert.deepEqual(detection.sourceModalities, ["rgb"]);
   assert.equal(detection.vehicleId, "camera:halo_front_camera");
@@ -52,7 +53,7 @@ test("normalizeHaloConfidenceEventMessage derives defaults and preserves optiona
     source_name: "halo_front_camera",
     frame_id: "halo_rgb_front",
     frame_index: 4,
-    timestamp_ns: 123_456_789,
+    timestamp_ns: "123456789",
     detection_type: "candidate_human_presence",
     confidence: 1.4,
     recognition: {
@@ -65,7 +66,7 @@ test("normalizeHaloConfidenceEventMessage derives defaults and preserves optiona
   assert.equal(detection.confidence, 1);
   assert.equal(detection.confidenceLevel, "HIGH");
   assert.equal(detection.timestamp, 1_800_000);
-  assert.equal(detection.timestampNs, 123_456_789);
+  assert.equal(detection.timestampNs, "123456789");
   assert.deepEqual(detection.position, [0, 0, 0]);
   assert.equal(detection.sector, "halo_rgb_front");
   assert.equal(detection.signatureType, "Candidate Human Presence");
@@ -81,7 +82,7 @@ test("normalizeHaloConfidenceEventMessage supports string location hints", () =>
     source_name: "halo_rear_camera",
     frame_id: "halo_rgb_rear",
     frame_index: 9,
-    timestamp_ns: 999_000_321,
+    timestamp_ns: "999000321",
     label: "Candidate Human Presence",
     detection_type: "candidate_human_presence",
     confidence: 0.31,
@@ -97,6 +98,33 @@ test("normalizeHaloConfidenceEventMessage supports string location hints", () =>
   assert.equal(detection.confidenceLevel, "LOW");
 });
 
+test("normalizeHaloConfidenceEventMessage derives detection type from a label-only payload", () => {
+  const detection = normalizeHaloConfidenceEventMessage({
+    source_id: "camera:halo_side_camera",
+    source_name: "halo_side_camera",
+    frame_id: "halo_rgb_side",
+    frame_index: 3,
+    timestamp_ns: "1000000000",
+    label: "Candidate Human Presence",
+    confidence: 0.62,
+    location_hint: { label: "Zone S-1", x: 1, y: 2, z: 3 },
+    recognition: {
+      baseline_name: "halo_rgb_region_baseline",
+      baseline_version: "0.1.0",
+      source_timestamp_ns: "900000000",
+    },
+  }, { nowMs: 2_000_000 });
+
+  assert.equal(detection.detectionType, "candidate_human_presence");
+  assert.equal(detection.label, "Candidate Human Presence");
+  assert.equal(detection.signatureType, "Candidate Human Presence");
+  assert.equal(detection.confidenceLevel, "MEDIUM");
+  assert.equal(detection.timestamp, 2_000_000);
+  assert.equal(detection.recognition.source_timestamp_ns, "900000000");
+  assert.deepEqual(detection.position, [1, 2, 3]);
+  assert.equal(detection.sector, "Zone S-1");
+});
+
 test("normalizeHaloConfidenceEventMessage rejects invalid payloads", () => {
   assert.throws(
     () => normalizeHaloConfidenceEventMessage({ confidence: 0.4 }),
@@ -109,7 +137,7 @@ test("normalizeHaloConfidenceEventMessage rejects invalid payloads", () => {
       source_name: "halo_front_camera",
       frame_id: "halo_rgb_front",
       frame_index: 1,
-      timestamp_ns: 10,
+      timestamp_ns: "10",
       detection_type: "candidate_human_presence",
       confidence: 0.5,
       region: { x: 1, y: 2, width: -2, height: 10 },
@@ -127,7 +155,7 @@ test("normalizeHaloConfidenceEventMessage rejects invalid payloads", () => {
       source_name: "halo_front_camera",
       frame_id: "halo_rgb_front",
       frame_index: true,
-      timestamp_ns: 10,
+      timestamp_ns: "10",
       detection_type: "candidate_human_presence",
       confidence: 0.5,
       recognition: {
@@ -153,5 +181,22 @@ test("normalizeHaloConfidenceEventMessage rejects invalid payloads", () => {
       },
     }),
     /timestamp_ns/
+  );
+
+  assert.throws(
+    () => normalizeHaloConfidenceEventMessage({
+      source_id: "camera:halo_front_camera",
+      source_name: "halo_front_camera",
+      frame_id: "halo_rgb_front",
+      frame_index: 1,
+      timestamp_ns: "10",
+      detection_type: "candidate_human_presence",
+      confidence: null,
+      recognition: {
+        baseline_name: "halo_rgb_region_baseline",
+        baseline_version: "0.1.0",
+      },
+    }),
+    /confidence/
   );
 });

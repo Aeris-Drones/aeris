@@ -34,18 +34,50 @@ function optionalString(rawValue, fieldName) {
   return normalized === "" ? undefined : normalized;
 }
 
-function requireInt(rawValue, fieldName, minimum = 0) {
-  if (typeof rawValue === "boolean") {
+function parseIntegerText(rawValue, fieldName) {
+  if (typeof rawValue === "boolean" || rawValue === null || rawValue === undefined) {
     throw new Error(`Invalid Halo confidence event: ${fieldName} must be an integer`);
   }
-  const value = Number(rawValue);
-  if (!Number.isInteger(value) || value < minimum) {
-    throw new Error(`Invalid Halo confidence event: ${fieldName} must be an integer >= ${minimum}`);
+  if (typeof rawValue === "bigint") {
+    return rawValue.toString();
+  }
+  if (typeof rawValue === "number") {
+    if (!Number.isSafeInteger(rawValue)) {
+      throw new Error(`Invalid Halo confidence event: ${fieldName} must be a safe integer or string`);
+    }
+    return String(rawValue);
+  }
+  if (typeof rawValue === "string") {
+    const normalized = rawValue.trim();
+    if (/^[+-]?\d+$/.test(normalized)) {
+      return normalized;
+    }
+  }
+  throw new Error(`Invalid Halo confidence event: ${fieldName} must be an integer`);
+}
+
+function requireInt(rawValue, fieldName, minimum = 0) {
+  const text = parseIntegerText(rawValue, fieldName);
+  const value = Number(text);
+  if (!Number.isSafeInteger(value) || value < minimum) {
+    throw new Error(`Invalid Halo confidence event: ${fieldName} must be a safe integer >= ${minimum}`);
   }
   return value;
 }
 
+function requireBigInt(rawValue, fieldName, minimum = 0n) {
+  const text = parseIntegerText(rawValue, fieldName);
+  const value = BigInt(text);
+  if (value < minimum) {
+    throw new Error(`Invalid Halo confidence event: ${fieldName} must be an integer >= ${minimum}`);
+  }
+  return { value, text };
+}
+
 function requireFiniteNumber(rawValue, fieldName) {
+  if (rawValue === null || rawValue === undefined || typeof rawValue === "boolean") {
+    throw new Error(`Invalid Halo confidence event: ${fieldName} must be numeric`);
+  }
   const value = Number(rawValue);
   if (!Number.isFinite(value)) {
     throw new Error(`Invalid Halo confidence event: ${fieldName} must be numeric`);
@@ -61,20 +93,20 @@ function humanizeDetectionType(detectionType) {
     .join(" ");
 }
 
-function buildEventId({ sourceId, frameId, frameIndex, timestampNs, detectionType, region }) {
+function buildEventId({ sourceId, frameId, frameIndex, timestampNsText, detectionType, region }) {
   const regionKey = region
     ? `${region.x}:${region.y}:${region.width}:${region.height}`
     : "none";
-  return `halo-confidence-${sourceId}:${frameId}:${frameIndex}:${timestampNs}:${detectionType}:${regionKey}`;
+  return `halo-confidence-${sourceId}:${frameId}:${frameIndex}:${timestampNsText}:${detectionType}:${regionKey}`;
 }
 
 function isEpochNanoseconds(value) {
-  return Number.isFinite(value) && value >= 946_684_800_000_000_000;
+  return value >= 946_684_800_000_000_000n;
 }
 
 function deriveDisplayTimestampMs(timestampNs, options) {
   if (isEpochNanoseconds(timestampNs)) {
-    return Math.floor(timestampNs / 1_000_000);
+    return Number(timestampNs / 1_000_000n);
   }
   return Number.isFinite(options.nowMs) ? Number(options.nowMs) : Date.now();
 }
@@ -146,11 +178,11 @@ function parseRecognition(rawValue) {
     normalized.latency_ms = requireFiniteNumber(recognition.latency_ms, "recognition.latency_ms");
   }
   if (recognition.source_timestamp_ns !== undefined) {
-    normalized.source_timestamp_ns = requireInt(
+    normalized.source_timestamp_ns = requireBigInt(
       recognition.source_timestamp_ns,
       "recognition.source_timestamp_ns",
-      0
-    );
+      0n
+    ).text;
   }
   if (recognition.confidence_components !== undefined) {
     const components = requireObject(
@@ -193,7 +225,11 @@ export function normalizeHaloConfidenceEventMessage(rawMessage, options = {}) {
   const sourceName = requireString(message.source_name, "source_name");
   const frameId = requireString(message.frame_id, "frame_id");
   const frameIndex = requireInt(message.frame_index, "frame_index", 0);
-  const timestampNs = requireInt(message.timestamp_ns, "timestamp_ns", 0);
+  const { value: timestampNs, text: timestampNsText } = requireBigInt(
+    message.timestamp_ns,
+    "timestamp_ns",
+    0n
+  );
   const detectionType = optionalString(message.detection_type, "detection_type");
   const label = optionalString(message.label, "label");
   if (!detectionType && !label) {
@@ -216,7 +252,7 @@ export function normalizeHaloConfidenceEventMessage(rawMessage, options = {}) {
       sourceId,
       frameId,
       frameIndex,
-      timestampNs,
+      timestampNsText,
       detectionType: resolvedDetectionType,
       region,
     }),
@@ -233,7 +269,7 @@ export function normalizeHaloConfidenceEventMessage(rawMessage, options = {}) {
     signatureType: resolvedLabel,
     frameId,
     frameIndex,
-    timestampNs,
+    timestampNs: timestampNsText,
     sourceUri: optionalString(message.source_uri, "source_uri"),
     label: resolvedLabel,
     detectionType: resolvedDetectionType,

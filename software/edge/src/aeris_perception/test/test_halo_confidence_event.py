@@ -92,7 +92,7 @@ def test_parse_halo_confidence_event_round_trip_preserves_optional_fields() -> N
         "source_uri": "rtsp://halo/front",
         "frame_id": "halo_rgb_front",
         "frame_index": 21,
-        "timestamp_ns": 999_000_321,
+        "timestamp_ns": "999000321",
         "label": "Possible Survivor",
         "detection_type": "candidate_human_presence",
         "confidence": 0.88,
@@ -104,6 +104,7 @@ def test_parse_halo_confidence_event_round_trip_preserves_optional_fields() -> N
         "recognition": {
             "baseline_name": "halo_rgb_region_baseline",
             "baseline_version": "0.1.0",
+            "source_timestamp_ns": "998000321",
             "confidence_components": {"brightness": 0.91},
         },
     }
@@ -194,6 +195,22 @@ def test_parse_halo_confidence_event_round_trip_preserves_optional_fields() -> N
                 "source_id": "camera:halo_front_camera",
                 "source_name": "halo_front_camera",
                 "frame_id": "halo_rgb_front",
+                "frame_index": "1.0",
+                "timestamp_ns": 10,
+                "detection_type": "candidate_human_presence",
+                "confidence": 0.5,
+                "recognition": {
+                    "baseline_name": "halo_rgb_region_baseline",
+                    "baseline_version": "0.1.0",
+                },
+            },
+            "frame_index",
+        ),
+        (
+            {
+                "source_id": "camera:halo_front_camera",
+                "source_name": "halo_front_camera",
+                "frame_id": "halo_rgb_front",
                 "frame_index": 1,
                 "timestamp_ns": 10.2,
                 "detection_type": "candidate_human_presence",
@@ -221,6 +238,22 @@ def test_parse_halo_confidence_event_round_trip_preserves_optional_fields() -> N
                 },
             },
             "x",
+        ),
+        (
+            {
+                "source_id": "camera:halo_front_camera",
+                "source_name": "halo_front_camera",
+                "frame_id": "halo_rgb_front",
+                "frame_index": 1,
+                "timestamp_ns": 10,
+                "detection_type": "candidate_human_presence",
+                "confidence": True,
+                "recognition": {
+                    "baseline_name": "halo_rgb_region_baseline",
+                    "baseline_version": "0.1.0",
+                },
+            },
+            "confidence",
         ),
     ],
 )

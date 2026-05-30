@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import re
 from typing import TYPE_CHECKING, Any, Mapping
 
 if TYPE_CHECKING:
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 _HIGH_CONFIDENCE_MIN = 0.85
 _MEDIUM_CONFIDENCE_MIN = 0.60
 _LOW_CONFIDENCE_MIN = 0.30
+_INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
 
 
 @dataclass(frozen=True)
@@ -43,7 +45,7 @@ class HaloConfidenceEvent:
             "source_name": self.source_name,
             "frame_id": self.frame_id,
             "frame_index": self.frame_index,
-            "timestamp_ns": self.timestamp_ns,
+            "timestamp_ns": str(self.timestamp_ns),
             "label": self.label,
             "detection_type": self.detection_type,
             "confidence": _round_float(self.confidence),
@@ -260,7 +262,7 @@ def _serialize_recognition(recognition: Mapping[str, Any]) -> dict[str, Any]:
     if "latency_ms" in recognition:
         payload["latency_ms"] = _round_float(float(recognition["latency_ms"]))
     if "source_timestamp_ns" in recognition:
-        payload["source_timestamp_ns"] = int(recognition["source_timestamp_ns"])
+        payload["source_timestamp_ns"] = str(recognition["source_timestamp_ns"])
     if "confidence_components" in recognition:
         payload["confidence_components"] = {
             str(key): _round_float(float(value))
@@ -362,15 +364,11 @@ def _require_int(raw_value: Any, field_name: str, *, minimum: int) -> int:
         raise ValueError(f"{field_name} must be an integer")
     if isinstance(raw_value, int):
         value = raw_value
-    elif isinstance(raw_value, float):
-        if not math.isfinite(raw_value) or not raw_value.is_integer():
-            raise ValueError(f"{field_name} must be an integer")
-        value = int(raw_value)
     elif isinstance(raw_value, str):
-        try:
-            value = int(raw_value)
-        except ValueError as exc:
-            raise ValueError(f"{field_name} must be an integer") from exc
+        stripped = raw_value.strip()
+        if not _INTEGER_PATTERN.fullmatch(stripped):
+            raise ValueError(f"{field_name} must be an integer")
+        value = int(stripped)
     else:
         raise ValueError(f"{field_name} must be an integer")
 
@@ -380,6 +378,8 @@ def _require_int(raw_value: Any, field_name: str, *, minimum: int) -> int:
 
 
 def _require_finite_float(raw_value: Any, field_name: str) -> float:
+    if isinstance(raw_value, bool):
+        raise ValueError(f"{field_name} must be numeric")
     try:
         value = float(raw_value)
     except (TypeError, ValueError) as exc:

@@ -2,7 +2,7 @@ export interface HaloRecognitionMetadata {
   baseline_name: string;
   baseline_version: string;
   latency_ms?: number;
-  source_timestamp_ns?: number;
+  source_timestamp_ns?: string;
   confidence_components?: Record<string, number>;
 }
 
@@ -25,6 +25,7 @@ export interface NormalizedHaloConfidenceDetection {
   sensorType: "rgb";
   confidence: number;
   confidenceLevel: "HIGH" | "MEDIUM" | "LOW" | "UNKNOWN";
+  /** Unix timestamp in milliseconds for viewer ordering and Date APIs. */
   timestamp: number;
   status: "new";
   vehicleId: string;
@@ -35,7 +36,8 @@ export interface NormalizedHaloConfidenceDetection {
   signatureType: string;
   frameId: string;
   frameIndex: number;
-  timestampNs: number;
+  /** Raw nanosecond timestamp preserved as text to avoid JavaScript precision loss. */
+  timestampNs: string;
   sourceUri?: string;
   label: string;
   detectionType: string;
