@@ -154,6 +154,20 @@ def test_append_halo_evidence_log_record_rejects_missing_local_evidence_path(
         )
 
 
+def test_append_halo_evidence_log_record_requires_at_least_one_evidence_handle(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "halo_evidence.jsonl"
+
+    with pytest.raises(HaloEvidenceLogError, match="evidence handle"):
+        append_halo_evidence_log_record(
+            log_path,
+            _event(evidence_ref=None, evidence_uri=None),
+            run_id="halo-demo-run",
+            mode="evaluation",
+        )
+
+
 def test_read_halo_evidence_log_rejects_unsupported_schema_version(
     tmp_path: Path,
 ) -> None:
@@ -196,6 +210,100 @@ def test_read_halo_evidence_log_rejects_missing_evidence_on_replay(
 
     with pytest.raises(HaloEvidenceLogError, match="does not exist"):
         replay_halo_evidence_log(log_path)
+
+
+def test_read_halo_evidence_log_requires_first_sequence_to_start_at_zero(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "halo_evidence.jsonl"
+    evidence_path = tmp_path / "captures" / "frame-017.png"
+    evidence_path.parent.mkdir(parents=True)
+    evidence_path.write_bytes(b"png")
+    log_path.write_text(
+        json.dumps(
+            {
+                "schema_version": HALO_EVIDENCE_LOG_SCHEMA_VERSION,
+                "sequence": 5,
+                "recorded_at_ns": "1717200555000000001",
+                "run_id": "halo-demo-run",
+                "mode": "evaluation",
+                "event": _event().to_dict(),
+                "evidence_path": str(evidence_path.resolve()),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HaloEvidenceLogError, match="start at sequence 0"):
+        read_halo_evidence_log(log_path)
+
+
+def test_read_halo_evidence_log_wraps_invalid_nested_event_with_line_context(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "halo_evidence.jsonl"
+    evidence_path = tmp_path / "captures" / "frame-017.png"
+    evidence_path.parent.mkdir(parents=True)
+    evidence_path.write_bytes(b"png")
+    invalid_event = _event().to_dict()
+    invalid_event.pop("source_id")
+    log_path.write_text(
+        json.dumps(
+            {
+                "schema_version": HALO_EVIDENCE_LOG_SCHEMA_VERSION,
+                "sequence": 0,
+                "recorded_at_ns": "1717200555000000001",
+                "run_id": "halo-demo-run",
+                "mode": "evaluation",
+                "event": invalid_event,
+                "evidence_path": str(evidence_path.resolve()),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HaloEvidenceLogError, match="line 1"):
+        read_halo_evidence_log(log_path)
+
+
+def test_append_halo_evidence_log_record_ignores_missing_historical_evidence_for_sequence(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "halo_evidence.jsonl"
+    current_evidence_path = tmp_path / "captures" / "frame-018.png"
+    current_evidence_path.parent.mkdir(parents=True)
+    current_evidence_path.write_bytes(b"png")
+    log_path.write_text(
+        json.dumps(
+            {
+                "schema_version": HALO_EVIDENCE_LOG_SCHEMA_VERSION,
+                "sequence": 0,
+                "recorded_at_ns": "1717200555000000001",
+                "run_id": "halo-demo-run",
+                "mode": "evaluation",
+                "event": _event().to_dict(),
+                "evidence_path": str((tmp_path / "captures" / "deleted.png").resolve()),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    record = append_halo_evidence_log_record(
+        log_path,
+        _event(event_id="halo-confidence-002"),
+        run_id="halo-demo-run",
+        mode="evaluation",
+        evidence_path=current_evidence_path,
+        recorded_at_ns=1_717_200_555_000_000_002,
+    )
+
+    assert record.sequence == 1
+    assert len(log_path.read_text(encoding="utf-8").splitlines()) == 2
+    with pytest.raises(HaloEvidenceLogError, match="does not exist"):
+        read_halo_evidence_log(log_path)
 
 
 def test_read_halo_evidence_log_rejects_partial_record_payload(

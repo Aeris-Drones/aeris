@@ -69,9 +69,17 @@ def append_halo_evidence_log_record(
     resolved_log_path = Path(log_path).expanduser().resolve()
     resolved_evidence_path = _normalize_evidence_path(evidence_path)
     existing_records = (
-        read_halo_evidence_log(resolved_log_path)
+        _read_halo_evidence_log(
+            resolved_log_path,
+            validate_evidence_paths=False,
+        )
         if resolved_log_path.exists()
         else []
+    )
+    _require_evidence_handle(
+        evidence_path=resolved_evidence_path,
+        evidence_ref=event.evidence_ref,
+        evidence_uri=event.evidence_uri,
     )
 
     record = HaloEvidenceLogRecord(
@@ -102,6 +110,17 @@ def read_halo_evidence_log(log_path: Path | str) -> list[HaloEvidenceLogRecord]:
     """Load Halo evidence log records in persisted order."""
 
     resolved_log_path = Path(log_path).expanduser().resolve()
+    return _read_halo_evidence_log(
+        resolved_log_path,
+        validate_evidence_paths=True,
+    )
+
+
+def _read_halo_evidence_log(
+    resolved_log_path: Path,
+    *,
+    validate_evidence_paths: bool,
+) -> list[HaloEvidenceLogRecord]:
     records: list[HaloEvidenceLogRecord] = []
     with resolved_log_path.open("r", encoding="utf-8") as log_file:
         for line_number, line in enumerate(log_file, start=1):
@@ -117,7 +136,13 @@ def read_halo_evidence_log(log_path: Path | str) -> list[HaloEvidenceLogRecord]:
             record = _parse_halo_evidence_log_record(
                 raw_payload,
                 line_number=line_number,
+                validate_evidence_path=validate_evidence_paths,
             )
+            if not records and record.sequence != 0:
+                raise HaloEvidenceLogError(
+                    "Halo evidence log must start at sequence 0 "
+                    f"at line {line_number}"
+                )
             if records and record.sequence != records[-1].sequence + 1:
                 raise HaloEvidenceLogError(
                     "Halo evidence log sequence must increase by 1 in persisted order "
@@ -137,6 +162,7 @@ def _parse_halo_evidence_log_record(
     payload: Any,
     *,
     line_number: int,
+    validate_evidence_path: bool,
 ) -> HaloEvidenceLogRecord:
     if not isinstance(payload, Mapping):
         raise HaloEvidenceLogError(
@@ -150,8 +176,16 @@ def _parse_halo_evidence_log_record(
             f"{schema_version} at line {line_number}"
         )
 
-    event = parse_halo_confidence_event(_require_mapping_object(payload, "event"))
-    evidence_path = _normalize_evidence_path(payload.get("evidence_path"))
+    try:
+        event = parse_halo_confidence_event(_require_mapping_object(payload, "event"))
+    except ValueError as error:
+        raise HaloEvidenceLogError(
+            f"Malformed Halo confidence event in evidence log at line {line_number}: {error}"
+        ) from error
+    evidence_path = _normalize_evidence_path(
+        payload.get("evidence_path"),
+        validate_exists=validate_evidence_path,
+    )
     evidence_ref = _optional_string(payload.get("evidence_ref"), "evidence_ref")
     evidence_uri = _optional_string(payload.get("evidence_uri"), "evidence_uri")
 
@@ -185,7 +219,11 @@ def _parse_halo_evidence_log_record(
     )
 
 
-def _normalize_evidence_path(raw_value: Any) -> str | None:
+def _normalize_evidence_path(
+    raw_value: Any,
+    *,
+    validate_exists: bool = True,
+) -> str | None:
     if raw_value is None:
         return None
     if isinstance(raw_value, Path):
@@ -199,11 +237,11 @@ def _normalize_evidence_path(raw_value: Any) -> str | None:
         return None
 
     resolved_path = Path(evidence_path).expanduser().resolve()
-    if not resolved_path.exists():
+    if validate_exists and not resolved_path.exists():
         raise HaloEvidenceLogError(
             f"Halo evidence path does not exist: '{resolved_path}'"
         )
-    if not resolved_path.is_file():
+    if validate_exists and not resolved_path.is_file():
         raise HaloEvidenceLogError(
             f"Halo evidence path is not a file: '{resolved_path}'"
         )
@@ -214,10 +252,24 @@ def _normalize_mode(raw_value: Any) -> str:
     mode = _require_non_empty_string(raw_value, "mode").lower()
     if mode not in SUPPORTED_HALO_EVIDENCE_LOG_MODES:
         supported_modes = ", ".join(sorted(SUPPORTED_HALO_EVIDENCE_LOG_MODES))
-        raise HaloEvidenceLogError(
-            f"mode must be one of {supported_modes}"
-        )
+        raise HaloEvidenceLogError(f"mode must be one of {supported_modes}")
     return mode
+
+
+def _require_evidence_handle(
+    *,
+    evidence_path: str | None,
+    evidence_ref: str | None,
+    evidence_uri: str | None,
+) -> None:
+    if (
+        evidence_path is None
+        and evidence_ref is None
+        and evidence_uri is None
+    ):
+        raise HaloEvidenceLogError(
+            "Halo evidence log record requires at least one evidence handle"
+        )
 
 
 def _require_mapping_object(
