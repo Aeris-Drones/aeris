@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import aeris_perception.halo_evidence_log as halo_evidence_log
 from aeris_perception.halo_confidence_event import (
     HaloConfidenceEvent,
     parse_halo_confidence_event,
@@ -138,6 +139,53 @@ def test_append_halo_evidence_log_record_increments_sequence_and_replays_in_file
     assert [record.event.timestamp_ns for record in replay_records] == [300, 100]
 
 
+def test_append_halo_evidence_log_record_uses_advisory_lock_for_sequence_allocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_path = tmp_path / "halo_evidence.jsonl"
+    evidence_path = tmp_path / "captures" / "frame-017.png"
+    evidence_path.parent.mkdir(parents=True)
+    evidence_path.write_bytes(b"png")
+    log_path.write_text(
+        json.dumps(
+            {
+                "schema_version": HALO_EVIDENCE_LOG_SCHEMA_VERSION,
+                "sequence": 0,
+                "recorded_at_ns": "1717200555000000001",
+                "run_id": "halo-demo-run",
+                "mode": "evaluation",
+                "event": _event().to_dict(),
+                "evidence_path": str(evidence_path.resolve()),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    lock_modes: list[int] = []
+
+    def _fake_flock(file_descriptor: int, operation: int) -> None:
+        assert file_descriptor >= 0
+        lock_modes.append(operation)
+
+    monkeypatch.setattr(halo_evidence_log.fcntl, "flock", _fake_flock)
+
+    record = append_halo_evidence_log_record(
+        log_path,
+        _event(event_id="halo-confidence-002"),
+        run_id="halo-demo-run",
+        mode="evaluation",
+        evidence_path=evidence_path,
+        recorded_at_ns=1_717_200_555_000_000_002,
+    )
+
+    assert record.sequence == 1
+    assert lock_modes == [
+        halo_evidence_log.fcntl.LOCK_EX,
+        halo_evidence_log.fcntl.LOCK_UN,
+    ]
+
+
 def test_append_halo_evidence_log_record_rejects_missing_local_evidence_path(
     tmp_path: Path,
 ) -> None:
@@ -193,7 +241,7 @@ def test_read_halo_evidence_log_rejects_unsupported_schema_version(
         read_halo_evidence_log(log_path)
 
 
-def test_read_halo_evidence_log_rejects_missing_evidence_on_replay(
+def test_read_halo_evidence_log_rejects_missing_evidence_but_replay_keeps_record(
     tmp_path: Path,
 ) -> None:
     log_path = tmp_path / "halo_evidence.jsonl"
@@ -209,7 +257,14 @@ def test_read_halo_evidence_log_rejects_missing_evidence_on_replay(
     log_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
     with pytest.raises(HaloEvidenceLogError, match="does not exist"):
-        replay_halo_evidence_log(log_path)
+        read_halo_evidence_log(log_path)
+
+    replay_records = replay_halo_evidence_log(log_path)
+
+    assert len(replay_records) == 1
+    assert replay_records[0].evidence_path == payload["evidence_path"]
+    assert replay_records[0].evidence_ref == "capture-017"
+    assert replay_records[0].evidence_uri == "file:///tmp/halo/capture-017.png"
 
 
 def test_read_halo_evidence_log_requires_first_sequence_to_start_at_zero(

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import fcntl
 import json
 from pathlib import Path
 import time
-from typing import Any, Mapping
+from typing import Any, IO, Mapping
 
 from .halo_confidence_event import (
     HaloConfidenceEvent,
@@ -68,94 +69,101 @@ def append_halo_evidence_log_record(
 
     resolved_log_path = Path(log_path).expanduser().resolve()
     resolved_evidence_path = _normalize_evidence_path(evidence_path)
-    existing_records = (
-        _read_halo_evidence_log(
-            resolved_log_path,
-            validate_evidence_paths=False,
-        )
-        if resolved_log_path.exists()
-        else []
-    )
     _require_evidence_handle(
         evidence_path=resolved_evidence_path,
         evidence_ref=event.evidence_ref,
         evidence_uri=event.evidence_uri,
     )
-
-    record = HaloEvidenceLogRecord(
-        schema_version=HALO_EVIDENCE_LOG_SCHEMA_VERSION,
-        sequence=len(existing_records),
-        recorded_at_ns=_require_int(
-            time.time_ns() if recorded_at_ns is None else recorded_at_ns,
-            "recorded_at_ns",
-            minimum=0,
-        ),
-        run_id=_require_non_empty_string(run_id, "run_id"),
-        mode=_normalize_mode(mode),
-        event=event,
-        evidence_path=resolved_evidence_path,
-        evidence_ref=event.evidence_ref,
-        evidence_uri=event.evidence_uri,
-    )
-
     resolved_log_path.parent.mkdir(parents=True, exist_ok=True)
-    with resolved_log_path.open("a", encoding="utf-8") as log_file:
-        log_file.write(json.dumps(record.to_dict(), sort_keys=True))
-        log_file.write("\n")
 
-    return record
+    with resolved_log_path.open("a+", encoding="utf-8") as log_file:
+        fcntl.flock(log_file.fileno(), fcntl.LOCK_EX)
+        try:
+            log_file.seek(0)
+            existing_records = _read_halo_evidence_log_file(
+                log_file,
+                validate_evidence_paths=False,
+            )
+            record = HaloEvidenceLogRecord(
+                schema_version=HALO_EVIDENCE_LOG_SCHEMA_VERSION,
+                sequence=len(existing_records),
+                recorded_at_ns=_require_int(
+                    time.time_ns() if recorded_at_ns is None else recorded_at_ns,
+                    "recorded_at_ns",
+                    minimum=0,
+                ),
+                run_id=_require_non_empty_string(run_id, "run_id"),
+                mode=_normalize_mode(mode),
+                event=event,
+                evidence_path=resolved_evidence_path,
+                evidence_ref=event.evidence_ref,
+                evidence_uri=event.evidence_uri,
+            )
+            log_file.seek(0, 2)
+            log_file.write(json.dumps(record.to_dict(), sort_keys=True))
+            log_file.write("\n")
+            log_file.flush()
+        finally:
+            fcntl.flock(log_file.fileno(), fcntl.LOCK_UN)
+
+        return record
 
 
 def read_halo_evidence_log(log_path: Path | str) -> list[HaloEvidenceLogRecord]:
     """Load Halo evidence log records in persisted order."""
 
     resolved_log_path = Path(log_path).expanduser().resolve()
-    return _read_halo_evidence_log(
-        resolved_log_path,
-        validate_evidence_paths=True,
-    )
+    with resolved_log_path.open("r", encoding="utf-8") as log_file:
+        return _read_halo_evidence_log_file(
+            log_file,
+            validate_evidence_paths=True,
+        )
 
 
-def _read_halo_evidence_log(
-    resolved_log_path: Path,
+def _read_halo_evidence_log_file(
+    log_file: IO[str],
     *,
     validate_evidence_paths: bool,
 ) -> list[HaloEvidenceLogRecord]:
     records: list[HaloEvidenceLogRecord] = []
-    with resolved_log_path.open("r", encoding="utf-8") as log_file:
-        for line_number, line in enumerate(log_file, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                raw_payload = json.loads(stripped)
-            except json.JSONDecodeError as error:
-                raise HaloEvidenceLogError(
-                    f"Malformed Halo evidence log record at line {line_number}"
-                ) from error
-            record = _parse_halo_evidence_log_record(
-                raw_payload,
-                line_number=line_number,
-                validate_evidence_path=validate_evidence_paths,
+    for line_number, line in enumerate(log_file, start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            raw_payload = json.loads(stripped)
+        except json.JSONDecodeError as error:
+            raise HaloEvidenceLogError(
+                f"Malformed Halo evidence log record at line {line_number}"
+            ) from error
+        record = _parse_halo_evidence_log_record(
+            raw_payload,
+            line_number=line_number,
+            validate_evidence_path=validate_evidence_paths,
+        )
+        if not records and record.sequence != 0:
+            raise HaloEvidenceLogError(
+                "Halo evidence log must start at sequence 0 "
+                f"at line {line_number}"
             )
-            if not records and record.sequence != 0:
-                raise HaloEvidenceLogError(
-                    "Halo evidence log must start at sequence 0 "
-                    f"at line {line_number}"
-                )
-            if records and record.sequence != records[-1].sequence + 1:
-                raise HaloEvidenceLogError(
-                    "Halo evidence log sequence must increase by 1 in persisted order "
-                    f"at line {line_number}"
-                )
-            records.append(record)
+        if records and record.sequence != records[-1].sequence + 1:
+            raise HaloEvidenceLogError(
+                "Halo evidence log sequence must increase by 1 in persisted order "
+                f"at line {line_number}"
+            )
+        records.append(record)
     return records
 
 
 def replay_halo_evidence_log(log_path: Path | str) -> list[HaloEvidenceLogRecord]:
     """Replay persisted Halo evidence events without rerunning recognition."""
 
-    return read_halo_evidence_log(log_path)
+    resolved_log_path = Path(log_path).expanduser().resolve()
+    with resolved_log_path.open("r", encoding="utf-8") as log_file:
+        return _read_halo_evidence_log_file(
+            log_file,
+            validate_evidence_paths=False,
+        )
 
 
 def _parse_halo_evidence_log_record(
