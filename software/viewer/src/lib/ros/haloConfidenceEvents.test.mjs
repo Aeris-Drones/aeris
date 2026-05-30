@@ -11,7 +11,7 @@ test("normalizeHaloConfidenceEventMessage maps the canonical event into a displa
     source_uri: "rtsp://halo/front",
     frame_id: "halo_rgb_front",
     frame_index: 21,
-    timestamp_ns: 1_717_200_123_456_789,
+    timestamp_ns: 1_717_200_123_456_789_000,
     label: "Possible Survivor",
     detection_type: "candidate_human_presence",
     confidence: 0.72,
@@ -33,7 +33,7 @@ test("normalizeHaloConfidenceEventMessage maps the canonical event into a displa
   assert.equal(detection.sensorType, "rgb");
   assert.equal(detection.confidence, 0.72);
   assert.equal(detection.confidenceLevel, "MEDIUM");
-  assert.equal(detection.timestamp, 1_717_200_123);
+  assert.equal(detection.timestamp, 1_717_200_123_456);
   assert.deepEqual(detection.position, [12.5, 0, -6]);
   assert.deepEqual(detection.sourceModalities, ["rgb"]);
   assert.equal(detection.vehicleId, "camera:halo_front_camera");
@@ -59,11 +59,13 @@ test("normalizeHaloConfidenceEventMessage derives defaults and preserves optiona
       baseline_name: "halo_rgb_region_baseline",
       baseline_version: "0.1.0",
     },
-  });
+  }, { nowMs: 1_800_000 });
 
   assert.ok(detection.id.startsWith("halo-confidence-"));
   assert.equal(detection.confidence, 1);
   assert.equal(detection.confidenceLevel, "HIGH");
+  assert.equal(detection.timestamp, 1_800_000);
+  assert.equal(detection.timestampNs, 123_456_789);
   assert.deepEqual(detection.position, [0, 0, 0]);
   assert.equal(detection.sector, "halo_rgb_front");
   assert.equal(detection.signatureType, "Candidate Human Presence");

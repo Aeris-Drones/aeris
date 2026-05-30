@@ -68,6 +68,17 @@ function buildEventId({ sourceId, frameId, frameIndex, timestampNs, detectionTyp
   return `halo-confidence-${sourceId}:${frameId}:${frameIndex}:${timestampNs}:${detectionType}:${regionKey}`;
 }
 
+function isEpochNanoseconds(value) {
+  return Number.isFinite(value) && value >= 946_684_800_000_000_000;
+}
+
+function deriveDisplayTimestampMs(timestampNs, options) {
+  if (isEpochNanoseconds(timestampNs)) {
+    return Math.floor(timestampNs / 1_000_000);
+  }
+  return Number.isFinite(options.nowMs) ? Number(options.nowMs) : Date.now();
+}
+
 function normalizeConfidenceLevel(rawLevel, confidence) {
   const level = typeof rawLevel === "string" ? rawLevel.trim().toUpperCase() : "";
   if (level === "HIGH" || level === "MEDIUM" || level === "LOW" || level === "UNKNOWN") {
@@ -176,7 +187,7 @@ function deriveSector(locationHint, frameId) {
   return frameId;
 }
 
-export function normalizeHaloConfidenceEventMessage(rawMessage) {
+export function normalizeHaloConfidenceEventMessage(rawMessage, options = {}) {
   const message = requireObject(rawMessage, "payload");
   const sourceId = requireString(message.source_id, "source_id");
   const sourceName = requireString(message.source_name, "source_name");
@@ -212,7 +223,7 @@ export function normalizeHaloConfidenceEventMessage(rawMessage) {
     sensorType: "rgb",
     confidence,
     confidenceLevel: normalizeConfidenceLevel(message.confidence_level, confidence),
-    timestamp: Math.floor(timestampNs / 1_000_000),
+    timestamp: deriveDisplayTimestampMs(timestampNs, options),
     status: "new",
     vehicleId: sourceId,
     vehicleName: sourceName,

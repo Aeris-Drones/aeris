@@ -47,5 +47,6 @@ export interface NormalizedHaloConfidenceDetection {
 }
 
 export function normalizeHaloConfidenceEventMessage(
-  rawMessage: unknown
+  rawMessage: unknown,
+  options?: { nowMs?: number }
 ): NormalizedHaloConfidenceDetection;

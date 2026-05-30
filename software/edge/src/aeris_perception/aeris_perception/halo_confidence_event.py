@@ -360,10 +360,20 @@ def _optional_string(raw_value: Any, field_name: str) -> str | None:
 def _require_int(raw_value: Any, field_name: str, *, minimum: int) -> int:
     if isinstance(raw_value, bool):
         raise ValueError(f"{field_name} must be an integer")
-    try:
+    if isinstance(raw_value, int):
+        value = raw_value
+    elif isinstance(raw_value, float):
+        if not math.isfinite(raw_value) or not raw_value.is_integer():
+            raise ValueError(f"{field_name} must be an integer")
         value = int(raw_value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{field_name} must be an integer") from exc
+    elif isinstance(raw_value, str):
+        try:
+            value = int(raw_value)
+        except ValueError as exc:
+            raise ValueError(f"{field_name} must be an integer") from exc
+    else:
+        raise ValueError(f"{field_name} must be an integer")
+
     if value < minimum:
         raise ValueError(f"{field_name} must be >= {minimum}")
     return value
