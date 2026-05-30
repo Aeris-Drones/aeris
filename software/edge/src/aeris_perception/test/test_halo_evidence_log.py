@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import fcntl
 import json
 from pathlib import Path
 
 import pytest
 
-import aeris_perception.halo_evidence_log as halo_evidence_log
 from aeris_perception.halo_confidence_event import (
     HaloConfidenceEvent,
     parse_halo_confidence_event,
@@ -168,7 +168,7 @@ def test_append_halo_evidence_log_record_uses_advisory_lock_for_sequence_allocat
         assert file_descriptor >= 0
         lock_modes.append(operation)
 
-    monkeypatch.setattr(halo_evidence_log.fcntl, "flock", _fake_flock)
+    monkeypatch.setattr(fcntl, "flock", _fake_flock)
 
     record = append_halo_evidence_log_record(
         log_path,
@@ -181,8 +181,8 @@ def test_append_halo_evidence_log_record_uses_advisory_lock_for_sequence_allocat
 
     assert record.sequence == 1
     assert lock_modes == [
-        halo_evidence_log.fcntl.LOCK_EX,
-        halo_evidence_log.fcntl.LOCK_UN,
+        fcntl.LOCK_EX,
+        fcntl.LOCK_UN,
     ]
 
 
