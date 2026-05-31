@@ -386,6 +386,79 @@ test("normalizeHaloEvidenceReplayPayload parses JSONL records and record objects
   assert.equal(objectDetections[0].isRetroactive, true);
 });
 
+test("normalizeHaloEvidenceReplayPayload preserves valid detections when a JSONL batch contains malformed records", () => {
+  const mixedJsonl = [
+    JSON.stringify({
+      schema_version: 1,
+      sequence: 0,
+      run_id: "halo-demo-run",
+      mode: "replay",
+      event: {
+        event_id: "halo-confidence-001",
+        source_id: "camera:halo_front_camera",
+        source_name: "halo_front_camera",
+        frame_id: "halo_rgb_front",
+        frame_index: 21,
+        timestamp_ns: "1717200123456789000",
+        label: "Possible Survivor",
+        confidence: 0.72,
+        detection_type: "candidate_human_presence",
+        recognition: {
+          baseline_name: "halo_rgb_region_baseline",
+          baseline_version: "0.1.0",
+        },
+      },
+    }),
+    "{not-json}",
+    JSON.stringify({
+      schema_version: 1,
+      sequence: 2,
+      run_id: "halo-demo-run",
+      mode: "replay",
+      event: {
+        event_id: "halo-confidence-003",
+        source_id: "camera:halo_side_camera",
+        source_name: "halo_side_camera",
+        frame_id: "halo_rgb_side",
+        frame_index: 23,
+        timestamp_ns: "1717200125456789000",
+        label: "Possible Survivor",
+        confidence: 0.81,
+        detection_type: "candidate_human_presence",
+        recognition: {
+          baseline_name: "halo_rgb_region_baseline",
+          baseline_version: "0.1.0",
+        },
+      },
+    }),
+    JSON.stringify({
+      schema_version: 1,
+      sequence: 3,
+      run_id: "halo-demo-run",
+      mode: "replay",
+      event: {
+        source_id: "camera:halo_broken_camera",
+        source_name: "halo_broken_camera",
+        frame_id: "halo_rgb_broken",
+        frame_index: 24,
+        timestamp_ns: "1717200126456789000",
+        confidence: 0.5,
+        recognition: {
+          baseline_name: "halo_rgb_region_baseline",
+          baseline_version: "0.1.0",
+        },
+      },
+    }),
+  ].join("\n");
+
+  const detections = normalizeHaloEvidenceReplayPayload(mixedJsonl);
+
+  assert.deepEqual(detections.map((detection) => detection.id), [
+    "halo-confidence-001",
+    "halo-confidence-003",
+  ]);
+});
+
 test("normalizeHaloEvidenceReplayPayload rejects malformed JSONL and malformed record payloads", () => {
   assert.throws(
     () => normalizeHaloEvidenceReplayPayload("{not-json}"),
@@ -427,7 +500,7 @@ test("normalizeHaloEvidenceReplayPayload rejects malformed JSONL and malformed r
           },
         },
     ]),
-    /detection_type or label/
+    /no valid replay batch records/i
   );
 
   assert.throws(
@@ -559,5 +632,31 @@ test("normalizeHaloEvidenceReplayPayload rejects malformed JSONL and malformed r
         },
       }),
     /recorded_at_ns/
+  );
+
+  assert.throws(
+    () =>
+      normalizeHaloEvidenceReplayPayload([
+        "{not-json}",
+        JSON.stringify({
+          schema_version: 1,
+          sequence: 3,
+          run_id: "halo-demo-run",
+          mode: "replay",
+          event: {
+            source_id: "camera:halo_broken_camera",
+            source_name: "halo_broken_camera",
+            frame_id: "halo_rgb_broken",
+            frame_index: 24,
+            timestamp_ns: "1717200126456789000",
+            confidence: 0.5,
+            recognition: {
+              baseline_name: "halo_rgb_region_baseline",
+              baseline_version: "0.1.0",
+            },
+          },
+        }),
+      ]),
+    /no valid/i
   );
 });

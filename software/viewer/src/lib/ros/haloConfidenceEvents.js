@@ -329,27 +329,60 @@ function parseReplayPayloadLines(rawPayload) {
   return rawPayload
     .split(/\r?\n/u)
     .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch (error) {
-        throw new Error("Malformed Halo evidence replay payload: invalid JSONL record", {
-          cause: error,
-        });
-      }
-    });
+    .filter(Boolean);
+}
+
+function warnDroppedReplayRecord(context, index, error, kind = "record") {
+  console.warn(`[haloConfidenceEvents] Dropping malformed ${context} ${kind} at index ${index}:`, error);
+}
+
+function normalizeReplayPayloadBatch(rawRecords, options, { context, initialErrors = [] }) {
+  const detections = [];
+  const errors = [...initialErrors];
+
+  rawRecords.forEach((rawRecord, index) => {
+    try {
+      detections.push(normalizeHaloEvidenceLogRecord(rawRecord, options));
+    } catch (error) {
+      errors.push(error);
+      warnDroppedReplayRecord(context, index, error);
+    }
+  });
+
+  if (detections.length === 0) {
+    if (errors.length > 0) {
+      throw new Error(`Malformed Halo evidence replay payload: no valid ${context} records`, {
+        cause: errors[0],
+      });
+    }
+    throw new Error(`Malformed Halo evidence replay payload: no valid ${context} records`);
+  }
+
+  return detections;
 }
 
 export function normalizeHaloEvidenceReplayPayload(rawPayload, options = {}) {
   if (typeof rawPayload === "string") {
-    return parseReplayPayloadLines(rawPayload).map((record) =>
-      normalizeHaloEvidenceLogRecord(record, options)
-    );
+    const rawRecords = [];
+    const parseErrors = [];
+
+    parseReplayPayloadLines(rawPayload).forEach((line, index) => {
+      try {
+        rawRecords.push(JSON.parse(line));
+      } catch (error) {
+        parseErrors.push(error);
+        warnDroppedReplayRecord("JSONL replay", index, error, "line");
+      }
+    });
+
+    return normalizeReplayPayloadBatch(rawRecords, options, {
+      context: "JSONL replay",
+      initialErrors: parseErrors,
+    });
   }
 
   if (Array.isArray(rawPayload)) {
-    return rawPayload.map((record) => normalizeHaloEvidenceLogRecord(record, options));
+    return normalizeReplayPayloadBatch(rawPayload, options, { context: "replay batch" });
   }
 
   return [normalizeHaloEvidenceLogRecord(rawPayload, options)];
