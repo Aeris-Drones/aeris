@@ -12,7 +12,7 @@ export interface DetectionMarker3DProps {
   /** World position [x, y, z] - typically y=0 for ground-level detections */
   position: [number, number, number];
   /** Sensor type - determines marker shape and color */
-  sensorType: 'thermal' | 'acoustic' | 'gas';
+  sensorType: 'thermal' | 'acoustic' | 'gas' | 'rgb';
   /** Detection confidence score (0-1) */
   confidence: number;
   /** Review status - drives animation and visual emphasis */
@@ -34,6 +34,7 @@ const SENSOR_COLORS = {
   thermal: '#f97316',
   acoustic: '#3b82f6',
   gas: '#eab308',
+  rgb: '#d946ef',
 };
 
 /** Human-readable labels for sensor types - displayed in the marker UI */
@@ -41,6 +42,7 @@ const SENSOR_LABELS = {
   thermal: 'THERMAL',
   acoustic: 'ACOUSTIC',
   gas: 'GAS',
+  rgb: 'RGB',
 };
 
 /**
@@ -122,6 +124,8 @@ export function DetectionMarker3D({
         return <coneGeometry args={[6, 10, 8]} />;
       case 'gas':
         return <octahedronGeometry args={[7]} />;
+      case 'rgb':
+        return <boxGeometry args={[10, 10, 10]} />;
     }
   }, [sensorType]);
 

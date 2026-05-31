@@ -27,6 +27,7 @@ import { Switch } from '@/components/ui/switch';
 import { useMissionControl } from '@/hooks/useMissionControl';
 import { useVehicleTelemetry } from '@/hooks/useVehicleTelemetry';
 import { useFusedDetections } from '@/hooks/useFusedDetections';
+import { useHaloDetections } from '@/hooks/useHaloDetections';
 import { applyDetectionStatusOverrides, computeDetectionCounts } from '@/lib/detectionViewState';
 import { normalizeVehicleId } from '@/lib/missionProgressVehicleMeta';
 import { applyVehicleMissionMeta } from '@/lib/fleetVehicleProjection';
@@ -41,6 +42,7 @@ import {
   deriveRouteRecommendations,
 } from '@/lib/routeRecommendations';
 import { ViewerAppProviders } from '@/app/ViewerAppProviders';
+import { normalizeHaloEvidenceReplayPayload } from '@/lib/ros/haloConfidenceEvents';
 
 /**
  * Mock detections for UI demonstration when ROS telemetry is unavailable.
@@ -72,9 +74,41 @@ const mockDetections: Detection[] = [
     vehicleId: 'ranger-1', vehicleName: 'Ranger 1', position: [-150, 0, -80],
     temperature: 36.8, sector: 'Sector A-3', signatureType: 'Possible survivor'
   },
+  ...normalizeHaloEvidenceReplayPayload([
+    {
+      schema_version: 1,
+      sequence: 0,
+      recorded_at_ns: String((Date.now() - 90000) * 1_000_000),
+      run_id: 'halo-demo-run',
+      mode: 'replay',
+      evidence_path: '/tmp/halo/capture-017.png',
+      evidence_ref: 'evidence-017',
+      evidence_uri: 'file:///tmp/halo/capture-017.png',
+      event: {
+        event_id: 'halo-confidence-demo-001',
+        source_id: 'camera:halo_front_camera',
+        source_name: 'Halo Front Camera',
+        source_uri: 'rtsp://halo/front',
+        frame_id: 'halo_rgb_front',
+        frame_index: 21,
+        timestamp_ns: String((Date.now() - 180000) * 1_000_000),
+        label: 'Possible Survivor',
+        detection_type: 'candidate_human_presence',
+        confidence: 0.91,
+        confidence_level: 'HIGH',
+        location_hint: { label: 'Zone E-2', x: 12.5, y: 0, z: -6 },
+        recognition: {
+          baseline_name: 'halo_rgb_region_baseline',
+          baseline_version: '0.1.0',
+          confidence_components: { shape: 0.89, motion: 0.94 },
+        },
+      },
+    },
+  ]),
 ];
 
 const MOCK_ALERT_IDS = ['demo-critical', 'demo-warning'] as const;
+const DETECTION_STALE_TIMEOUT_MS = 2 * 60 * 1000;
 
 /**
  * Root page component for the Aeris GCS.
@@ -163,6 +197,10 @@ function V2PageContent() {
     detections: liveFusedDetections,
     isConnected: fusedFeedConnected,
   } = useFusedDetections(telemetryVehicles);
+  const {
+    detections: liveHaloDetections,
+    isConnected: haloFeedConnected,
+  } = useHaloDetections();
   const allowMockFallback =
     process.env.NODE_ENV !== 'production' && !rosConnected;
 
@@ -202,16 +240,22 @@ function V2PageContent() {
 
   const baseDetections = useMemo<Detection[]>(
     () => {
-      if (fusedFeedConnected) {
-        return liveFusedDetections;
+      if (fusedFeedConnected || haloFeedConnected) {
+        return [...liveFusedDetections, ...liveHaloDetections].sort(
+          (left, right) => right.timestamp - left.timestamp
+        );
       }
       return allowMockFallback ? mockDetections : [];
     },
-    [allowMockFallback, fusedFeedConnected, liveFusedDetections]
+    [allowMockFallback, fusedFeedConnected, haloFeedConnected, liveFusedDetections, liveHaloDetections]
   );
   const detections = useMemo<Detection[]>(
-    () => applyDetectionStatusOverrides(baseDetections, detectionStatusOverrides),
-    [baseDetections, detectionStatusOverrides]
+    () =>
+      applyDetectionStatusOverrides(baseDetections, detectionStatusOverrides).map((detection) => ({
+        ...detection,
+        isStale: routeNowMs - detection.timestamp >= DETECTION_STALE_TIMEOUT_MS,
+      })),
+    [baseDetections, detectionStatusOverrides, routeNowMs]
   );
 
   useEffect(() => {
@@ -774,6 +818,7 @@ function V2PageContent() {
                   thermalCount={detectionCounts.thermal}
                   acousticCount={detectionCounts.acoustic}
                   gasCount={detectionCounts.gas}
+                  rgbCount={detectionCounts.rgb}
                   pendingCount={detectionCounts.pending}
                   confirmedCount={detectionCounts.confirmed}
                   viewMode={icViewModeEnabled ? 'ic' : 'operator'}

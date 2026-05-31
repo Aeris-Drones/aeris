@@ -2,7 +2,7 @@
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Flame, AudioLines, Wind, ChevronRight } from 'lucide-react';
+import { Flame, AudioLines, Wind, Camera, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
  */
 export interface Detection {
   id: string;
-  sensorType: 'thermal' | 'acoustic' | 'gas';
+  sensorType: 'thermal' | 'acoustic' | 'gas' | 'rgb';
   confidence: number;
   timestamp: number;
   status: 'new' | 'reviewing' | 'confirmed' | 'dismissed';
@@ -21,6 +21,7 @@ export interface DetectionsCardProps {
   thermalCount: number;
   acousticCount: number;
   gasCount: number;
+  rgbCount?: number;
   pendingCount: number;
   confirmedCount: number;
   latestDetection?: Detection;
@@ -53,6 +54,12 @@ const sensorConfig = {
     bg: 'bg-yellow-500/20',
     label: 'Gas'
   },
+  rgb: {
+    Icon: Camera,
+    color: 'text-fuchsia-400',
+    bg: 'bg-fuchsia-500/20',
+    label: 'RGB'
+  },
 };
 
 /**
@@ -74,11 +81,12 @@ export function DetectionsCard({
   thermalCount,
   acousticCount,
   gasCount,
+  rgbCount = 0,
   pendingCount,
   confirmedCount,
   viewMode = 'operator',
 }: DetectionsCardProps) {
-  const totalCount = thermalCount + acousticCount + gasCount;
+  const totalCount = thermalCount + acousticCount + gasCount + rgbCount;
   const hasPending = pendingCount > 0;
   const isIcMode = viewMode === 'ic';
 
@@ -122,6 +130,13 @@ export function DetectionsCard({
           <Wind className={cn('h-4 w-4', sensorConfig.gas.color)} />
           <span className={cn('font-mono font-bold', sensorConfig.gas.color, isIcMode ? 'text-xl' : 'text-sm')}>
             {gasCount}
+          </span>
+        </div>
+
+        <div className={cn('flex items-center gap-1.5 rounded-lg px-2.5 py-0.5', sensorConfig.rgb.bg)}>
+          <Camera className={cn('h-4 w-4', sensorConfig.rgb.color)} />
+          <span className={cn('font-mono font-bold', sensorConfig.rgb.color, isIcMode ? 'text-xl' : 'text-sm')}>
+            {rgbCount}
           </span>
         </div>
       </div>

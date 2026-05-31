@@ -29,13 +29,21 @@ test("computeDetectionCounts derives modality counters from fused source modalit
       confidence: 0.5,
       status: "reviewing",
     },
+    {
+      id: "cand-4",
+      sensorType: "rgb",
+      sourceModalities: ["rgb"],
+      confidence: 0.92,
+      status: "new",
+    },
   ]);
 
   assert.deepEqual(counts, {
     thermal: 1,
     acoustic: 2,
     gas: 1,
-    pending: 2,
+    rgb: 1,
+    pending: 3,
     confirmed: 1,
   });
 });

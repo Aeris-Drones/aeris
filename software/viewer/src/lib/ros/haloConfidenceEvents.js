@@ -34,6 +34,13 @@ function optionalString(rawValue, fieldName) {
   return normalized === "" ? undefined : normalized;
 }
 
+function requireReplayPayloadRecord(rawValue) {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    throw new Error("Invalid Halo evidence replay payload: record must be an object");
+  }
+  return rawValue;
+}
+
 function parseIntegerText(rawValue, fieldName) {
   if (typeof rawValue === "boolean" || rawValue === null || rawValue === undefined) {
     throw new Error(`Invalid Halo confidence event: ${fieldName} must be an integer`);
@@ -279,4 +286,53 @@ export function normalizeHaloConfidenceEventMessage(rawMessage, options = {}) {
     evidenceUri: optionalString(message.evidence_uri, "evidence_uri"),
     recognition,
   };
+}
+
+export function normalizeHaloEvidenceLogRecord(rawRecord, options = {}) {
+  const record = requireReplayPayloadRecord(rawRecord);
+  const detection = normalizeHaloConfidenceEventMessage(requireObject(record.event, "event"), options);
+  const recordedAtNs = record.recorded_at_ns !== undefined
+    ? requireBigInt(record.recorded_at_ns, "recorded_at_ns", 0n).value
+    : null;
+
+  return {
+    ...detection,
+    evidencePath: optionalString(record.evidence_path, "evidence_path"),
+    evidenceRef: optionalString(record.evidence_ref, "evidence_ref") ?? detection.evidenceRef,
+    evidenceUri: optionalString(record.evidence_uri, "evidence_uri") ?? detection.evidenceUri,
+    deliveryMode: "replayed",
+    originalEventTs: detection.timestamp,
+    replayedAtTs: recordedAtNs === null ? undefined : deriveDisplayTimestampMs(recordedAtNs, options),
+    isRetroactive: true,
+  };
+}
+
+function parseReplayPayloadLines(rawPayload) {
+  return rawPayload
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch (error) {
+        throw new Error("Malformed Halo evidence replay payload: invalid JSONL record", {
+          cause: error,
+        });
+      }
+    });
+}
+
+export function normalizeHaloEvidenceReplayPayload(rawPayload, options = {}) {
+  if (typeof rawPayload === "string") {
+    return parseReplayPayloadLines(rawPayload).map((record) =>
+      normalizeHaloEvidenceLogRecord(record, options)
+    );
+  }
+
+  if (Array.isArray(rawPayload)) {
+    return rawPayload.map((record) => normalizeHaloEvidenceLogRecord(record, options));
+  }
+
+  return [normalizeHaloEvidenceLogRecord(rawPayload, options)];
 }

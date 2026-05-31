@@ -21,6 +21,7 @@ export interface DetectionStatusCounts {
   thermal: number;
   acoustic: number;
   gas: number;
+  rgb?: number;
   pending: number;
   confirmed: number;
 }
@@ -122,9 +123,11 @@ export function StatusPill({
     thermal: 0,
     acoustic: 0,
     gas: 0,
+    rgb: 0,
     pending: 0,
     confirmed: 0,
   };
+  const rgbCount = Number.isFinite(liveDetections.rgb) ? liveDetections.rgb : 0;
   const isIcMode = viewMode === 'ic';
 
   return (
@@ -209,6 +212,7 @@ export function StatusPill({
         <span className={cn('font-mono text-orange-400', isIcMode ? 'text-2xl' : 'text-xs')}>T{liveDetections.thermal}</span>
         <span className={cn('font-mono text-sky-400', isIcMode ? 'text-2xl' : 'text-xs')}>A{liveDetections.acoustic}</span>
         <span className={cn('font-mono text-amber-400', isIcMode ? 'text-2xl' : 'text-xs')}>G{liveDetections.gas}</span>
+        <span className={cn('font-mono text-fuchsia-400', isIcMode ? 'text-2xl' : 'text-xs')}>R{rgbCount}</span>
         <span className="text-white/25">|</span>
         <span className={cn('font-mono text-emerald-400', isIcMode ? 'text-2xl' : 'text-xs')}>P{liveDetections.pending}</span>
         <span className={cn('font-mono', isIcMode ? 'text-2xl text-white' : 'text-xs text-white/70')}>C{liveDetections.confirmed}</span>

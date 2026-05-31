@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Flame, AudioLines, Wind, Crosshair, Check, X, MapPin, History } from 'lucide-react';
+import { Flame, AudioLines, Wind, Camera, Crosshair, Check, X, MapPin, History, TimerReset } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getConfidenceTextClass } from '@/lib/detectionViewState';
 
@@ -21,7 +21,7 @@ import { getConfidenceTextClass } from '@/lib/detectionViewState';
  */
 export interface Detection {
   id: string;
-  sensorType: 'thermal' | 'acoustic' | 'gas';
+  sensorType: 'thermal' | 'acoustic' | 'gas' | 'rgb';
   confidence: number;
   confidenceLevel?: 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
   timestamp: number;
@@ -29,7 +29,7 @@ export interface Detection {
   vehicleId: string;
   vehicleName: string;
   position: [number, number, number];
-  sourceModalities?: Array<'thermal' | 'acoustic' | 'gas'>;
+  sourceModalities?: Array<'thermal' | 'acoustic' | 'gas' | 'rgb'>;
   geometry?: [number, number, number][];
   temperature?: number;
   decibels?: number;
@@ -41,6 +41,10 @@ export interface Detection {
   originalEventTs?: number;
   replayedAtTs?: number;
   isRetroactive?: boolean;
+  isStale?: boolean;
+  evidenceRef?: string;
+  evidencePath?: string;
+  evidenceUri?: string;
 }
 
 export interface DetectionCardProps {
@@ -61,6 +65,7 @@ const sensorConfig = {
   thermal: { Icon: Flame, color: 'text-orange-400', bg: 'bg-orange-500/10', label: 'Thermal' },
   acoustic: { Icon: AudioLines, color: 'text-sky-400', bg: 'bg-sky-500/10', label: 'Acoustic' },
   gas: { Icon: Wind, color: 'text-amber-400', bg: 'bg-amber-500/10', label: 'Gas' },
+  rgb: { Icon: Camera, color: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', label: 'RGB' },
 };
 
 function formatTime(timestamp: number): string {
@@ -82,6 +87,8 @@ function getReading(detection: Detection): string {
       return hasFiniteValue(detection.decibels) ? `${detection.decibels}dB` : '--';
     case 'gas':
       return hasFiniteValue(detection.concentration) ? `${detection.concentration}ppm` : '--';
+    case 'rgb':
+      return detection.evidenceRef ?? detection.evidencePath ?? detection.evidenceUri ?? '--';
   }
 }
 
@@ -101,6 +108,8 @@ function getDefaultSignature(detection: Detection): string {
       return conf > 0.85 ? 'Voice detected' : conf > 0.6 ? 'Movement sounds' : 'Audio anomaly';
     case 'gas':
       return conf > 0.85 ? 'Hazardous levels' : conf > 0.6 ? 'Elevated concentration' : 'Trace detected';
+    case 'rgb':
+      return conf > 0.85 ? 'RGB survivor candidate' : conf > 0.6 ? 'RGB anomaly' : 'RGB review needed';
   }
 }
 
@@ -133,6 +142,24 @@ export function DetectionCard({
   const reading = getReading(detection);
   const isRetroactive =
     detection.deliveryMode === 'replayed' || detection.isRetroactive === true;
+  const isStale = detection.isStale === true;
+  const evidenceHandles = [
+    detection.evidenceRef
+      ? { label: 'Ref', value: detection.evidenceRef }
+      : null,
+    detection.evidencePath
+      ? { label: 'Path', value: detection.evidencePath }
+      : null,
+    detection.evidenceUri
+      ? { label: 'URI', value: detection.evidenceUri }
+      : null,
+  ].filter((handle): handle is { label: string; value: string } => handle !== null);
+  const sourceLabel = isRetroactive ? 'Replayed' : isStale ? 'Stale' : 'Live';
+  const sourceTextClass = isRetroactive
+    ? 'text-cyan-300'
+    : isStale
+      ? 'text-amber-300'
+      : 'text-emerald-300';
 
   // Derive sector from ENU coordinates when not explicitly provided
   const sector = detection.sector || `Zone ${detection.position[0] > 0 ? 'E' : 'W'}-${Math.abs(Math.round(detection.position[2] / 50))}`;
@@ -173,6 +200,11 @@ export function DetectionCard({
             <History className="h-3 w-3" /> Retroactive
           </span>
         )}
+        {isStale && (
+          <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 text-base font-medium uppercase flex items-center gap-1">
+            <TimerReset className="h-3 w-3" /> Stale
+          </span>
+        )}
 
         <div className="flex-1" />
 
@@ -188,8 +220,8 @@ export function DetectionCard({
           <span>·</span>
           <span>{detection.vehicleName}</span>
           <span>·</span>
-          <span className={cn(isRetroactive ? 'text-cyan-300' : 'text-emerald-300')}>
-            {isRetroactive ? 'Replayed' : 'Live'}
+          <span className={cn(sourceTextClass)}>
+            {sourceLabel}
           </span>
           <span>·</span>
           <span className="font-mono">{reading}</span>
@@ -201,6 +233,20 @@ export function DetectionCard({
           <span className="text-white/20">|</span>
           <span className="text-white/80">{signature}</span>
         </div>
+
+        {evidenceHandles.length > 0 && (
+          <div className="flex flex-wrap gap-2 text-[11px] text-white/55">
+            {evidenceHandles.map((handle) => (
+              <span
+                key={`${detection.id}-${handle.label}`}
+                className="max-w-full rounded border border-white/10 bg-white/[0.03] px-2 py-1 font-mono"
+              >
+                <span className="mr-1 text-white/35">{handle.label}</span>
+                <span className="break-all">{handle.value}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {isActionable && (

@@ -45,6 +45,11 @@ export interface NormalizedHaloConfidenceDetection {
   locationHint?: string | HaloEventLocationHint;
   evidenceRef?: string;
   evidenceUri?: string;
+  evidencePath?: string;
+  deliveryMode?: "live" | "replayed";
+  originalEventTs?: number;
+  replayedAtTs?: number;
+  isRetroactive?: boolean;
   recognition: HaloRecognitionMetadata;
 }
 
@@ -52,3 +57,13 @@ export function normalizeHaloConfidenceEventMessage(
   rawMessage: unknown,
   options?: { nowMs?: number }
 ): NormalizedHaloConfidenceDetection;
+
+export function normalizeHaloEvidenceLogRecord(
+  rawRecord: unknown,
+  options?: { nowMs?: number }
+): NormalizedHaloConfidenceDetection;
+
+export function normalizeHaloEvidenceReplayPayload(
+  rawPayload: unknown,
+  options?: { nowMs?: number }
+): NormalizedHaloConfidenceDetection[];
