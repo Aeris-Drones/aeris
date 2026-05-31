@@ -46,6 +46,7 @@ export function computeDetectionCounts(detections) {
     thermal: 0,
     acoustic: 0,
     gas: 0,
+    rgb: 0,
     pending: 0,
     confirmed: 0,
   };

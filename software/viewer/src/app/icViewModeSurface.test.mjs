@@ -89,6 +89,7 @@ fs.writeFileSync(path.join(RENDER_TEMP_ROOT, "lucide-react.mjs"), `
   export const BatteryMedium = icon("BatteryMedium");
   export const BatteryWarning = icon("BatteryWarning");
   export const Bell = icon("Bell");
+  export const Camera = icon("Camera");
   export const Check = icon("Check");
   export const ChevronRight = icon("ChevronRight");
   export const Crosshair = icon("Crosshair");

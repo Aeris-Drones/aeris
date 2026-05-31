@@ -1,5 +1,5 @@
 import { normalizeModalities } from "../modalities.js";
-const MODALITY_PRIORITY = ["gas", "thermal", "acoustic"];
+const MODALITY_PRIORITY = ["gas", "thermal", "acoustic", "rgb"];
 
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);

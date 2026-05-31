@@ -34,6 +34,16 @@ function optionalString(rawValue, fieldName) {
   return normalized === "" ? undefined : normalized;
 }
 
+function requireReplayPayloadRecord(rawValue) {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    throw new Error("Invalid Halo evidence replay payload: record must be an object");
+  }
+  return rawValue;
+}
+
+const HALO_EVIDENCE_LOG_SCHEMA_VERSION = 1;
+const SUPPORTED_HALO_EVIDENCE_LOG_MODES = new Set(["live", "replay", "evaluation"]);
+
 function parseIntegerText(rawValue, fieldName) {
   if (typeof rawValue === "boolean" || rawValue === null || rawValue === undefined) {
     throw new Error(`Invalid Halo confidence event: ${fieldName} must be an integer`);
@@ -279,4 +289,101 @@ export function normalizeHaloConfidenceEventMessage(rawMessage, options = {}) {
     evidenceUri: optionalString(message.evidence_uri, "evidence_uri"),
     recognition,
   };
+}
+
+export function normalizeHaloEvidenceLogRecord(rawRecord, options = {}) {
+  const record = requireReplayPayloadRecord(rawRecord);
+  const schemaVersion = requireInt(record.schema_version, "schema_version", 1);
+  if (schemaVersion !== HALO_EVIDENCE_LOG_SCHEMA_VERSION) {
+    throw new Error(
+      `Invalid Halo evidence replay payload: schema_version must be ${HALO_EVIDENCE_LOG_SCHEMA_VERSION}`
+    );
+  }
+  requireInt(record.sequence, "sequence", 0);
+  requireString(record.run_id, "run_id");
+  const mode = requireString(record.mode, "mode").toLowerCase();
+  if (!SUPPORTED_HALO_EVIDENCE_LOG_MODES.has(mode)) {
+    throw new Error("Invalid Halo evidence replay payload: mode must be live, replay, or evaluation");
+  }
+  const detection = normalizeHaloConfidenceEventMessage(requireObject(record.event, "event"), options);
+  const recordedAtNs = record.recorded_at_ns !== undefined
+    ? requireBigInt(record.recorded_at_ns, "recorded_at_ns", 0n).value
+    : null;
+  const isReplay = mode === "replay";
+
+  return {
+    ...detection,
+    evidencePath: optionalString(record.evidence_path, "evidence_path"),
+    evidenceRef: optionalString(record.evidence_ref, "evidence_ref") ?? detection.evidenceRef,
+    evidenceUri: optionalString(record.evidence_uri, "evidence_uri") ?? detection.evidenceUri,
+    deliveryMode: isReplay ? "replayed" : "live",
+    originalEventTs: detection.timestamp,
+    replayedAtTs: isReplay && recordedAtNs !== null
+      ? deriveDisplayTimestampMs(recordedAtNs, options)
+      : undefined,
+    isRetroactive: isReplay,
+  };
+}
+
+function parseReplayPayloadLines(rawPayload) {
+  return rawPayload
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function warnDroppedReplayRecord(context, index, error, kind = "record") {
+  console.warn(`[haloConfidenceEvents] Dropping malformed ${context} ${kind} at index ${index}:`, error);
+}
+
+function normalizeReplayPayloadBatch(rawRecords, options, { context, initialErrors = [] }) {
+  const detections = [];
+  const errors = [...initialErrors];
+
+  rawRecords.forEach((rawRecord, index) => {
+    try {
+      detections.push(normalizeHaloEvidenceLogRecord(rawRecord, options));
+    } catch (error) {
+      errors.push(error);
+      warnDroppedReplayRecord(context, index, error);
+    }
+  });
+
+  if (detections.length === 0) {
+    if (errors.length > 0) {
+      throw new Error(`Malformed Halo evidence replay payload: no valid ${context} records`, {
+        cause: errors[0],
+      });
+    }
+    throw new Error(`Malformed Halo evidence replay payload: no valid ${context} records`);
+  }
+
+  return detections;
+}
+
+export function normalizeHaloEvidenceReplayPayload(rawPayload, options = {}) {
+  if (typeof rawPayload === "string") {
+    const rawRecords = [];
+    const parseErrors = [];
+
+    parseReplayPayloadLines(rawPayload).forEach((line, index) => {
+      try {
+        rawRecords.push(JSON.parse(line));
+      } catch (error) {
+        parseErrors.push(error);
+        warnDroppedReplayRecord("JSONL replay", index, error, "line");
+      }
+    });
+
+    return normalizeReplayPayloadBatch(rawRecords, options, {
+      context: "JSONL replay",
+      initialErrors: parseErrors,
+    });
+  }
+
+  if (Array.isArray(rawPayload)) {
+    return normalizeReplayPayloadBatch(rawPayload, options, { context: "replay batch" });
+  }
+
+  return [normalizeHaloEvidenceLogRecord(rawPayload, options)];
 }

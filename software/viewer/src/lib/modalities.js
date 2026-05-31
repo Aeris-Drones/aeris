@@ -1,4 +1,4 @@
-export const KNOWN_MODALITIES = new Set(["thermal", "acoustic", "gas"]);
+export const KNOWN_MODALITIES = new Set(["thermal", "acoustic", "gas", "rgb"]);
 
 export function normalizeModalities(rawModalities) {
   if (!Array.isArray(rawModalities)) {

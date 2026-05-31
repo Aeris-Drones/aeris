@@ -4,6 +4,7 @@ export interface DetectionCounts {
   thermal: number;
   acoustic: number;
   gas: number;
+  rgb: number;
   pending: number;
   confirmed: number;
 }
