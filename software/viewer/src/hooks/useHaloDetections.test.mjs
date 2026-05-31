@@ -57,7 +57,7 @@ const compiled = ts.transpileModule(
 const modulePath = path.join(tempDir, "useHaloDetections.mjs");
 fs.writeFileSync(modulePath, compiled, "utf8");
 
-const { normalizeHaloInboundPayload } = await import(pathToFileURL(modulePath).href);
+const { mergeHaloDetectionBatch, normalizeHaloInboundPayload } = await import(pathToFileURL(modulePath).href);
 
 test("normalizeHaloInboundPayload parses pretty-printed JSON before falling back to JSONL", () => {
   const prettyPrintedEnvelope = JSON.stringify({
@@ -111,5 +111,46 @@ test("normalizeHaloInboundPayload guards against runaway doubly-encoded string r
   assert.throws(
     () => normalizeHaloInboundPayload({ data: doublyEncoded }),
     /depth/i
+  );
+});
+
+test("mergeHaloDetectionBatch preserves multiple old replay detections from one inbound batch", () => {
+  const nowMs = 1_800_000_000_000;
+  const previous = [
+    {
+      id: "live-current",
+      timestamp: nowMs - 5_000,
+      deliveryMode: "live",
+    },
+    {
+      id: "stale-live",
+      timestamp: nowMs - (20 * 60 * 1000),
+      deliveryMode: "live",
+    },
+  ];
+  const incomingReplayBatch = [
+    {
+      id: "replay-1",
+      timestamp: nowMs - (30 * 60 * 1000),
+      deliveryMode: "replayed",
+      isRetroactive: true,
+    },
+    {
+      id: "replay-2",
+      timestamp: nowMs - (31 * 60 * 1000),
+      deliveryMode: "replayed",
+      isRetroactive: true,
+    },
+  ];
+
+  const merged = mergeHaloDetectionBatch(previous, incomingReplayBatch, {
+    nowMs,
+    maxAgeMs: 10 * 60 * 1000,
+    maxDetections: 10,
+  });
+
+  assert.deepEqual(
+    merged.map((detection) => detection.id),
+    ["live-current", "replay-1", "replay-2"]
   );
 });

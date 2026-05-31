@@ -66,14 +66,10 @@ export function useHaloDetections(
 
       setDetectionState((previous) => {
         const currentDetections = previous.connection === ros ? previous.detections : [];
-        const nextDetections = normalizedDetections.reduce(
-          (accumulator, detection) =>
-            mergeLiveDetections(accumulator, detection, {
-              maxAgeMs: merged.maxAgeMs,
-              maxDetections: merged.maxDetections,
-            }),
-          currentDetections
-        );
+        const nextDetections = mergeHaloDetectionBatch(currentDetections, normalizedDetections, {
+          maxAgeMs: merged.maxAgeMs,
+          maxDetections: merged.maxDetections,
+        });
         return {
           connection: ros,
           detections: nextDetections,
@@ -96,6 +92,46 @@ export function useHaloDetections(
         : [],
     isConnected,
   };
+}
+
+export function mergeHaloDetectionBatch(
+  previousDetections: Detection[],
+  incomingDetections: Detection[],
+  options: { nowMs?: number; maxAgeMs?: number; maxDetections?: number } = {}
+): Detection[] {
+  const replayBatch = incomingDetections.length > 1 && incomingDetections.some(
+    (detection) => detection.deliveryMode === 'replayed' || detection.isRetroactive === true
+  );
+
+  if (!replayBatch) {
+    return incomingDetections.reduce(
+      (accumulator, detection) =>
+        mergeLiveDetections(accumulator, detection, options),
+      previousDetections
+    );
+  }
+
+  const nowMs = Number.isFinite(options.nowMs) ? Number(options.nowMs) : Date.now();
+  const maxAgeMs = Number.isFinite(options.maxAgeMs) ? Number(options.maxAgeMs) : 10 * 60 * 1000;
+  const maxDetections = Number.isFinite(options.maxDetections) ? Number(options.maxDetections) : 100;
+  const cutoff = nowMs - maxAgeMs;
+  const byId = new Map<string, Detection>();
+
+  for (const detection of previousDetections) {
+    if (detection?.id && Number(detection.timestamp) >= cutoff) {
+      byId.set(detection.id, detection);
+    }
+  }
+
+  for (const detection of incomingDetections) {
+    if (detection?.id) {
+      byId.set(detection.id, detection);
+    }
+  }
+
+  return Array.from(byId.values())
+    .sort((left, right) => Number(right.timestamp) - Number(left.timestamp))
+    .slice(0, maxDetections);
 }
 
 export function normalizeHaloInboundPayload(
