@@ -114,3 +114,30 @@ test("DetectionCard surfaces Halo evidence handles and replay/stale provenance",
   assert.match(markup, /file:\/\/\/tmp\/halo\/capture-017\.png/);
   assert.match(markup, /Possible Survivor/);
 });
+
+test("DetectionCard keeps stale-only provenance distinct from replayed detections", async () => {
+  const markup = await renderCard({
+    detection: {
+      id: "halo-confidence-002",
+      sensorType: "rgb",
+      confidence: 0.64,
+      confidenceLevel: "MEDIUM",
+      timestamp: Date.now() - (4 * 60 * 1000),
+      status: "reviewing",
+      vehicleId: "camera:halo_rear_camera",
+      vehicleName: "Halo Rear Camera",
+      position: [4, 0, 8],
+      sourceModalities: ["rgb"],
+      sector: "Zone W-1",
+      signatureType: "Scene Change",
+      isStale: true,
+    },
+    isNew: false,
+    onConfirm: () => {},
+    onDismiss: () => {},
+    onLocate: () => {},
+  });
+
+  assert.match(markup, /Stale/);
+  assert.doesNotMatch(markup, /Replayed/);
+});

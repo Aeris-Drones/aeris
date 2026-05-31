@@ -41,6 +41,9 @@ function requireReplayPayloadRecord(rawValue) {
   return rawValue;
 }
 
+const HALO_EVIDENCE_LOG_SCHEMA_VERSION = 1;
+const SUPPORTED_HALO_EVIDENCE_LOG_MODES = new Set(["live", "replay", "evaluation"]);
+
 function parseIntegerText(rawValue, fieldName) {
   if (typeof rawValue === "boolean" || rawValue === null || rawValue === undefined) {
     throw new Error(`Invalid Halo confidence event: ${fieldName} must be an integer`);
@@ -290,20 +293,35 @@ export function normalizeHaloConfidenceEventMessage(rawMessage, options = {}) {
 
 export function normalizeHaloEvidenceLogRecord(rawRecord, options = {}) {
   const record = requireReplayPayloadRecord(rawRecord);
+  const schemaVersion = requireInt(record.schema_version, "schema_version", 1);
+  if (schemaVersion !== HALO_EVIDENCE_LOG_SCHEMA_VERSION) {
+    throw new Error(
+      `Invalid Halo evidence replay payload: schema_version must be ${HALO_EVIDENCE_LOG_SCHEMA_VERSION}`
+    );
+  }
+  requireInt(record.sequence, "sequence", 0);
+  requireString(record.run_id, "run_id");
+  const mode = requireString(record.mode, "mode").toLowerCase();
+  if (!SUPPORTED_HALO_EVIDENCE_LOG_MODES.has(mode)) {
+    throw new Error("Invalid Halo evidence replay payload: mode must be live, replay, or evaluation");
+  }
   const detection = normalizeHaloConfidenceEventMessage(requireObject(record.event, "event"), options);
   const recordedAtNs = record.recorded_at_ns !== undefined
     ? requireBigInt(record.recorded_at_ns, "recorded_at_ns", 0n).value
     : null;
+  const isReplay = mode === "replay";
 
   return {
     ...detection,
     evidencePath: optionalString(record.evidence_path, "evidence_path"),
     evidenceRef: optionalString(record.evidence_ref, "evidence_ref") ?? detection.evidenceRef,
     evidenceUri: optionalString(record.evidence_uri, "evidence_uri") ?? detection.evidenceUri,
-    deliveryMode: "replayed",
+    deliveryMode: isReplay ? "replayed" : "live",
     originalEventTs: detection.timestamp,
-    replayedAtTs: recordedAtNs === null ? undefined : deriveDisplayTimestampMs(recordedAtNs, options),
-    isRetroactive: true,
+    replayedAtTs: isReplay && recordedAtNs !== null
+      ? deriveDisplayTimestampMs(recordedAtNs, options)
+      : undefined,
+    isRetroactive: isReplay,
   };
 }
 

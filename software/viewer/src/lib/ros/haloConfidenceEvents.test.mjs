@@ -246,6 +246,59 @@ test("normalizeHaloEvidenceLogRecord reuses the nested event and preserves evide
   assert.equal(detection.evidenceUri, "file:///tmp/halo/capture-017.png");
 });
 
+test("normalizeHaloEvidenceLogRecord keeps live and evaluation wrapper modes distinct from replay", () => {
+  const liveDetection = normalizeHaloEvidenceLogRecord({
+    schema_version: 1,
+    sequence: 0,
+    run_id: "halo-live-run",
+    mode: "live",
+    event: {
+      event_id: "halo-confidence-live-001",
+      source_id: "camera:halo_front_camera",
+      source_name: "halo_front_camera",
+      frame_id: "halo_rgb_front",
+      frame_index: 21,
+      timestamp_ns: "1717200123456789000",
+      label: "Possible Survivor",
+      detection_type: "candidate_human_presence",
+      confidence: 0.72,
+      recognition: {
+        baseline_name: "halo_rgb_region_baseline",
+        baseline_version: "0.1.0",
+      },
+    },
+  });
+  const evaluationDetection = normalizeHaloEvidenceLogRecord({
+    schema_version: 1,
+    sequence: 1,
+    run_id: "halo-eval-run",
+    mode: "evaluation",
+    recorded_at_ns: "1717200124456789000",
+    event: {
+      event_id: "halo-confidence-eval-001",
+      source_id: "camera:halo_front_camera",
+      source_name: "halo_front_camera",
+      frame_id: "halo_rgb_front",
+      frame_index: 22,
+      timestamp_ns: "1717200123456789000",
+      label: "Possible Survivor",
+      detection_type: "candidate_human_presence",
+      confidence: 0.79,
+      recognition: {
+        baseline_name: "halo_rgb_region_baseline",
+        baseline_version: "0.1.0",
+      },
+    },
+  });
+
+  assert.equal(liveDetection.deliveryMode, "live");
+  assert.equal(liveDetection.isRetroactive, false);
+  assert.equal(liveDetection.replayedAtTs, undefined);
+  assert.equal(evaluationDetection.deliveryMode, "live");
+  assert.equal(evaluationDetection.isRetroactive, false);
+  assert.equal(evaluationDetection.replayedAtTs, undefined);
+});
+
 test("normalizeHaloEvidenceReplayPayload parses JSONL records and record objects in order", () => {
   const jsonl = [
     JSON.stringify({
@@ -373,7 +426,138 @@ test("normalizeHaloEvidenceReplayPayload rejects malformed JSONL and malformed r
             },
           },
         },
-      ]),
+    ]),
     /detection_type or label/
+  );
+
+  assert.throws(
+    () =>
+      normalizeHaloEvidenceLogRecord({
+        schema_version: 2,
+        sequence: 0,
+        run_id: "halo-demo-run",
+        mode: "replay",
+        event: {
+          event_id: "halo-confidence-001",
+          source_id: "camera:halo_front_camera",
+          source_name: "halo_front_camera",
+          frame_id: "halo_rgb_front",
+          frame_index: 1,
+          timestamp_ns: "10",
+          label: "Possible Survivor",
+          detection_type: "candidate_human_presence",
+          confidence: 0.5,
+          recognition: {
+            baseline_name: "halo_rgb_region_baseline",
+            baseline_version: "0.1.0",
+          },
+        },
+      }),
+    /schema_version/
+  );
+
+  assert.throws(
+    () =>
+      normalizeHaloEvidenceLogRecord({
+        schema_version: 1,
+        sequence: -1,
+        run_id: "halo-demo-run",
+        mode: "replay",
+        event: {
+          event_id: "halo-confidence-001",
+          source_id: "camera:halo_front_camera",
+          source_name: "halo_front_camera",
+          frame_id: "halo_rgb_front",
+          frame_index: 1,
+          timestamp_ns: "10",
+          label: "Possible Survivor",
+          detection_type: "candidate_human_presence",
+          confidence: 0.5,
+          recognition: {
+            baseline_name: "halo_rgb_region_baseline",
+            baseline_version: "0.1.0",
+          },
+        },
+      }),
+    /sequence/
+  );
+
+  assert.throws(
+    () =>
+      normalizeHaloEvidenceLogRecord({
+        schema_version: 1,
+        sequence: 0,
+        run_id: "",
+        mode: "replay",
+        event: {
+          event_id: "halo-confidence-001",
+          source_id: "camera:halo_front_camera",
+          source_name: "halo_front_camera",
+          frame_id: "halo_rgb_front",
+          frame_index: 1,
+          timestamp_ns: "10",
+          label: "Possible Survivor",
+          detection_type: "candidate_human_presence",
+          confidence: 0.5,
+          recognition: {
+            baseline_name: "halo_rgb_region_baseline",
+            baseline_version: "0.1.0",
+          },
+        },
+      }),
+    /run_id/
+  );
+
+  assert.throws(
+    () =>
+      normalizeHaloEvidenceLogRecord({
+        schema_version: 1,
+        sequence: 0,
+        run_id: "halo-demo-run",
+        mode: "archive",
+        event: {
+          event_id: "halo-confidence-001",
+          source_id: "camera:halo_front_camera",
+          source_name: "halo_front_camera",
+          frame_id: "halo_rgb_front",
+          frame_index: 1,
+          timestamp_ns: "10",
+          label: "Possible Survivor",
+          detection_type: "candidate_human_presence",
+          confidence: 0.5,
+          recognition: {
+            baseline_name: "halo_rgb_region_baseline",
+            baseline_version: "0.1.0",
+          },
+        },
+      }),
+    /mode/
+  );
+
+  assert.throws(
+    () =>
+      normalizeHaloEvidenceLogRecord({
+        schema_version: 1,
+        sequence: 0,
+        run_id: "halo-demo-run",
+        mode: "replay",
+        recorded_at_ns: "not-an-int",
+        event: {
+          event_id: "halo-confidence-001",
+          source_id: "camera:halo_front_camera",
+          source_name: "halo_front_camera",
+          frame_id: "halo_rgb_front",
+          frame_index: 1,
+          timestamp_ns: "10",
+          label: "Possible Survivor",
+          detection_type: "candidate_human_presence",
+          confidence: 0.5,
+          recognition: {
+            baseline_name: "halo_rgb_region_baseline",
+            baseline_version: "0.1.0",
+          },
+        },
+      }),
+    /recorded_at_ns/
   );
 });

@@ -29,6 +29,7 @@ const DEFAULT_OPTIONS: Required<UseHaloDetectionsOptions> = {
   maxDetections: 100,
   maxAgeMs: 10 * 60 * 1000,
 };
+const MAX_HALO_PAYLOAD_STRING_DEPTH = 3;
 
 export function useHaloDetections(
   options: UseHaloDetectionsOptions = {}
@@ -97,7 +98,10 @@ export function useHaloDetections(
   };
 }
 
-function normalizeHaloInboundPayload(rawMessage: ROSLIB.Message): Detection[] {
+export function normalizeHaloInboundPayload(
+  rawMessage: ROSLIB.Message,
+  depth = 0
+): Detection[] {
   const payload = (rawMessage as { data?: unknown }).data ?? rawMessage;
 
   if (typeof payload === 'string') {
@@ -105,10 +109,19 @@ function normalizeHaloInboundPayload(rawMessage: ROSLIB.Message): Detection[] {
     if (!trimmed) {
       return [];
     }
-    if (trimmed.includes('\n')) {
-      return normalizeHaloEvidenceReplayPayload(trimmed);
+    if (depth >= MAX_HALO_PAYLOAD_STRING_DEPTH) {
+      throw new Error('Invalid Halo payload: string nesting depth exceeded');
     }
-    return normalizeHaloInboundPayload(JSON.parse(trimmed) as ROSLIB.Message);
+    let parsed: ROSLIB.Message;
+    try {
+      parsed = JSON.parse(trimmed) as ROSLIB.Message;
+    } catch (error) {
+      if (trimmed.includes('\n')) {
+        return normalizeHaloEvidenceReplayPayload(trimmed);
+      }
+      throw error;
+    }
+    return normalizeHaloInboundPayload(parsed, depth + 1);
   }
 
   if (Array.isArray(payload)) {
